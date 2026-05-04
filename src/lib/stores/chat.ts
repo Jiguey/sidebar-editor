@@ -1,0 +1,236 @@
+import { writable, derived } from "svelte/store";
+
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+  /** Claude extended thinking summary/text when the provider streamed it. */
+  thinking?: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface ToolCall {
+  id: string;
+  tool: string;
+  input: unknown;
+  output?: unknown;
+  status: "pending" | "running" | "completed" | "error";
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  updatedAt: number;
+  /** Set when the session lives in history (last closed time). */
+  closedAt?: number;
+}
+
+export interface ChatState {
+  /** Open working tabs (right strip). */
+  sessions: ChatSession[];
+  /** Closed sessions, sorted by `closedAt` descending after each close. */
+  history: ChatSession[];
+  activeSessionId: string | null;
+  isStreaming: boolean;
+  currentToolCall: ToolCall | null;
+}
+
+const MAX_HISTORY = 80;
+
+function makeSession(title = "New chat"): ChatSession {
+  const id = crypto.randomUUID();
+  return { id, title, messages: [], updatedAt: Date.now() };
+}
+
+function stripClosedAt(s: ChatSession): ChatSession {
+  const { closedAt: _c, ...rest } = s;
+  return { ...rest, updatedAt: Date.now() };
+}
+
+function titleFromFirstAssistantReply(content: string): string {
+  const t = content.trim().replace(/\s+/g, " ");
+  if (!t) return "New chat";
+  return t.length <= 48 ? t : `${t.slice(0, 48)}…`;
+}
+
+function createChatStore() {
+  const first = makeSession();
+  const { subscribe, set, update } = writable<ChatState>({
+    sessions: [first],
+    history: [],
+    activeSessionId: first.id,
+    isStreaming: false,
+    currentToolCall: null,
+  });
+
+  return {
+    subscribe,
+    /** Returns the new session id. */
+    newSession: (): string => {
+      let newId = "";
+      update((s) => {
+        const session = makeSession();
+        newId = session.id;
+        return {
+          ...s,
+          sessions: [session, ...s.sessions],
+          activeSessionId: session.id,
+          isStreaming: false,
+          currentToolCall: null,
+        };
+      });
+      return newId;
+    },
+    setActiveSession: (sessionId: string) => {
+      update((s) => {
+        if (!s.sessions.some((x) => x.id === sessionId)) return s;
+        return {
+          ...s,
+          activeSessionId: sessionId,
+          isStreaming: false,
+          currentToolCall: null,
+        };
+      });
+    },
+    closeSession: (sessionId: string) => {
+      update((s) => {
+        const oldSessions = s.sessions;
+        const idx = oldSessions.findIndex((x) => x.id === sessionId);
+        if (idx < 0) return s;
+
+        const removed = oldSessions[idx];
+        const closed: ChatSession = {
+          ...removed,
+          closedAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        const nextActiveCandidate =
+          oldSessions[idx + 1]?.id ?? oldSessions[idx - 1]?.id ?? null;
+        const sessions = oldSessions.filter((x) => x.id !== sessionId);
+        const history = [closed, ...s.history.filter((h) => h.id !== closed.id)].slice(
+          0,
+          MAX_HISTORY
+        );
+
+        let activeSessionId = s.activeSessionId;
+        if (activeSessionId === sessionId) {
+          activeSessionId = sessions.length === 0 ? null : nextActiveCandidate;
+        }
+
+        const switched = activeSessionId !== s.activeSessionId;
+        return {
+          ...s,
+          sessions,
+          history,
+          activeSessionId,
+          isStreaming: switched ? false : s.isStreaming,
+          currentToolCall: switched ? null : s.currentToolCall,
+        };
+      });
+    },
+    reopenFromHistory: (sessionId: string) => {
+      update((s) => {
+        const hIdx = s.history.findIndex((h) => h.id === sessionId);
+        if (hIdx < 0) return s;
+        const entry = s.history[hIdx];
+        const history = s.history.filter((_, i) => i !== hIdx);
+        const session = stripClosedAt(entry);
+        return {
+          ...s,
+          history,
+          sessions: [session, ...s.sessions.filter((x) => x.id !== session.id)],
+          activeSessionId: session.id,
+          isStreaming: false,
+          currentToolCall: null,
+        };
+      });
+    },
+    addMessage: (message: Omit<Message, "id" | "timestamp">) => {
+      update((s) => {
+        const aid = s.activeSessionId;
+        if (!aid) return s;
+
+        const sessions = s.sessions.map((sess) => {
+          if (sess.id !== aid) return sess;
+          const msg: Message = {
+            ...message,
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+          };
+          const messages = [...sess.messages, msg];
+          let title = sess.title;
+
+          if (message.role === "assistant") {
+            const assistantCount = messages.filter((m) => m.role === "assistant").length;
+            const userCount = messages.filter((m) => m.role === "user").length;
+            if (userCount >= 1 && assistantCount === 1) {
+              title = titleFromFirstAssistantReply(message.content);
+            }
+          }
+
+          return { ...sess, messages, title, updatedAt: Date.now() };
+        });
+        return { ...s, sessions };
+      });
+    },
+    setStreaming: (isStreaming: boolean) => {
+      update((s) => ({ ...s, isStreaming }));
+    },
+    setToolCall: (currentToolCall: ToolCall | null) => {
+      update((s) => ({ ...s, currentToolCall }));
+    },
+    clearActiveSession: () => {
+      update((s) => ({
+        ...s,
+        sessions: s.sessions.map((sess) =>
+          sess.id === s.activeSessionId
+            ? { ...sess, messages: [], title: "New chat", updatedAt: Date.now() }
+            : sess
+        ),
+        isStreaming: false,
+        currentToolCall: null,
+      }));
+    },
+    /** Ensures there is an active tab (e.g. before first message when all tabs were closed). */
+    ensureActiveSession: (): string => {
+      let id = "";
+      update((s) => {
+        if (s.activeSessionId && s.sessions.some((x) => x.id === s.activeSessionId)) {
+          id = s.activeSessionId;
+          return s;
+        }
+        if (s.sessions.length > 0) {
+          id = s.sessions[0].id;
+          return { ...s, activeSessionId: id, isStreaming: false, currentToolCall: null };
+        }
+        const session = makeSession();
+        id = session.id;
+        return {
+          ...s,
+          sessions: [session],
+          activeSessionId: session.id,
+          isStreaming: false,
+          currentToolCall: null,
+        };
+      });
+      return id;
+    },
+  };
+}
+
+export const chat = createChatStore();
+
+export const activeSession = derived(chat, ($c) => {
+  if (!$c.activeSessionId) return null;
+  return $c.sessions.find((s) => s.id === $c.activeSessionId) ?? null;
+});
+
+/** Five most recently closed chats (for empty-state shortcuts). */
+export const recentClosedChats = derived(chat, ($c) =>
+  [...$c.history]
+    .filter((h) => h.closedAt != null)
+    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+    .slice(0, 5)
+);
