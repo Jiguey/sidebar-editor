@@ -2,25 +2,33 @@
   import { get } from "svelte/store";
   import { chat, activeSession } from "$lib/stores/chat";
   import { settings, AVAILABLE_MODELS, type ModelConfig } from "$lib/stores/settings";
-  import { toolPolicy as toolPolicyStore } from "$lib/stores/toolPolicy";
+  import {
+    toolPolicy as toolPolicyStore,
+    effectiveToolPolicy,
+    reloadProjectTools,
+  } from "$lib/stores/toolPolicy";
+  import { currentMode, MODE_CONFIG, type ChatMode } from "$lib/stores/mode";
+  import { systemPrompt } from "$lib/stores/systemPrompt";
   import { files } from "$lib/stores/files";
-  import { estimateChatContextTokens } from "$lib/chatContext";
+  import { countTokens, estimateChatContextTokens } from "$lib/chatContext";
   import {
     fetchOllamaModelList,
     RECOMMENDED_OLLAMA_MODELS,
     pickContextOption,
     contextOptionsUpTo,
   } from "$lib/ollamaClient";
-  import { reduceHarnessStreamDisplay } from "$lib/harnessStreamDisplay";
   import { onMount, onDestroy } from "svelte";
+  import { isTauriAvailable } from "$lib/ipc";
   import {
-    startHarness,
-    sendToHarness,
-    listenHarnessEvents,
-    isTauriAvailable,
-    type HarnessEvent,
-  } from "$lib/ipc";
-  import { Button } from "$lib/components/ui/button/index.js";
+    streamChat as streamChatOpenAI,
+    type Message as ProviderMessage,
+    type StreamEvent,
+  } from "$lib/providers/openaiCompat";
+  import { streamChat as streamChatAnthropic } from "$lib/providers/anthropic";
+  import { getToolsForPolicy, getToolDescription } from "$lib/toolPolicy";
+  import { toolNeedsUserApproval, toolIsDenied } from "$lib/toolPolicy";
+  import { executeTool } from "$lib/tools/toolRunner";
+
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import History from "@lucide/svelte/icons/history";
@@ -28,9 +36,15 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Mic from "@lucide/svelte/icons/mic";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
   import Square from "@lucide/svelte/icons/square";
 
-  /** Narrow surface for `SpeechRecognition` (Chromium) without relying on full DOM lib types. */
+  interface Props {
+    onOpenSettings?: () => void;
+  }
+
+  let { onOpenSettings }: Props = $props();
+
   type BrowserSpeechResultEvent = {
     resultIndex: number;
     results: {
@@ -51,7 +65,6 @@
   };
 
   let inputValue = $state("");
-  /** User bubble expanded to full textarea (draft not persisted yet). */
   let userMessageExpanded = $state<Record<string, boolean>>({});
   let userMessageDraft = $state<Record<string, string>>({});
   let messagesContainer: HTMLDivElement;
@@ -64,31 +77,38 @@
   function collapseUserMessage(id: string) {
     userMessageExpanded = { ...userMessageExpanded, [id]: false };
   }
-  let sidecarSpawned = $state(false);
-  let unlisten: (() => void) | null = null;
+
   let streamingContent = $state("");
-  /** Claude extended thinking (streams via sidecar `thinking` events). */
   let streamingThinking = $state("");
   let thinkingPanelEl = $state<HTMLDivElement | undefined>(undefined);
-  /** Wall-clock start of current assistant stream (first RPC token may arrive later). */
   let streamWallStartMs = 0;
-  /** First assistant/thinking delta timestamp — preferred for tok/s. */
   let streamFirstTokenAt = 0;
-  /** Rolling average output tokens/sec from the last completed reply (usage-based). */
   let lastTokPerSec = $state<number | null>(null);
-  /** Per-reply output tok/s samples for the active chat (from `usage` events), capped for a simple session average. */
-  const SESSION_TOK_RATE_SAMPLES_MAX = 32;
-  let sessionTokRateSamples = $state<number[]>([]);
+  type LastReplyMetrics = {
+    outputTokens: number;
+    durationSec: number;
+    tokPerSec: number;
+  };
+  let lastReplyMetrics = $state<LastReplyMetrics | null>(null);
+  let usageRecordedForStream = false;
   let prevActiveSessionForTok = $state<string | null>(null);
+
   let pendingToolApproval = $state<{ id: string; tool: string; input: unknown } | null>(null);
+  let toolApprovalMenuOpen = $state(false);
+  let toolApprovalMenuAnchorEl: HTMLDivElement | undefined = $state();
+  type ToolApprovalDecision = "allow" | "deny" | "allow_always";
+  let toolApprovalChoice = $state<ToolApprovalDecision>("allow");
+  let abortController: AbortController | null = null;
+
   let modelMenuOpen = $state(false);
   let modelMenuAnchorEl: HTMLDivElement | undefined = $state();
+  let modeMenuOpen = $state(false);
+  let modeMenuAnchorEl: HTMLDivElement | undefined = $state();
   let contextBudgetMenuOpen = $state(false);
   let contextBudgetMenuEl: HTMLDivElement | undefined = $state();
   let attachInputEl = $state<HTMLInputElement | undefined>(undefined);
   let speechListening = $state(false);
   let speechRec: BrowserSpeechRec | null = null;
-  /** First successful `/api/tags` this session vs unreachable host. */
   let ollamaCatalogStatus = $state<"idle" | "ok" | "fail">("idle");
 
   type OllamaMenuRow = { id: string; name: string };
@@ -99,7 +119,9 @@
       .map((m) => ({ id: m.id, name: m.name }));
   }
 
-  let ollamaMenuRows = $derived(buildOllamaMenuRows($settings.ollamaModels));
+  let ollamaMenuRows = $derived.by(() => {
+    return buildOllamaMenuRows($settings.ollamaModels);
+  });
 
   let anthropicMenuRows = $derived(
     AVAILABLE_MODELS.filter((m) => m.provider === "anthropic").map((m) => ({
@@ -114,7 +136,6 @@
         $settings.ollamaModels.some((m) => m.id === $settings.selectedModel))
   );
 
-  /** User-selected `num_ctx` cap (saved row, else recommended defaults). */
   function effectiveOllamaContextWindow(selectedId: string, models: ModelConfig[]): number {
     const row = models.find((m) => m.id === selectedId);
     if (row) return row.contextWindow;
@@ -205,23 +226,48 @@
     return r.toFixed(2);
   }
 
-  let chatAvgTokPerSec = $derived(() => {
-    const xs = sessionTokRateSamples;
-    if (xs.length === 0) return null;
-    return xs.reduce((a, b) => a + b, 0) / xs.length;
-  });
+  function formatDuration(sec: number): string {
+    if (sec < 1) return `${Math.max(1, Math.round(sec * 1000))}ms`;
+    if (sec < 10) return `${sec.toFixed(1)}s`;
+    return `${Math.round(sec)}s`;
+  }
 
-  function chatAvgTokFooterLabel(): string {
-    const v = chatAvgTokPerSec();
-    if (v == null) return "— tok/s avg";
-    return `${formatTokRate(v)} tok/s avg`;
+  function clearStreamTiming() {
+    streamFirstTokenAt = 0;
+    streamWallStartMs = 0;
+  }
+
+  function recordLastReplyMetrics(outputTokens: number) {
+    const t0 = streamFirstTokenAt || streamWallStartMs;
+    if (t0 <= 0 || outputTokens <= 0) return;
+    const durationSec = (performance.now() - t0) / 1000;
+    if (durationSec <= 0.05) return;
+    const tokPerSec = outputTokens / durationSec;
+    lastTokPerSec = tokPerSec;
+    lastReplyMetrics = { outputTokens, durationSec, tokPerSec };
+    clearStreamTiming();
+  }
+
+  function deferFinalizeReplyMetrics(content: string) {
+    queueMicrotask(() => {
+      if (usageRecordedForStream) return;
+      usageRecordedForStream = true;
+      recordLastReplyMetrics(countTokens(content));
+    });
+  }
+
+  function lastReplyFooterLabel(): string {
+    const m = lastReplyMetrics;
+    if (!m) return "— tok/s · — tok · —";
+    return `${formatTokRate(m.tokPerSec)} tok/s · ${formatTok(m.outputTokens)} tok · ${formatDuration(m.durationSec)}`;
   }
 
   $effect(() => {
     const sid = $chat.activeSessionId;
     if (sid !== prevActiveSessionForTok) {
       prevActiveSessionForTok = sid;
-      sessionTokRateSamples = [];
+      lastReplyMetrics = null;
+      lastTokPerSec = null;
     }
   });
 
@@ -238,17 +284,22 @@
 
   onMount(async () => {
     void refreshOllamaModelsFromHost();
-    if (!isTauriAvailable()) return;
-    try {
-      unlisten = await listenHarnessEvents(handleHarnessEvent);
-    } catch (e) {
-      console.warn("Harness event listener unavailable:", e);
+    if (isTauriAvailable() && $files.workspacePath) {
+      await systemPrompt.load($files.workspacePath);
+      await reloadProjectTools($files.workspacePath);
+    }
+  });
+
+  $effect(() => {
+    const ws = $files.workspacePath;
+    if (ws && isTauriAvailable()) {
+      void reloadProjectTools(ws);
     }
   });
 
   onDestroy(() => {
-    if (unlisten) unlisten();
     stopDictation();
+    abortController?.abort();
   });
 
   $effect(() => {
@@ -257,12 +308,26 @@
 
   function toggleModelMenu() {
     modelMenuOpen = !modelMenuOpen;
-    if (modelMenuOpen) contextBudgetMenuOpen = false;
+    if (modelMenuOpen) {
+      contextBudgetMenuOpen = false;
+      modeMenuOpen = false;
+    }
+  }
+
+  function toggleModeMenu() {
+    modeMenuOpen = !modeMenuOpen;
+    if (modeMenuOpen) {
+      modelMenuOpen = false;
+      contextBudgetMenuOpen = false;
+    }
   }
 
   function toggleContextBudgetMenu() {
     contextBudgetMenuOpen = !contextBudgetMenuOpen;
-    if (contextBudgetMenuOpen) modelMenuOpen = false;
+    if (contextBudgetMenuOpen) {
+      modelMenuOpen = false;
+      modeMenuOpen = false;
+    }
   }
 
   function pickContextBudgetOption(opt: number) {
@@ -295,8 +360,14 @@
     if (modelMenuOpen && modelMenuAnchorEl && !modelMenuAnchorEl.contains(t)) {
       modelMenuOpen = false;
     }
+    if (modeMenuOpen && modeMenuAnchorEl && !modeMenuAnchorEl.contains(t)) {
+      modeMenuOpen = false;
+    }
     if (contextBudgetMenuOpen && contextBudgetMenuEl && !contextBudgetMenuEl.contains(t)) {
       contextBudgetMenuOpen = false;
+    }
+    if (toolApprovalMenuOpen && toolApprovalMenuAnchorEl && !toolApprovalMenuAnchorEl.contains(t)) {
+      toolApprovalMenuOpen = false;
     }
   }
 
@@ -409,177 +480,224 @@
     if (!streamFirstTokenAt) streamFirstTokenAt = performance.now();
   }
 
-  function handleHarnessEvent(event: HarnessEvent) {
-    const { event: eventType, data } = event;
+  function buildSystemPrompt(): string {
+    const modeConfig = MODE_CONFIG[$currentMode];
+    const basePrompt = modeConfig.basePrompt;
+    const userPrompt = $systemPrompt;
 
-    if (eventType === "ready") {
-      return;
+    if (userPrompt.trim()) {
+      return `${basePrompt}\n\n--- Custom Instructions ---\n${userPrompt}`;
     }
+    return basePrompt;
+  }
 
-    if (eventType === "started") {
-      const d = data as { piPackageVersion?: string };
-      if (d.piPackageVersion) {
-        settings.setLastBundledPiSdkVersion(d.piPackageVersion);
+  async function executeToolCallsWithApproval(
+    toolCalls: StoredToolCall[],
+    policy: ToolPolicyState,
+    workspacePath: string,
+    webFetchAllowedHosts: string[]
+  ): Promise<Array<{ id: string; name: string; content: string }>> {
+    const results: Array<{ id: string; name: string; content: string }> = [];
+
+    for (const tc of toolCalls) {
+      let args: Record<string, unknown>;
+      try {
+        args = JSON.parse(tc.arguments);
+      } catch {
+        args = {};
       }
-      return;
-    }
 
-    if (eventType === "usage") {
-      const u = data as { inputTokens?: number; outputTokens?: number };
-      const outTok = u.outputTokens ?? 0;
-      const t0 = streamFirstTokenAt || streamWallStartMs;
-      if (t0 > 0 && outTok > 0) {
-        const elapsedSec = (performance.now() - t0) / 1000;
-        if (elapsedSec > 0.05) {
-          const rate = outTok / elapsedSec;
-          lastTokPerSec = rate;
-          sessionTokRateSamples = [...sessionTokRateSamples, rate].slice(-SESSION_TOK_RATE_SAMPLES_MAX);
+      if (toolIsDenied(policy, tc.name)) {
+        results.push({
+          id: tc.id,
+          name: tc.name,
+          content: `Error: Tool "${tc.name}" is blocked by policy (deny).`,
+        });
+        continue;
+      }
+
+      if (toolNeedsUserApproval(policy, tc.name)) {
+        toolApprovalChoice = "allow";
+        toolApprovalMenuOpen = false;
+        pendingToolApproval = { id: tc.id, tool: tc.name, input: args };
+        const approved = await waitForToolApproval();
+        pendingToolApproval = null;
+
+        if (!approved) {
+          results.push({
+            id: tc.id,
+            name: tc.name,
+            content: `Error: Tool call "${tc.name}" was denied by user.`,
+          });
+          continue;
         }
       }
-      return;
-    }
 
-    if (eventType === "tool_decision" || eventType === "tool_start" || eventType === "tool_end") {
-      pendingToolApproval = null;
-    }
-
-    if (eventType === "tool_approval_needed") {
-      const d = data as { id?: string; tool?: string; input?: unknown };
-      if (d.id && d.tool) {
-        pendingToolApproval = { id: d.id, tool: d.tool, input: d.input };
-      }
-      return;
-    }
-
-    if (eventType === "stopped") {
-      pendingToolApproval = null;
-      streamingContent = "";
-      streamingThinking = "";
-      streamFirstTokenAt = 0;
-      streamWallStartMs = 0;
-      chat.setStreaming(false);
-      return;
-    }
-
-    if (eventType === "thinking") {
-      const act = reduceHarnessStreamDisplay(
-        { streamingContent, streamingThinking },
-        eventType,
-        data
-      );
-      if (act.kind === "set-stream") {
-        streamingThinking = act.view.streamingThinking;
-        if (streamingThinking.length > 0) markFirstStreamToken();
-      }
-      return;
-    }
-
-    if (eventType === "error") {
-      const act = reduceHarnessStreamDisplay(
-        { streamingContent, streamingThinking },
-        eventType,
-        data
-      );
-      if (act.kind === "error-assistant") {
-        pendingToolApproval = null;
-        chat.addMessage({ role: "assistant", content: `Error: ${act.message}` });
-        chat.setStreaming(false);
-        streamingThinking = "";
-        streamFirstTokenAt = 0;
-        streamWallStartMs = 0;
-      }
-      return;
-    }
-
-    if (eventType === "message") {
-      const act = reduceHarnessStreamDisplay(
-        { streamingContent, streamingThinking },
-        eventType,
-        data
-      );
-      if (act.kind === "set-stream") {
-        streamingContent = act.view.streamingContent;
-        if (streamingContent.length > 0) markFirstStreamToken();
-      } else if (act.kind === "commit-assistant") {
-        streamingContent = act.view.streamingContent;
-        streamingThinking = act.view.streamingThinking;
-        chat.addMessage({
-          role: "assistant",
-          content: act.content,
-          ...(act.thinking ? { thinking: act.thinking } : {}),
-        });
-        chat.setStreaming(false);
-        streamFirstTokenAt = 0;
-        streamWallStartMs = 0;
-      }
-    }
-
-    if (eventType === "tool_start") {
-      const toolData = data as { id: string; tool: string; input: unknown };
       chat.setToolCall({
-        id: toolData.id,
-        tool: toolData.tool,
-        input: toolData.input,
+        id: tc.id,
+        tool: tc.name,
+        input: args,
         status: "running",
       });
-    }
 
-    if (eventType === "tool_end") {
+      const result = await executeTool(tc.name, args, workspacePath, {
+        webFetchAllowedHosts,
+      });
       chat.setToolCall(null);
+
+      results.push({
+        id: tc.id,
+        name: tc.name,
+        content: result.success ? result.output : `Error: ${result.output}`,
+      });
     }
+
+    return results;
   }
 
-  async function ensureSidecarAndConfigure(): Promise<void> {
+  async function runAgentLoop() {
+    const st = get(settings);
+    const mode = get(currentMode);
+    const modeConfig = MODE_CONFIG[mode];
+    const policyState = get(effectiveToolPolicy);
+    const tools = getToolsForPolicy(policyState, modeConfig.tools);
+    const systemPromptText = buildSystemPrompt();
+    const workspacePath = get(files).workspacePath ?? "/";
+    const history = get(activeSession)?.messages ?? [];
+
+    let providerMessages = buildProviderMessages(systemPromptText, history);
+    abortController = new AbortController();
+
     try {
-      if (!sidecarSpawned) {
-        await startHarness();
-        sidecarSpawned = true;
+      for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+        streamingContent = "";
+
+        const turn = await streamOneTurn({
+          backend: st.chatBackend,
+          apiKey: st.apiKeys.anthropic,
+          baseUrl: st.chatBackend === "ollama" ? st.ollamaEndpoint : st.llamacppEndpoint,
+          model: st.selectedModel,
+          systemPrompt: systemPromptText,
+          messages: providerMessages,
+          tools: tools.length > 0 ? tools : undefined,
+          extendedThinking: st.anthropicExtendedThinking,
+          signal: abortController.signal,
+          onDelta: (content) => {
+            streamingContent = content;
+            markFirstStreamToken();
+          },
+        });
+
+        if (turn.usage) {
+          usageRecordedForStream = true;
+          recordLastReplyMetrics(turn.usage.completion_tokens);
+        }
+
+        if (turn.toolCalls.length === 0) {
+          chat.addMessage({ role: "assistant", content: turn.content });
+          deferFinalizeReplyMetrics(turn.content);
+          break;
+        }
+
+        chat.addMessage({
+          role: "assistant",
+          content: turn.content,
+          rawToolCalls: turn.toolCalls,
+        });
+
+        providerMessages = appendAssistantToolCalls(
+          providerMessages,
+          turn.content,
+          turn.toolCalls
+        );
+
+        const toolResults = await executeToolCallsWithApproval(
+          turn.toolCalls,
+          policyState,
+          workspacePath,
+          st.webFetchAllowedHosts
+        );
+
+        for (const r of toolResults) {
+          chat.addMessage({
+            role: "tool",
+            content: r.content,
+            toolCallId: r.id,
+            toolName: r.name,
+          });
+        }
+
+        providerMessages = appendToolResults(providerMessages, toolResults);
+
+        if (step === MAX_AGENT_STEPS - 1) {
+          chat.addMessage({
+            role: "assistant",
+            content: "Stopped: maximum agent steps reached for this turn.",
+          });
+        }
       }
-      const provider =
-        $settings.chatBackend === "ollama"
-          ? "ollama"
-          : $settings.chatBackend === "llamacpp"
-            ? "llamacpp"
-            : "anthropic";
-      await sendToHarness("start", {
-        harnessKind: $settings.harnessKind,
-        model: $settings.selectedModel,
-        provider,
-        apiKey: provider === "anthropic" ? $settings.apiKeys.anthropic : undefined,
-        anthropicExtendedThinking: $settings.anthropicExtendedThinking,
-        ollamaEndpoint: $settings.ollamaEndpoint,
-        ollamaNumCtx:
-          provider === "ollama"
-            ? effectiveOllamaContextWindow($settings.selectedModel, $settings.ollamaModels)
-            : undefined,
-        llamacppEndpoint: $settings.llamacppEndpoint,
-        llamacppApiKey: $settings.llamacppApiKey,
-        workspacePath: $files.workspacePath ?? "/",
-        toolPolicy: {
-          mode: $toolPolicyStore.mode,
-          whitelist: $toolPolicyStore.whitelist,
-        },
-      });
     } catch (e) {
-      console.error("Failed to configure harness:", e);
-      chat.addMessage({
-        role: "assistant",
-        content: `Failed to configure harness: ${e}`,
-      });
-      throw e;
+      const err = e as Error;
+      if (err.name !== "AbortError") {
+        chat.addMessage({ role: "assistant", content: `Error: ${err.message}` });
+      }
+    } finally {
+      streamingContent = "";
+      streamingThinking = "";
+      chat.setStreaming(false);
+      abortController = null;
     }
   }
 
-  async function submitToolDecision(approved: boolean) {
-    const p = pendingToolApproval;
-    if (!p) return;
-    pendingToolApproval = null;
-    try {
-      await sendToHarness("approve_tool", { callId: p.id, approved });
-    } catch (e) {
-      console.error(e);
-    }
+  let toolApprovalResolve: ((approved: boolean) => void) | null = null;
+
+  function waitForToolApproval(): Promise<boolean> {
+    return new Promise((resolve) => {
+      toolApprovalResolve = resolve;
+    });
   }
+
+  function submitToolDecision(approved: boolean) {
+    if (toolApprovalResolve) {
+      toolApprovalResolve(approved);
+      toolApprovalResolve = null;
+    }
+    pendingToolApproval = null;
+    toolApprovalMenuOpen = false;
+  }
+
+  function toggleToolApprovalMenu() {
+    toolApprovalMenuOpen = !toolApprovalMenuOpen;
+  }
+
+  function pickToolApprovalChoice(choice: Exclude<ToolApprovalDecision, "deny">) {
+    if (!pendingToolApproval) return;
+    toolApprovalChoice = choice;
+    toolApprovalMenuOpen = false;
+    if (choice === "allow_always") {
+      toolPolicyStore.setToolRule(pendingToolApproval.tool, "allow");
+    }
+    submitToolDecision(true);
+  }
+
+  function denyToolApproval() {
+    submitToolDecision(false);
+  }
+
+  let pendingToolApprovalTitle = $derived.by(() => {
+    if (!pendingToolApproval) return "";
+    const desc = getToolDescription(get(effectiveToolPolicy), pendingToolApproval.tool);
+    const input = pendingToolApproval.input;
+    let argsBlock = "";
+    if (input && typeof input === "object" && Object.keys(input as object).length > 0) {
+      try {
+        argsBlock = `\n\n${JSON.stringify(input, null, 2)}`;
+      } catch {
+        argsBlock = `\n\n${String(input)}`;
+      }
+    }
+    return `${pendingToolApproval.tool}\n${desc}${argsBlock}`;
+  });
 
   function pickOllamaModel(modelId: string) {
     settings.setSelectedModel(modelId);
@@ -599,19 +717,22 @@
     modelMenuOpen = false;
   }
 
+  function pickMode(mode: ChatMode) {
+    currentMode.setMode(mode);
+    modeMenuOpen = false;
+  }
+
   async function cancelChatRequest() {
-    if (!isTauriAvailable() || !$chat.isStreaming) return;
-    pendingToolApproval = null;
+    if (!$chat.isStreaming) return;
+    abortController?.abort();
+    if (pendingToolApproval) {
+      submitToolDecision(false);
+    }
     streamingContent = "";
     streamingThinking = "";
-    streamFirstTokenAt = 0;
-    streamWallStartMs = 0;
+    usageRecordedForStream = false;
+    clearStreamTiming();
     chat.setStreaming(false);
-    try {
-      await sendToHarness("stop", {});
-    } catch (e) {
-      console.error("Cancel failed:", e);
-    }
   }
 
   async function handleSubmit(e: Event) {
@@ -625,14 +746,6 @@
 
     chat.addMessage({ role: "user", content: message });
 
-    if (!isTauriAvailable()) {
-      chat.addMessage({
-        role: "assistant",
-        content: "Run with `npm run tauri dev` to enable chat.",
-      });
-      return;
-    }
-
     if ($settings.chatBackend === "ollama" && !ollamaChatReady) {
       chat.addMessage({
         role: "assistant",
@@ -644,29 +757,13 @@
       return;
     }
 
-    const history = ($activeSession?.messages ?? [])
-      .slice(0, -1)
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
     streamingThinking = "";
+    usageRecordedForStream = false;
     streamWallStartMs = performance.now();
     streamFirstTokenAt = 0;
     chat.setStreaming(true);
 
-    try {
-      await ensureSidecarAndConfigure();
-      await sendToHarness("chat", { message, history });
-    } catch (e) {
-      console.error("Failed to send message:", e);
-      chat.addMessage({
-        role: "assistant",
-        content: `Failed to send message: ${e}`,
-      });
-      chat.setStreaming(false);
-      streamingThinking = "";
-      streamFirstTokenAt = 0;
-      streamWallStartMs = 0;
-    }
+    await runAgentLoop();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -706,19 +803,6 @@
 <svelte:window onpointerdown={onDocPointerDown} />
 
 <div class="chat-pane">
-  {#if pendingToolApproval}
-    <div class="approval-banner" role="alert">
-      <div class="approval-text">
-        <strong>{pendingToolApproval.tool}</strong>
-        <span class="approval-sub">Allow this tool for the current request?</span>
-      </div>
-      <div class="approval-actions">
-        <Button variant="outline" size="sm" onclick={() => submitToolDecision(false)}>Deny</Button>
-        <Button variant="default" size="sm" onclick={() => submitToolDecision(true)}>Allow</Button>
-      </div>
-    </div>
-  {/if}
-
   <div class="messages" bind:this={messagesContainer}>
     <button
       type="button"
@@ -807,6 +891,11 @@
                 {message.content}
               </button>
             {/if}
+          {:else if message.role === "tool"}
+            <div class="tool-result-block">
+              <span class="tool-name">{message.toolName ?? "tool"}</span>
+              <pre class="message-content tool-result">{message.content}</pre>
+            </div>
           {:else}
             <div class="message-content">
               {message.content}
@@ -875,6 +964,57 @@
   </div>
 
   {#if !$chat.historyPickerOpen}
+  {#if pendingToolApproval}
+    <div class="tool-approval-slot" role="dialog" aria-label="Tool approval">
+      <div class="composer-shell tool-approval-shell">
+        <div class="tool-approval-row">
+          <span class="tool-approval-name" title={pendingToolApprovalTitle}>
+            {pendingToolApproval.tool}
+          </span>
+          <div class="tool-approval-actions">
+            <button type="button" class="tool-approval-deny-btn" onclick={denyToolApproval}>
+              Deny
+            </button>
+            <div class="composer-model-wrap tool-approval-allow-wrap" bind:this={toolApprovalMenuAnchorEl}>
+              <div class="tool-approval-allow-split">
+                <button
+                  type="button"
+                  class="tool-approval-allow-main"
+                  onclick={() => pickToolApprovalChoice("allow")}
+                  title="Allow once"
+                >
+                  Allow
+                </button>
+                <button
+                  type="button"
+                  class="tool-approval-allow-caret"
+                  onclick={toggleToolApprovalMenu}
+                  aria-expanded={toolApprovalMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label="More allow options"
+                  title="Allow options"
+                >
+                  <ChevronDown aria-hidden="true" />
+                </button>
+              </div>
+              {#if toolApprovalMenuOpen}
+                <div class="model-popup tool-approval-popup" role="listbox" aria-label="Allow options">
+                  <button
+                    type="button"
+                    role="option"
+                    class="model-popup-option"
+                    onclick={() => pickToolApprovalChoice("allow_always")}
+                  >
+                    Allow always
+                  </button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
   <form class="input-area composer-form" onsubmit={handleSubmit}>
     <div class="composer-shell">
       <textarea
@@ -885,6 +1025,36 @@
         onkeydown={handleKeydown}
       ></textarea>
       <div class="composer-toolbar">
+        <div class="composer-mode-wrap" bind:this={modeMenuAnchorEl}>
+          <button
+            type="button"
+            class="composer-mode-btn"
+            onclick={toggleModeMenu}
+            aria-expanded={modeMenuOpen}
+            aria-haspopup="listbox"
+            title="Choose mode"
+          >
+            <span class="composer-mode-label">{MODE_CONFIG[$currentMode].label}</span>
+            <ChevronDown aria-hidden="true" />
+          </button>
+          {#if modeMenuOpen}
+            <div class="mode-popup" role="listbox" aria-label="Choose mode">
+              {#each (["chat", "plan", "agent"] as ChatMode[]) as mode (mode)}
+                <button
+                  type="button"
+                  role="option"
+                  class="mode-popup-option"
+                  class:mode-popup-option--current={$currentMode === mode}
+                  aria-selected={$currentMode === mode}
+                  onclick={() => pickMode(mode)}
+                >
+                  <span class="mode-option-label">{MODE_CONFIG[mode].label}</span>
+                  <span class="mode-option-desc">{MODE_CONFIG[mode].description}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
         <div class="composer-model-wrap" bind:this={modelMenuAnchorEl}>
           <button
             type="button"
@@ -902,15 +1072,29 @@
               <div class="model-popup-section">
                 <div class="model-popup-section-head">
                   <span>Ollama</span>
-                  <button
-                    type="button"
-                    class="model-popup-refresh"
-                    onclick={() => refreshOllamaModelsFromHost()}
-                    title="Refresh Ollama models"
-                    aria-label="Refresh Ollama models"
-                  >
-                    <RefreshCw aria-hidden="true" />
-                  </button>
+                  <div class="model-popup-actions">
+                    <button
+                      type="button"
+                      class="model-popup-action-btn"
+                      onclick={() => refreshOllamaModelsFromHost()}
+                      title="Refresh Ollama models"
+                      aria-label="Refresh Ollama models"
+                    >
+                      <RefreshCw aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      class="model-popup-action-btn"
+                      onclick={() => {
+                        modelMenuOpen = false;
+                        onOpenSettings?.();
+                      }}
+                      title="Provider settings"
+                      aria-label="Provider settings"
+                    >
+                      <SettingsIcon aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
                 {#each ollamaMenuRows as row (row.id)}
                   <button
@@ -1045,10 +1229,10 @@
     <div class="context-meta">
       <span
         class="context-chat-tok"
-        title="Average output tokens/sec across completed replies in this chat (from provider usage)"
-        aria-label="Average output tokens per second for this chat, from usage on completed replies"
+        title="Output speed, token count, and duration for the last completed reply"
+        aria-label="Last reply: tokens per second, output tokens, and completion time"
       >
-        {chatAvgTokFooterLabel()}
+        {lastReplyFooterLabel()}
       </span>
       <div class="context-budget-wrap" bind:this={contextBudgetMenuEl}>
         <button
@@ -1090,56 +1274,123 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    min-width: 0;
+    overflow-x: hidden;
   }
 
-  .approval-banner {
+  .tool-approval-slot {
+    flex-shrink: 0;
+    padding: 0 10px 6px;
+    position: relative;
+    overflow: visible;
+  }
+
+  .tool-approval-shell {
+    border-color: #007acc;
+  }
+
+  .tool-approval-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 12px;
-    background: #3a2f1a;
-    border-bottom: 1px solid #8b6914;
-    flex-shrink: 0;
-  }
-
-  .approval-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #e0e0e0;
-    min-width: 0;
-  }
-
-  .approval-sub {
-    color: #b0b0b0;
-    font-weight: 400;
-  }
-
-  .approval-actions {
-    display: flex;
     gap: 8px;
+    padding: 6px 8px;
+    min-height: 30px;
+  }
+
+  .tool-approval-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #d4d4d4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tool-approval-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     flex-shrink: 0;
   }
 
-  .approval-actions .btn {
-    padding: 6px 12px;
-    font-size: 12px;
+  .tool-approval-deny-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border: none;
     border-radius: 6px;
+    background: rgba(244, 135, 113, 0.15);
+    color: #f48771;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
     cursor: pointer;
-    border: 1px solid transparent;
+    white-space: nowrap;
   }
 
-  .approval-actions .btn.allow {
-    background: #0e639c;
-    color: #fff;
+  .tool-approval-deny-btn:hover {
+    background: rgba(244, 135, 113, 0.28);
   }
 
-  .approval-actions .btn.deny {
-    background: #3c3c3c;
-    color: #ddd;
-    border-color: #555;
+  .tool-approval-allow-wrap {
+    max-width: none;
+  }
+
+  .tool-approval-allow-split {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(78, 201, 176, 0.15);
+  }
+
+  .tool-approval-allow-main,
+  .tool-approval-allow-caret {
+    display: inline-flex;
+    align-items: center;
+    border: none;
+    background: transparent;
+    color: #4ec9b0;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+  }
+
+  .tool-approval-allow-main {
+    padding: 3px 10px 3px 8px;
+    white-space: nowrap;
+  }
+
+  .tool-approval-allow-main:hover {
+    background: rgba(78, 201, 176, 0.22);
+    color: #6dd4bf;
+  }
+
+  .tool-approval-allow-caret {
+    padding: 3px 6px;
+    border-left: 1px solid rgba(78, 201, 176, 0.35);
+  }
+
+  .tool-approval-allow-caret:hover {
+    background: rgba(78, 201, 176, 0.28);
+    color: #6dd4bf;
+  }
+
+  .tool-approval-allow-caret :global(svg) {
+    width: 11px;
+    height: 11px;
+  }
+
+  .tool-approval-popup {
+    bottom: calc(100% + 6px);
+    top: auto;
+    right: 0;
+    left: auto;
+    min-width: 140px;
   }
 
   .messages {
@@ -1147,9 +1398,11 @@
     display: flex;
     flex-direction: column;
     flex: 1;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 16px;
     min-height: 0;
+    min-width: 0;
     align-items: stretch;
   }
 
@@ -1308,6 +1561,9 @@
     position: relative;
     margin-bottom: 8px;
     border-radius: 6px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .message.user {
@@ -1424,7 +1680,11 @@
   }
 
   .message-content {
+    display: block;
+    max-width: 100%;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .tool-call {
@@ -1434,12 +1694,35 @@
     border-radius: 4px;
     display: flex;
     justify-content: space-between;
+    gap: 8px;
     font-size: 10px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tool-result-block {
+    margin-top: 4px;
+    padding: 8px;
+    background: var(--background);
+    border-radius: 4px;
+    border-left: 2px solid #4ec9b0;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tool-result {
+    margin-top: 6px;
+    font-size: 11px;
+    max-height: 240px;
+    overflow: auto;
   }
 
   .tool-name {
     font-family: monospace;
     color: #4ec9b0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .tool-status {
@@ -1484,6 +1767,9 @@
     border: 1px solid #3c3c3c;
     background: #1e1e1e;
     font-size: 12px;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .thinking-archive-summary {
@@ -1502,11 +1788,13 @@
     margin: 0;
     padding: 0 10px 10px;
     max-height: 160px;
+    overflow-x: hidden;
     overflow-y: auto;
     font-size: 11px;
     line-height: 1.45;
     color: #a0a0a0;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     word-break: break-word;
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
@@ -1559,17 +1847,16 @@
     border-radius: 8px;
     border: 1px solid transparent;
     background: #2d2d30;
-    /* allow model popup to extend above the shell (same as former context menu) */
     overflow: visible;
   }
 
-  /** Default Lucide size in composer; tool row overrides below. */
   .composer-shell :global(svg) {
     width: 12px;
     height: 12px;
     flex-shrink: 0;
   }
 
+  .composer-mode-btn :global(svg),
   .composer-model-btn :global(svg) {
     width: 11px;
     height: 11px;
@@ -1618,6 +1905,83 @@
     gap: 3px;
     padding: 5px 6px 7px;
     min-height: 0;
+  }
+
+  .composer-mode-wrap {
+    position: relative;
+    align-self: center;
+    flex-shrink: 0;
+  }
+
+  .composer-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px 3px 6px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(78, 201, 176, 0.15);
+    color: #4ec9b0;
+    font-size: 11px;
+    line-height: 1.2;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .composer-mode-btn:hover {
+    background: rgba(78, 201, 176, 0.25);
+  }
+
+  .composer-mode-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mode-popup {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 6px);
+    z-index: 60;
+    min-width: 180px;
+    max-width: 240px;
+    padding: 4px 0;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .mode-popup-option {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: #d4d4d4;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mode-popup-option:hover {
+    background: #2a2d2e;
+  }
+
+  .mode-popup-option--current {
+    background: #1a3a52;
+  }
+
+  .mode-option-label {
+    font-weight: 500;
+  }
+
+  .mode-option-desc {
+    font-size: 10px;
+    color: #858585;
   }
 
   .composer-model-wrap {
@@ -1738,10 +2102,6 @@
     cursor: not-allowed;
   }
 
-  /**
-   * Anchored model list — same visual language as the former context-budget popup
-   * (absolute panel, #252526, 1px border, soft shadow, monospace-ish rows).
-   */
   .model-popup {
     position: absolute;
     left: 0;
@@ -1776,7 +2136,13 @@
     color: #888;
   }
 
-  .model-popup-refresh {
+  .model-popup-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .model-popup-action-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1790,12 +2156,12 @@
     cursor: pointer;
   }
 
-  .model-popup-refresh:hover {
+  .model-popup-action-btn:hover {
     background: rgba(55, 148, 255, 0.12);
     color: #5cb3ff;
   }
 
-  .model-popup-refresh :global(svg) {
+  .model-popup-action-btn :global(svg) {
     width: 12px;
     height: 12px;
   }

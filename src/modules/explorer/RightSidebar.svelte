@@ -1,10 +1,12 @@
 <script lang="ts">
   import FileTree from "./FileTree.svelte";
-  import SourceControl from "./SourceControl.svelte";
+  import GitPanel from "./GitPanel.svelte";
+  import PromptPanel from "./PromptPanel.svelte";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import GitBranch from "@lucide/svelte/icons/git-branch";
+  import ScrollText from "@lucide/svelte/icons/scroll-text";
 
-  type Tab = "files" | "source-control";
+  type Tab = "files" | "git" | "prompt";
   let activeTab = $state<Tab>("files");
 
   let {
@@ -20,7 +22,8 @@
 
   const tabs: { id: Tab; title: string }[] = [
     { id: "files", title: "Explorer" },
-    { id: "source-control", title: "Source Control" },
+    { id: "git", title: "Git" },
+    { id: "prompt", title: "System Prompt" },
   ];
 
   function onIconClick(tab: Tab) {
@@ -45,8 +48,10 @@
       <div class="content-body">
         {#if activeTab === "files"}
           <FileTree />
-        {:else if activeTab === "source-control"}
-          <SourceControl />
+        {:else if activeTab === "git"}
+          <GitPanel />
+        {:else if activeTab === "prompt"}
+          <PromptPanel />
         {/if}
       </div>
     </div>
@@ -65,8 +70,10 @@
       >
         {#if tab.id === "files"}
           <FolderTree class="acc-icon" aria-hidden="true" />
-        {:else}
+        {:else if tab.id === "git"}
           <GitBranch class="acc-icon" aria-hidden="true" />
+        {:else if tab.id === "prompt"}
+          <ScrollText class="acc-icon" aria-hidden="true" />
         {/if}
       </button>
     {/each}
@@ -118,59 +125,42 @@
     max-width: 34px;
     box-sizing: border-box;
     background: var(--activity-bar-bg);
-    padding: 4px 0;
-    gap: 2px;
+    border-left: 1px solid var(--activity-bar-border);
   }
 
   .icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    margin: 0 auto;
+    width: 100%;
+    height: 40px;
     padding: 0;
     border: none;
-    border-radius: 4px;
     background: transparent;
+    color: var(--activity-bar-inactive);
     cursor: pointer;
-    flex-shrink: 0;
   }
 
-  .icon-btn :global(.acc-icon) {
-    display: flex;
-    color: var(--activity-bar-fg);
+  .icon-btn:hover {
+    color: var(--activity-bar-foreground);
+    background: var(--activity-bar-hover-bg);
   }
 
-  .icon-btn :global(svg) {
-    width: 15px;
-    height: 15px;
-  }
-
-  .icon-btn:hover :global(.acc-icon) {
+  .icon-btn.active {
     color: var(--activity-bar-active);
-  }
-
-  .icon-btn.active :global(.acc-icon) {
-    color: #ffffff;
-  }
-
-  .icon-btn:focus-visible {
-    outline: 1px solid var(--ring);
-    outline-offset: -2px;
+    border-left: 2px solid var(--activity-bar-active-border);
   }
 
   .content-body {
     flex: 1;
-    overflow: auto;
     min-height: 0;
-    border: none;
-    outline: none;
-    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
-  .content-body :global(.file-tree) {
-    width: 100%;
-    border-right: none;
+  :global(.acc-icon) {
+    width: 20px;
+    height: 20px;
   }
 </style>

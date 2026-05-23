@@ -1,8 +1,19 @@
-use crate::modules::filesystem::{list_directory, read_file_contents, write_file_contents, FileEntry};
-use crate::modules::sidecar::SharedSidecar;
+use crate::modules::filesystem::{
+    delete_path, find_files as find_files_inner, list_dir_tree as list_dir_tree_inner,
+    list_directory, path_exists as path_exists_inner, read_file_contents, rename_path,
+    web_fetch as web_fetch_inner, write_file_contents, FileEntry,
+};
+use crate::modules::git::{
+    git_commit as git_commit_inner, git_current_branch as git_current_branch_inner,
+    git_diff as git_diff_inner, git_log as git_log_inner, git_stage as git_stage_inner,
+    git_status as git_status_inner, git_unstage as git_unstage_inner, GitLogEntry, GitPathStatus,
+};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use std::process::Command;
+use std::time::Duration;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[tauri::command]
 pub fn list_dir(path: &str) -> Result<Vec<FileEntry>, String> {
@@ -17,6 +28,79 @@ pub fn read_file(path: &str) -> Result<String, String> {
 #[tauri::command]
 pub fn write_file(path: &str, contents: &str) -> Result<(), String> {
     write_file_contents(path, contents)
+}
+
+#[tauri::command]
+pub fn rename_entry(from: String, to: String) -> Result<(), String> {
+    rename_path(&from, &to)
+}
+
+#[tauri::command]
+pub fn delete_entry(path: String) -> Result<(), String> {
+    delete_path(&path)
+}
+
+#[tauri::command]
+pub fn path_exists(path: String) -> Result<bool, String> {
+    path_exists_inner(&path)
+}
+
+#[tauri::command]
+pub fn find_files(
+    workspace_path: String,
+    glob_pattern: String,
+    max_results: Option<usize>,
+) -> Result<Vec<String>, String> {
+    find_files_inner(&workspace_path, &glob_pattern, max_results.unwrap_or(100))
+}
+
+#[tauri::command]
+pub fn list_dir_tree(
+    path: String,
+    max_depth: Option<usize>,
+    max_entries: Option<usize>,
+) -> Result<Vec<FileEntry>, String> {
+    list_dir_tree_inner(&path, max_depth.unwrap_or(3), max_entries.unwrap_or(500))
+}
+
+#[tauri::command]
+pub fn web_fetch(url: String, allowed_hosts: Vec<String>, max_bytes: Option<usize>) -> Result<String, String> {
+    web_fetch_inner(&url, &allowed_hosts, max_bytes.unwrap_or(64_000))
+}
+
+#[tauri::command]
+pub fn git_current_branch(repo_path: String) -> Result<Option<String>, String> {
+    git_current_branch_inner(&repo_path)
+}
+
+#[tauri::command]
+pub fn git_status(repo_path: String) -> Result<Vec<GitPathStatus>, String> {
+    git_status_inner(&repo_path)
+}
+
+#[tauri::command]
+pub fn git_diff(repo_path: String, path: Option<String>) -> Result<String, String> {
+    git_diff_inner(&repo_path, path.as_deref())
+}
+
+#[tauri::command]
+pub fn git_stage(repo_path: String, path: String) -> Result<(), String> {
+    git_stage_inner(&repo_path, &path)
+}
+
+#[tauri::command]
+pub fn git_unstage(repo_path: String, path: String) -> Result<(), String> {
+    git_unstage_inner(&repo_path, &path)
+}
+
+#[tauri::command]
+pub fn git_commit(repo_path: String, message: String) -> Result<String, String> {
+    git_commit_inner(&repo_path, &message)
+}
+
+#[tauri::command]
+pub fn git_log(repo_path: String, limit: Option<usize>) -> Result<Vec<GitLogEntry>, String> {
+    git_log_inner(&repo_path, limit.unwrap_or(32))
 }
 
 fn workspace_override_file() -> Option<PathBuf> {
@@ -43,7 +127,8 @@ fn write_workspace_override(path: &str) -> Result<(), String> {
     if !p.is_dir() {
         return Err(format!("Not a directory: {}", path.trim()));
     }
-    let file = workspace_override_file().ok_or_else(|| "Could not resolve config directory".to_string())?;
+    let file =
+        workspace_override_file().ok_or_else(|| "Could not resolve config directory".to_string())?;
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -60,7 +145,6 @@ pub fn get_workspace_path() -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Native folder picker; persists choice for future launches and returns the path, or `None` if cancelled.
 #[tauri::command]
 pub fn pick_workspace_folder() -> Result<Option<String>, String> {
     let folder = rfd::FileDialog::new()
@@ -75,30 +159,6 @@ pub fn pick_workspace_folder() -> Result<Option<String>, String> {
         return Ok(Some(s));
     }
     Ok(None)
-}
-
-#[tauri::command]
-pub fn start_harness(app_handle: AppHandle, sidecar: State<'_, SharedSidecar>) -> Result<(), String> {
-    let mut manager = sidecar.lock().map_err(|e| e.to_string())?;
-    let sidecar_path = get_sidecar_path()?;
-    manager.start(&sidecar_path, app_handle)
-}
-
-#[tauri::command]
-pub fn send_to_harness(
-    method: &str,
-    params: serde_json::Value,
-    sidecar: State<'_, SharedSidecar>,
-) -> Result<u64, String> {
-    let mut manager = sidecar.lock().map_err(|e| e.to_string())?;
-    manager.send(method, params)
-}
-
-#[tauri::command]
-pub fn stop_harness(sidecar: State<'_, SharedSidecar>) -> Result<(), String> {
-    let mut manager = sidecar.lock().map_err(|e| e.to_string())?;
-    manager.stop();
-    Ok(())
 }
 
 #[tauri::command]
@@ -118,22 +178,169 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
     Ok::<(), String>(())
 }
 
-fn get_sidecar_path() -> Result<String, String> {
-    let cwd = env::current_dir().map_err(|e| e.to_string())?;
-    let sidecar_path = cwd.join("sidecar").join("dist").join("index.js");
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GrepMatch {
+    pub path: String,
+    pub line_number: u32,
+    pub line_content: String,
+}
 
-    if sidecar_path.exists() {
-        return Ok(sidecar_path.to_string_lossy().to_string());
+#[tauri::command]
+pub fn grep_workspace(
+    workspace_path: String,
+    pattern: String,
+    file_glob: Option<String>,
+) -> Result<Vec<GrepMatch>, String> {
+    let ws = Path::new(&workspace_path);
+    if !ws.is_dir() {
+        return Err(format!("Workspace path is not a directory: {workspace_path}"));
     }
 
-    let parent_path = cwd
-        .parent()
-        .map(|p| p.join("sidecar").join("dist").join("index.js"))
-        .unwrap_or_default();
+    let mut cmd = Command::new("rg");
+    cmd.arg("--line-number")
+        .arg("--no-heading")
+        .arg("--color=never")
+        .arg("--max-count=500");
 
-    if parent_path.exists() {
-        return Ok(parent_path.to_string_lossy().to_string());
+    if let Some(glob) = file_glob {
+        cmd.arg("--glob").arg(glob);
     }
 
-    Err("Sidecar not found. Run 'npm run build' in the sidecar directory.".to_string())
+    cmd.arg(&pattern).arg(&workspace_path);
+
+    let output = cmd.output().map_err(|e| format!("Failed to run ripgrep: {e}"))?;
+
+    if !output.status.success() && output.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("No such file or directory") || stderr.contains("not found") {
+            return Err("ripgrep (rg) not found. Please install it.".to_string());
+        }
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut matches = Vec::new();
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.splitn(3, ':').collect();
+        if parts.len() >= 3 {
+            if let Ok(line_num) = parts[1].parse::<u32>() {
+                matches.push(GrepMatch {
+                    path: parts[0].to_string(),
+                    line_number: line_num,
+                    line_content: parts[2].to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ShellResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+}
+
+#[tauri::command]
+pub fn run_shell(
+    workspace_path: String,
+    command: String,
+    timeout_ms: Option<u64>,
+) -> Result<ShellResult, String> {
+    let ws = Path::new(&workspace_path);
+    if !ws.is_dir() {
+        return Err(format!("Workspace path is not a directory: {workspace_path}"));
+    }
+
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(30000));
+
+    let shell = if cfg!(target_os = "windows") {
+        "cmd"
+    } else {
+        "sh"
+    };
+    let shell_arg = if cfg!(target_os = "windows") {
+        "/C"
+    } else {
+        "-c"
+    };
+
+    let mut child = Command::new(shell)
+        .arg(shell_arg)
+        .arg(&command)
+        .current_dir(&workspace_path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn command: {e}"))?;
+
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let output = child.wait_with_output().map_err(|e| e.to_string())?;
+                return Ok(ShellResult {
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                    exit_code: status.code(),
+                    timed_out: false,
+                });
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Ok(ShellResult {
+                        stdout: String::new(),
+                        stderr: format!("Command timed out after {}ms", timeout.as_millis()),
+                        exit_code: None,
+                        timed_out: true,
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("Error waiting for command: {e}")),
+        }
+    }
+}
+
+const SYSTEM_PROMPT_DIR: &str = ".tinyllama";
+const SYSTEM_PROMPT_FILE: &str = "prompt.md";
+
+#[tauri::command]
+pub fn read_system_prompt(workspace_path: String) -> Result<Option<String>, String> {
+    let ws = Path::new(&workspace_path);
+    if !ws.is_dir() {
+        return Err(format!("Workspace path is not a directory: {workspace_path}"));
+    }
+
+    let prompt_path = ws.join(SYSTEM_PROMPT_DIR).join(SYSTEM_PROMPT_FILE);
+    if !prompt_path.exists() {
+        return Ok(None);
+    }
+
+    std::fs::read_to_string(&prompt_path)
+        .map(Some)
+        .map_err(|e| format!("Failed to read system prompt: {e}"))
+}
+
+#[tauri::command]
+pub fn write_system_prompt(workspace_path: String, content: String) -> Result<(), String> {
+    let ws = Path::new(&workspace_path);
+    if !ws.is_dir() {
+        return Err(format!("Workspace path is not a directory: {workspace_path}"));
+    }
+
+    let prompt_dir = ws.join(SYSTEM_PROMPT_DIR);
+    if !prompt_dir.exists() {
+        std::fs::create_dir_all(&prompt_dir)
+            .map_err(|e| format!("Failed to create .tinyllama directory: {e}"))?;
+    }
+
+    let prompt_path = prompt_dir.join(SYSTEM_PROMPT_FILE);
+    std::fs::write(&prompt_path, content)
+        .map_err(|e| format!("Failed to write system prompt: {e}"))
 }

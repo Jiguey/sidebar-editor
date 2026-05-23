@@ -11,7 +11,8 @@
     editorPaths: string[];
   }
 
-  let { activeTab, activeFile, editorPaths }: Props = $props();
+  /** Keep a single `$props()` reference — destructuring breaks `$effect` tracking for store-driven updates. */
+  let props: Props = $props();
 
   let editorContainer: HTMLDivElement | undefined = $state();
   let editorView: import("@codemirror/view").EditorView | null = null;
@@ -24,8 +25,8 @@
   let languageExtensions: Record<string, unknown> = {};
   let cmReady = $state(false);
 
-  function pruneStates() {
-    const allowed = new Set(editorPaths);
+  function pruneStates(paths: string[]) {
+    const allowed = new Set(paths);
     for (const key of [...states.keys()]) {
       if (!allowed.has(key)) states.delete(key);
     }
@@ -94,13 +95,14 @@
   }
 
   $effect(() => {
-    editorPaths;
-    pruneStates();
+    pruneStates(props.editorPaths);
   });
 
   /** `cmReady` must be in the dependency graph: CodeMirror loads async, so `EditorViewCtor` alone does not retrigger this effect. */
   $effect(() => {
     if (!cmReady || !editorContainer || !EditorViewCtor) return;
+    const activeTab = props.activeTab;
+    const activeFile = props.activeFile;
     if (activeTab?.kind !== "editor" || !activeFile) return;
 
     const path = activeFile.path;
@@ -134,6 +136,8 @@
   });
 
   async function saveActive() {
+    const activeTab = props.activeTab;
+    const activeFile = props.activeFile;
     if (activeTab?.kind !== "editor" || !activeFile || !editorView) return;
     try {
       const content = editorView.state.doc.toString();
@@ -195,10 +199,10 @@
 <!-- Only hide when another workbench tab kind is explicitly active (null = show editor area). -->
 <div
   class="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-  class:hidden={activeTab != null && activeTab.kind !== "editor"}
+  class:hidden={props.activeTab != null && props.activeTab.kind !== "editor"}
 >
   <div class="flex min-h-0 flex-1 flex-col overflow-hidden" bind:this={editorContainer}></div>
-  {#if !activeFile}
+  {#if !props.activeFile}
     <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-muted-foreground">
       <div class="opacity-30">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">

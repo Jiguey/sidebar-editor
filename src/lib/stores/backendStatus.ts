@@ -1,5 +1,6 @@
 import { writable } from "svelte/store";
 import type { ChatBackend } from "./settings";
+import { probeOllama, probeLlamacpp } from "../providerHealth";
 
 export type StatusDot = "green" | "red" | "yellow" | "idle";
 
@@ -43,32 +44,29 @@ export async function pollBackendHealth(input: {
   selectedModel: string;
   ollamaEndpoint: string;
   llamacppEndpoint: string;
+  llamacppApiKey?: string;
   anthropicApiKey: string;
 }): Promise<BackendStatusLine> {
-  const { chatBackend, selectedModel, ollamaEndpoint, llamacppEndpoint, anthropicApiKey } = input;
-  const timeout = AbortSignal.timeout(8_000);
+  const {
+    chatBackend,
+    selectedModel,
+    ollamaEndpoint,
+    llamacppEndpoint,
+    llamacppApiKey,
+    anthropicApiKey,
+  } = input;
 
   if (chatBackend === "ollama") {
+    const h = await probeOllama(ollamaEndpoint);
     const base = ollamaEndpoint.replace(/\/$/, "");
+    if (h.dot === "red") {
+      return { backend: "ollama", dot: "red", label: "Ollama", detail: h.detail };
+    }
+    if (h.dot === "yellow" && h.modelCount === 0) {
+      return { backend: "ollama", dot: "yellow", label: "Ollama", detail: h.detail };
+    }
     try {
-      const ver = await fetch(`${base}/api/version`, { signal: timeout });
-      if (!ver.ok) {
-        return {
-          backend: "ollama",
-          dot: "red",
-          label: "Ollama",
-          detail: `HTTP ${ver.status} at ${base}`,
-        };
-      }
-      const tagsRes = await fetch(`${base}/api/tags`, { signal: timeout });
-      if (!tagsRes.ok) {
-        return {
-          backend: "ollama",
-          dot: "yellow",
-          label: "Ollama",
-          detail: `Running but tags failed (${tagsRes.status})`,
-        };
-      }
+      const tagsRes = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(8_000) });
       const tagsJson = (await tagsRes.json()) as { models?: { name: string }[] };
       const names = (tagsJson.models ?? []).map((m) => m.name);
       if (ollamaTagMatches(names, selectedModel)) {
@@ -81,30 +79,25 @@ export async function pollBackendHealth(input: {
         detail: `Model not installed: ${selectedModel} (pull or pick another)`,
       };
     } catch {
-      return {
-        backend: "ollama",
-        dot: "red",
-        label: "Ollama",
-        detail: `Unreachable at ${base}`,
-      };
+      return { backend: "ollama", dot: h.dot, label: "Ollama", detail: h.detail };
     }
   }
 
   if (chatBackend === "llamacpp") {
+    const h = await probeLlamacpp(llamacppEndpoint, llamacppApiKey);
     const base = llamacppEndpoint.replace(/\/$/, "");
+    if (h.dot === "red") {
+      return { backend: "llamacpp", dot: "red", label: "llama.cpp", detail: h.detail };
+    }
     try {
-      const res = await fetch(`${base}/v1/models`, { signal: timeout });
-      if (!res.ok) {
-        return {
-          backend: "llamacpp",
-          dot: "red",
-          label: "llama.cpp",
-          detail: `HTTP ${res.status} at ${base}`,
-        };
-      }
+      const headers: Record<string, string> = {};
+      const k = llamacppApiKey?.trim();
+      if (k) headers.Authorization = `Bearer ${k}`;
+      const res = await fetch(`${base}/v1/models`, { headers, signal: AbortSignal.timeout(8_000) });
       const j = (await res.json()) as { data?: { id: string }[] };
       const ids = (j.data ?? []).map((m) => m.id);
-      const okModel = ids.includes(selectedModel) || ids.some((id) => id.endsWith(selectedModel));
+      const okModel =
+        ids.includes(selectedModel) || ids.some((id) => id.endsWith(selectedModel));
       if (okModel) {
         return {
           backend: "llamacpp",
@@ -117,15 +110,12 @@ export async function pollBackendHealth(input: {
         backend: "llamacpp",
         dot: "yellow",
         label: "llama.cpp",
-        detail: ids.length ? `Server up; model "${selectedModel}" not in /v1/models` : `No models at ${base}`,
+        detail: ids.length
+          ? `Server up; model "${selectedModel}" not in /v1/models`
+          : h.detail,
       };
     } catch {
-      return {
-        backend: "llamacpp",
-        dot: "red",
-        label: "llama.cpp",
-        detail: `Unreachable at ${base}`,
-      };
+      return { backend: "llamacpp", dot: h.dot, label: "llama.cpp", detail: h.detail };
     }
   }
 

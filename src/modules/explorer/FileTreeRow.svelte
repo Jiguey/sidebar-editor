@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/stores/files";
+  import { normalizeFilePath } from "$lib/fsPath";
   import FileTreeRow from "./FileTreeRow.svelte";
 
   interface Props {
@@ -7,20 +8,50 @@
     depth: number;
     onActivate: (entry: FileEntry) => void | Promise<void>;
     getCodicon: (entry: FileEntry) => string;
+    highlightPath?: string | null;
+    onContextMenu?: (entry: FileEntry, clientX: number, clientY: number) => void;
   }
 
-  let { entry, depth, onActivate, getCodicon }: Props = $props();
+  let {
+    entry,
+    depth,
+    onActivate,
+    getCodicon,
+    highlightPath = null,
+    onContextMenu,
+  }: Props = $props();
+
+  const isHighlighted = $derived(
+    highlightPath != null && normalizeFilePath(entry.path) === normalizeFilePath(highlightPath)
+  );
 </script>
 
 <div class="tree-item" style="padding-left: {depth * 16 + 8}px">
-  <button type="button" class="tree-button" class:is-dir={entry.is_dir} onclick={() => void onActivate(entry)}>
+  <button
+    type="button"
+    class="tree-button"
+    class:is-dir={entry.is_dir}
+    class:revealed={isHighlighted}
+    onclick={() => void onActivate(entry)}
+    oncontextmenu={(e) => {
+      e.preventDefault();
+      onContextMenu?.(entry, e.clientX, e.clientY);
+    }}
+  >
     <span class="codicon {getCodicon(entry)}" aria-hidden="true"></span>
     <span class="name">{entry.name}</span>
   </button>
 </div>
 {#if entry.is_dir && entry.expanded && entry.children}
   {#each entry.children as child (child.path)}
-    <FileTreeRow entry={child} depth={depth + 1} {onActivate} {getCodicon} />
+    <FileTreeRow
+      entry={child}
+      depth={depth + 1}
+      {onActivate}
+      {getCodicon}
+      {highlightPath}
+      {onContextMenu}
+    />
   {/each}
 {/if}
 
@@ -47,6 +78,11 @@
 
   .tree-button:hover {
     background: var(--sidebar-accent);
+  }
+
+  .tree-button.revealed {
+    outline: 1px solid color-mix(in srgb, var(--sidebar-primary) 55%, transparent);
+    background: color-mix(in srgb, var(--sidebar-primary) 12%, transparent);
   }
 
   .tree-button.is-dir {

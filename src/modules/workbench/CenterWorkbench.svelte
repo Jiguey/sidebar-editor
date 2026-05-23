@@ -7,7 +7,9 @@
   import PreviewPane from "../preview/PreviewPane.svelte";
 
   let editorPaths = $derived(
-    $workbench.tabs.filter((t): t is Extract<WorkbenchTab, { kind: "editor" }> => t.kind === "editor").map((t) => t.path)
+    $workbench.tabs
+      .filter((t): t is Extract<WorkbenchTab, { kind: "editor" }> => t.kind === "editor")
+      .map((t) => normalizeFilePath(t.path))
   );
 
   let previewUrl = $derived(

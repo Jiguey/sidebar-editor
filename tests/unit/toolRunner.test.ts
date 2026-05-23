@@ -1,0 +1,222 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const mockReadFile = vi.fn();
+const mockWriteFile = vi.fn();
+const mockListDir = vi.fn();
+const mockGrepWorkspace = vi.fn();
+const mockRunShell = vi.fn();
+const mockDeleteEntry = vi.fn();
+const mockRenameEntry = vi.fn();
+const mockPathExists = vi.fn();
+const mockGitStatus = vi.fn();
+const mockGitLog = vi.fn();
+const mockGitDiff = vi.fn();
+const mockIsTauriAvailable = vi.fn();
+
+vi.mock("../../src/lib/ipc", () => ({
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  listDir: (...args: unknown[]) => mockListDir(...args),
+  grepWorkspace: (...args: unknown[]) => mockGrepWorkspace(...args),
+  runShell: (...args: unknown[]) => mockRunShell(...args),
+  deleteEntry: (...args: unknown[]) => mockDeleteEntry(...args),
+  renameEntry: (...args: unknown[]) => mockRenameEntry(...args),
+  pathExists: (...args: unknown[]) => mockPathExists(...args),
+  gitStatus: (...args: unknown[]) => mockGitStatus(...args),
+  gitLog: (...args: unknown[]) => mockGitLog(...args),
+  gitDiff: (...args: unknown[]) => mockGitDiff(...args),
+  isTauriAvailable: () => mockIsTauriAvailable(),
+}));
+
+import { executeTool } from "../../src/lib/tools/toolRunner";
+
+describe("toolRunner", () => {
+  const workspacePath = "/test/workspace";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsTauriAvailable.mockReturnValue(true);
+    mockPathExists.mockResolvedValue(false);
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  describe("executeTool", () => {
+    describe("when Tauri is not available", () => {
+      it("returns error for all tools", async () => {
+        mockIsTauriAvailable.mockReturnValue(false);
+        const result = await executeTool("read_file", { path: "test.txt" }, workspacePath);
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("Tauri");
+      });
+    });
+
+    describe("read_file", () => {
+      it("reads file with relative path", async () => {
+        mockReadFile.mockResolvedValue("content");
+        const result = await executeTool("read_file", { path: "src/file.ts" }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(mockReadFile).toHaveBeenCalledWith("/test/workspace/src/file.ts");
+      });
+
+      it("rejects paths outside workspace", async () => {
+        const result = await executeTool("read_file", { path: "/etc/passwd" }, workspacePath);
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("outside the workspace");
+      });
+    });
+
+    describe("write_file", () => {
+      it("writes file with content", async () => {
+        mockWriteFile.mockResolvedValue(undefined);
+        const result = await executeTool(
+          "write_file",
+          { path: "output.txt", content: "hello" },
+          workspacePath
+        );
+        expect(result.success).toBe(true);
+        expect(mockWriteFile).toHaveBeenCalledWith("/test/workspace/output.txt", "hello");
+      });
+    });
+
+    describe("create_file", () => {
+      it("creates file when it does not exist", async () => {
+        mockPathExists.mockResolvedValue(false);
+        mockWriteFile.mockResolvedValue(undefined);
+        const result = await executeTool(
+          "create_file",
+          { path: "new.txt", content: "data" },
+          workspacePath
+        );
+        expect(result.success).toBe(true);
+        expect(mockWriteFile).toHaveBeenCalled();
+      });
+
+      it("fails when file already exists", async () => {
+        mockPathExists.mockResolvedValue(true);
+        const result = await executeTool(
+          "create_file",
+          { path: "exists.txt", content: "data" },
+          workspacePath
+        );
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("already exists");
+        expect(mockWriteFile).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("delete_file", () => {
+      it("deletes resolved path", async () => {
+        mockDeleteEntry.mockResolvedValue(undefined);
+        const result = await executeTool("delete_file", { path: "old.txt" }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(mockDeleteEntry).toHaveBeenCalledWith("/test/workspace/old.txt");
+      });
+    });
+
+    describe("move_file", () => {
+      it("renames within workspace", async () => {
+        mockRenameEntry.mockResolvedValue(undefined);
+        const result = await executeTool(
+          "move_file",
+          { from: "a.txt", to: "b.txt" },
+          workspacePath
+        );
+        expect(result.success).toBe(true);
+        expect(mockRenameEntry).toHaveBeenCalledWith(
+          "/test/workspace/a.txt",
+          "/test/workspace/b.txt"
+        );
+      });
+    });
+
+    describe("list_dir", () => {
+      it("lists directory contents", async () => {
+        mockListDir.mockResolvedValue([{ name: "file.txt", is_dir: false }]);
+        const result = await executeTool("list_dir", { path: "." }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("[file] file.txt");
+      });
+    });
+
+    describe("grep", () => {
+      it("searches for pattern", async () => {
+        mockGrepWorkspace.mockResolvedValue([
+          { path: "a.ts", line_number: 1, line_content: "match" },
+        ]);
+        const result = await executeTool("grep", { pattern: "match" }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("a.ts:1:");
+      });
+    });
+
+    describe("get_git_status", () => {
+      it("formats git status", async () => {
+        mockGitStatus.mockResolvedValue([{ path: "x.ts", index: "M", worktree: "-" }]);
+        const result = await executeTool("get_git_status", {}, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("x.ts");
+        expect(mockGitStatus).toHaveBeenCalledWith(workspacePath);
+      });
+    });
+
+    describe("get_git_log", () => {
+      it("formats git log with limit", async () => {
+        mockGitLog.mockResolvedValue([
+          {
+            oid: "abc1234567890",
+            summary: "init",
+            author: "Dev",
+            time: 1_700_000_000,
+          },
+        ]);
+        const result = await executeTool("get_git_log", { limit: 5 }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("init");
+        expect(mockGitLog).toHaveBeenCalledWith(workspacePath, 5);
+      });
+    });
+
+    describe("get_git_diff", () => {
+      it("returns diff for optional path", async () => {
+        mockGitDiff.mockResolvedValue("diff content");
+        const result = await executeTool("get_git_diff", { path: "src/a.ts" }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toBe("diff content");
+        expect(mockGitDiff).toHaveBeenCalledWith(workspacePath, "src/a.ts");
+      });
+
+      it("returns repo-wide diff when path omitted", async () => {
+        mockGitDiff.mockResolvedValue("");
+        const result = await executeTool("get_git_diff", {}, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("no diff");
+        expect(mockGitDiff).toHaveBeenCalledWith(workspacePath, undefined);
+      });
+    });
+
+    describe("run_shell", () => {
+      it("executes command and returns output", async () => {
+        mockRunShell.mockResolvedValue({
+          stdout: "ok",
+          stderr: "",
+          exit_code: 0,
+          timed_out: false,
+        });
+        const result = await executeTool("run_shell", { command: "echo ok" }, workspacePath);
+        expect(result.success).toBe(true);
+        expect(result.output).toContain("ok");
+      });
+    });
+
+    describe("unknown tool", () => {
+      it("returns error for unknown tools", async () => {
+        const result = await executeTool("unknown_tool", {}, workspacePath);
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("Unknown tool");
+      });
+    });
+  });
+});

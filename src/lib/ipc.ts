@@ -1,4 +1,5 @@
 import type { FileEntry } from "./stores/files";
+import type { GitLogEntry, GitPathStatus } from "./gitTypes";
 
 const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
 
@@ -45,45 +46,9 @@ export async function getWorkspacePath(): Promise<string> {
   return invoke<string>("get_workspace_path");
 }
 
-/** Native folder dialog; persists for next launch. Returns `null` if cancelled. */
 export async function pickWorkspaceFolder(): Promise<string | null> {
   await ensureTauriApi();
   return invoke<string | null>("pick_workspace_folder");
-}
-
-export async function startHarness(): Promise<void> {
-  await ensureTauriApi();
-  return invoke<void>("start_harness");
-}
-
-export async function sendToHarness(
-  method: string,
-  params: Record<string, unknown>
-): Promise<number> {
-  await ensureTauriApi();
-  return invoke<number>("send_to_harness", { method, params });
-}
-
-export async function stopHarness(): Promise<void> {
-  await ensureTauriApi();
-  return invoke<void>("stop_harness");
-}
-
-export interface HarnessEvent {
-  id: number;
-  event: string;
-  data: unknown;
-}
-
-type UnlistenFn = () => void;
-
-export async function listenHarnessEvents(
-  callback: (event: HarnessEvent) => void
-): Promise<UnlistenFn> {
-  await ensureTauriApi();
-  return listen<HarnessEvent>("harness:event", (e) => {
-    callback(e.payload);
-  });
 }
 
 export function isTauriAvailable(): boolean {
@@ -110,6 +75,8 @@ export async function ptyClose(id: string): Promise<void> {
   await invoke<void>("pty_close", { id });
 }
 
+type UnlistenFn = () => void;
+
 export async function listenPtyData(
   callback: (payload: { id: string; data: string }) => void
 ): Promise<UnlistenFn> {
@@ -133,7 +100,56 @@ export async function openSettingsWindow(): Promise<void> {
   await invoke<void>("open_settings_window");
 }
 
-/** Close every WebviewWindow except the main shell (`label` `main`). */
+export async function gitCurrentBranch(repoPath: string): Promise<string | null> {
+  await ensureTauriApi();
+  return invoke<string | null>("git_current_branch", { repoPath });
+}
+
+export async function gitStatus(repoPath: string): Promise<GitPathStatus[]> {
+  await ensureTauriApi();
+  return invoke<GitPathStatus[]>("git_status", { repoPath });
+}
+
+export async function gitDiff(repoPath: string, path?: string): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("git_diff", { repoPath, path: path ?? null });
+}
+
+export async function pathExists(path: string): Promise<boolean> {
+  await ensureTauriApi();
+  return invoke<boolean>("path_exists", { path });
+}
+
+export async function gitStage(repoPath: string, path: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("git_stage", { repoPath, path });
+}
+
+export async function gitUnstage(repoPath: string, path: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("git_unstage", { repoPath, path });
+}
+
+export async function gitCommit(repoPath: string, message: string): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("git_commit", { repoPath, message });
+}
+
+export async function gitLog(repoPath: string, limit?: number): Promise<GitLogEntry[]> {
+  await ensureTauriApi();
+  return invoke<GitLogEntry[]>("git_log", { repoPath, limit: limit ?? 32 });
+}
+
+export async function renameEntry(from: string, to: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("rename_entry", { from, to });
+}
+
+export async function deleteEntry(path: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("delete_entry", { path });
+}
+
 export async function closeAuxiliaryWebviewWindows(): Promise<void> {
   if (!isTauri) return;
   await ensureTauriApi();
@@ -177,4 +193,92 @@ export function getLanguageFromPath(path: string): string {
     sql: "sql",
   };
   return langMap[ext] ?? "plaintext";
+}
+
+export interface GrepMatch {
+  path: string;
+  line_number: number;
+  line_content: string;
+}
+
+export async function grepWorkspace(
+  workspacePath: string,
+  pattern: string,
+  fileGlob?: string
+): Promise<GrepMatch[]> {
+  await ensureTauriApi();
+  return invoke<GrepMatch[]>("grep_workspace", {
+    workspacePath,
+    pattern,
+    fileGlob: fileGlob ?? null,
+  });
+}
+
+export interface ShellResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  timed_out: boolean;
+}
+
+export async function runShell(
+  workspacePath: string,
+  command: string,
+  timeoutMs?: number
+): Promise<ShellResult> {
+  await ensureTauriApi();
+  return invoke<ShellResult>("run_shell", {
+    workspacePath,
+    command,
+    timeoutMs: timeoutMs ?? null,
+  });
+}
+
+export async function readSystemPrompt(workspacePath: string): Promise<string | null> {
+  await ensureTauriApi();
+  return invoke<string | null>("read_system_prompt", { workspacePath });
+}
+
+export async function writeSystemPrompt(workspacePath: string, content: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("write_system_prompt", { workspacePath, content });
+}
+
+export async function findFiles(
+  workspacePath: string,
+  globPattern: string,
+  maxResults?: number
+): Promise<string[]> {
+  await ensureTauriApi();
+  return invoke<string[]>("find_files", {
+    workspacePath,
+    globPattern,
+    maxResults: maxResults ?? null,
+  });
+}
+
+export async function listDirTree(
+  path: string,
+  maxDepth?: number,
+  maxEntries?: number
+): Promise<FileEntry[]> {
+  await ensureTauriApi();
+  return invoke<FileEntry[]>("list_dir_tree", {
+    path,
+    maxDepth: maxDepth ?? null,
+    maxEntries: maxEntries ?? null,
+  });
+}
+
+export async function webFetch(
+  url: string,
+  allowedHosts: string[],
+  maxBytes?: number
+): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("web_fetch", {
+    url,
+    allowedHosts,
+    maxBytes: maxBytes ?? null,
+  });
 }

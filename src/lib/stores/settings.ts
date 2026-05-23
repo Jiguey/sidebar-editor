@@ -9,88 +9,89 @@ export interface ModelConfig {
   name: string;
   provider: "anthropic" | "openai" | "ollama" | "llamacpp";
   contextWindow: number;
-  /** Ollama: max context from `api/show` (model on disk). */
   contextLimitMax?: number;
 }
-
-/** Chat agent implementations (sidecar `harnessFactory`). */
-export const HARNESS_OPTIONS = [
-  {
-    id: "pi-latest",
-    label: "Pi (bundled SDK — default)",
-    hint: "Uses the Pi npm package shipped with the sidecar for versioning; chat still flows through this app’s model router.",
-  },
-  {
-    id: "pi-minimal",
-    label: "Pi-style (read-only tools)",
-    hint: "Same routing as Pi default, but only read_file and list_dir are exposed to the model.",
-  },
-] as const;
-
-export type HarnessKindId = (typeof HARNESS_OPTIONS)[number]["id"];
 
 export const AVAILABLE_MODELS: ModelConfig[] = [
   { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", provider: "anthropic", contextWindow: 200000 },
   { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", provider: "anthropic", contextWindow: 200000 },
   { id: "claude-3-opus-20240229", name: "Claude 3 Opus", provider: "anthropic", contextWindow: 200000 },
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai", contextWindow: 128000 },
-  { id: "gpt-4-turbo", name: "GPT-4 Turbo", provider: "openai", contextWindow: 128000 },
+  { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", provider: "anthropic", contextWindow: 200000 },
 ];
 
-const SETTINGS_STORAGE_KEY = "tinyllama.settings.v1";
+const SETTINGS_STORAGE_KEY = "tinyllama.settings.v3";
 
 function createSettingsStore() {
   type SettingsState = {
+    schemaVersion: 3;
     apiKeys: {
       anthropic: string;
       openai: string;
     };
-    /** Which stack answers chat (Anthropic API vs local Ollama). OpenAI key is reserved for a future provider. */
     chatBackend: ChatBackend;
-    /** Sidecar harness preset (see HARNESS_OPTIONS). */
-    harnessKind: HarnessKindId;
-    /** Filled when the sidecar reports @mariozechner/pi-coding-agent VERSION after start. */
-    lastBundledPiSdkVersion: string;
     ollamaEndpoint: string;
     llamacppEndpoint: string;
     llamacppApiKey: string;
     selectedModel: string;
-    /** Last Ollama tag the user chose (only updated when that tag is in `ollamaModels`). */
     lastOllamaModelId: string;
     ollamaModels: ModelConfig[];
     llamacppModels: ModelConfig[];
-    /**
-     * When true, Claude 4+ requests use adaptive extended thinking; thinking streams in a side panel in chat.
-     * Disabled automatically for model IDs that do not support it (handled in the sidecar).
-     */
     anthropicExtendedThinking: boolean;
-    /** Workbench / editor / explorer / terminal palette (see `workbench-themes.css`). */
     workbenchTheme: WorkbenchThemeId;
-    /**
-     * Optional cap for the chat context meter (Anthropic). `null` = use the full context window of the selected model.
-     */
     anthropicContextBudget: number | null;
+    webFetchAllowedHosts: string[];
   };
 
+  const DEFAULT_WEB_FETCH_HOSTS = [
+    "github.com",
+    "raw.githubusercontent.com",
+    "docs.rs",
+    "developer.mozilla.org",
+  ];
+
   const defaultState: SettingsState = {
+    schemaVersion: 3,
     apiKeys: {
       anthropic: "",
       openai: "",
     },
-    chatBackend: "anthropic",
-    harnessKind: "pi-latest",
-    lastBundledPiSdkVersion: "",
+    chatBackend: "ollama",
     ollamaEndpoint: "http://127.0.0.1:11434",
     llamacppEndpoint: DEFAULT_LLAMACPP_ENDPOINT,
     llamacppApiKey: "",
-    selectedModel: "claude-sonnet-4-20250514",
+    selectedModel: "llama3.2:1b",
     lastOllamaModelId: "",
     ollamaModels: [],
     llamacppModels: [],
     anthropicExtendedThinking: true,
     workbenchTheme: "vscode-dark",
     anthropicContextBudget: null,
+    webFetchAllowedHosts: DEFAULT_WEB_FETCH_HOSTS,
   };
+
+  function normalizeLoaded(parsed: Partial<SettingsState>): SettingsState {
+    const api = { ...defaultState.apiKeys, ...(parsed.apiKeys ?? {}) };
+    return {
+      ...defaultState,
+      ...parsed,
+      schemaVersion: 3,
+      apiKeys: api,
+      ollamaEndpoint: parsed.ollamaEndpoint ?? defaultState.ollamaEndpoint,
+      llamacppEndpoint: parsed.llamacppEndpoint ?? defaultState.llamacppEndpoint,
+      llamacppApiKey: parsed.llamacppApiKey ?? defaultState.llamacppApiKey,
+      lastOllamaModelId: parsed.lastOllamaModelId ?? defaultState.lastOllamaModelId,
+      selectedModel: parsed.selectedModel ?? defaultState.selectedModel,
+      ollamaModels: parsed.ollamaModels ?? defaultState.ollamaModels,
+      llamacppModels: parsed.llamacppModels ?? defaultState.llamacppModels,
+      workbenchTheme: normalizeWorkbenchTheme(parsed.workbenchTheme),
+      anthropicContextBudget:
+        parsed.anthropicContextBudget === null || parsed.anthropicContextBudget === undefined
+          ? defaultState.anthropicContextBudget
+          : typeof parsed.anthropicContextBudget === "number"
+            ? parsed.anthropicContextBudget
+            : defaultState.anthropicContextBudget,
+    };
+  }
 
   function loadSettings(): SettingsState {
     if (typeof localStorage === "undefined") {
@@ -98,26 +99,23 @@ function createSettingsStore() {
     }
     try {
       const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) return { ...defaultState };
-      const parsed = JSON.parse(raw) as Partial<SettingsState>;
-      return {
-        ...defaultState,
-        ...parsed,
-        apiKeys: { ...defaultState.apiKeys, ...(parsed.apiKeys ?? {}) },
-        lastOllamaModelId: parsed.lastOllamaModelId ?? defaultState.lastOllamaModelId,
-        ollamaModels: parsed.ollamaModels ?? defaultState.ollamaModels,
-        llamacppModels: parsed.llamacppModels ?? defaultState.llamacppModels,
-        workbenchTheme: normalizeWorkbenchTheme(parsed.workbenchTheme),
-        anthropicContextBudget:
-          parsed.anthropicContextBudget === null || parsed.anthropicContextBudget === undefined
-            ? defaultState.anthropicContextBudget
-            : typeof parsed.anthropicContextBudget === "number"
-              ? parsed.anthropicContextBudget
-              : defaultState.anthropicContextBudget,
-      };
+      if (raw) {
+        return normalizeLoaded(JSON.parse(raw) as Partial<SettingsState>);
+      }
+      const oldKeys = ["tinyllama.settings.v2", "tinyllama.settings.v1"];
+      for (const key of oldKeys) {
+        const oldRaw = localStorage.getItem(key);
+        if (oldRaw) {
+          const migrated = normalizeLoaded(JSON.parse(oldRaw) as Partial<SettingsState>);
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+          localStorage.removeItem(key);
+          return migrated;
+        }
+      }
     } catch {
       return { ...defaultState };
     }
+    return { ...defaultState };
   }
 
   const { subscribe, set, update } = writable<SettingsState>(loadSettings());
@@ -140,13 +138,22 @@ function createSettingsStore() {
       }));
     },
     setOllamaEndpoint: (endpoint: string) => {
-      update((state) => ({ ...state, ollamaEndpoint: endpoint }));
+      update((state) => ({
+        ...state,
+        ollamaEndpoint: endpoint,
+      }));
     },
     setLlamacppEndpoint: (endpoint: string) => {
-      update((state) => ({ ...state, llamacppEndpoint: endpoint }));
+      update((state) => ({
+        ...state,
+        llamacppEndpoint: endpoint,
+      }));
     },
     setLlamacppApiKey: (key: string) => {
-      update((state) => ({ ...state, llamacppApiKey: key }));
+      update((state) => ({
+        ...state,
+        llamacppApiKey: key,
+      }));
     },
     setSelectedModel: (modelId: string) => {
       update((state) => {
@@ -167,12 +174,6 @@ function createSettingsStore() {
           anthropicContextBudget,
         };
       });
-    },
-    setHarnessKind: (harnessKind: HarnessKindId) => {
-      update((state) => ({ ...state, harnessKind }));
-    },
-    setLastBundledPiSdkVersion: (v: string) => {
-      update((state) => ({ ...state, lastBundledPiSdkVersion: v }));
     },
     setChatBackend: (chatBackend: ChatBackend) => {
       update((state) => {
@@ -248,6 +249,14 @@ function createSettingsStore() {
         const clamped = Math.max(2048, Math.min(Math.floor(anthropicContextBudget), cap));
         return { ...state, anthropicContextBudget: clamped };
       });
+    },
+    setWebFetchAllowedHosts: (webFetchAllowedHosts: string[]) => {
+      update((state) => ({
+        ...state,
+        webFetchAllowedHosts: webFetchAllowedHosts
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean),
+      }));
     },
   };
 }

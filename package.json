@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/free-dev-port.mjs && vite",
-    "build": "vite build",
+    "build": "pnpm run test && vite build",
+    "build:skip-tests": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
+    "test:watch": "vitest",
     "test:ollama": "RUN_OLLAMA_TESTS=1 vitest run tests/integration/ollama.test.ts",
-    "test:watch": "vitest"
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@internationalized/date": "^3.12.1",

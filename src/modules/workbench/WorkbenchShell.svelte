@@ -267,7 +267,7 @@
 
 <div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
   <header
-    class="flex shrink-0 items-stretch border-b border-transparent bg-muted/50 pl-0.5 pr-1.5 text-[10px] leading-tight"
+    class="workbench-header flex shrink-0 items-stretch border-b pl-0.5 pr-1.5 text-[10px] leading-tight"
     style="-webkit-app-region: drag; height: var(--workbench-shell-header-height); min-height: var(--workbench-shell-header-height);"
   >
     <div
@@ -277,7 +277,7 @@
       <div class="flex min-h-0 min-w-0 max-w-[min(28rem,48vw)] shrink overflow-hidden">
         <ChatTabBar />
       </div>
-      <div class="my-1 w-px shrink-0 self-stretch bg-transparent" aria-hidden="true"></div>
+      <div class="workbench-header-divider my-1 w-px shrink-0 self-stretch" aria-hidden="true"></div>
       <div class="min-h-0 min-w-0 flex-1">
         <WorkbenchTabBar />
       </div>
@@ -290,7 +290,7 @@
         class="flex min-h-0 min-w-0 shrink-0 flex-col border-r border-transparent bg-sidebar"
         style="width:{leftPaneWidth}px;min-width:{LEFT_MIN}px;max-width:{LEFT_MAX}px;"
       >
-        <ChatPane />
+        <ChatPane onOpenSettings={openSettingsModal} />
       </aside>
     {/if}
 
@@ -372,6 +372,19 @@
 <SettingsPane open={settingsOpen} onClose={() => (settingsOpen = false)} />
 
 <style>
+  /**
+   * Keep the in-app top bar aligned with the selected workbench palette.
+   * This avoids a light-looking chrome strip on Linux when the rest is dark.
+   */
+  .workbench-header {
+    background: color-mix(in srgb, var(--surface, var(--card)) 88%, var(--background) 12%);
+    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  }
+
+  .workbench-header-divider {
+    background: color-mix(in srgb, var(--border) 55%, transparent);
+  }
+
   /**
    * Resize targets live inside the center column (overlap inward) so side panes
    * keep a full-width border and no extra flex gutter when a pane cannot be hidden.

@@ -6,7 +6,8 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 const devPort = Number(process.env.VITE_PORT ?? process.env.PORT ?? 14200);
 
 export default defineConfig({
-  plugins: [tailwindcss(), svelte()],
+  /** Svelte must run before `@tailwindcss/vite` so `.svelte` files are not parsed as raw CSS (fixes "Invalid declaration: onMount"). */
+  plugins: [svelte(), tailwindcss()],
   clearScreen: false,
   resolve: {
     alias: {

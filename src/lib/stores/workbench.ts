@@ -31,6 +31,11 @@ function editorTabId(path: string) {
   return `editor:${normalizeFilePath(path)}`;
 }
 
+/** Stable id for the editor tab that shows `path` (used when forcing focus after open). */
+export function workbenchEditorTabId(path: string) {
+  return editorTabId(path);
+}
+
 function normalizePersistedTab(tab: WorkbenchTab): WorkbenchTab {
   if (tab.kind !== "editor") return tab;
   const path = normalizeFilePath(tab.path);
@@ -129,7 +134,14 @@ function createWorkbenchStore() {
         );
         let activeTabId = s.activeTabId;
         if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
-          activeTabId = tabs.length ? tabs[tabs.length - 1].id : null;
+          const ap = get(files).activeFilePath;
+          const fromFile = ap != null ? editorTabId(ap) : null;
+          if (fromFile && tabs.some((t) => t.id === fromFile)) {
+            activeTabId = fromFile;
+          } else {
+            const firstEditor = tabs.find((t) => t.kind === "editor");
+            activeTabId = firstEditor?.id ?? (tabs.length ? tabs[tabs.length - 1].id : null);
+          }
         }
         return { tabs, activeTabId };
       });

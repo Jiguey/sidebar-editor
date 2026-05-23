@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { settings } from "$lib/stores/settings";
+  import { files } from "$lib/stores/files";
   import { backendStatus, pollBackendHealth } from "$lib/stores/backendStatus";
+  import { gitCurrentBranch, gitStatus, isTauriAvailable } from "$lib/ipc";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import PanelBottom from "@lucide/svelte/icons/panel-bottom";
@@ -30,6 +32,31 @@
     onOpenSettings?: () => void;
   } = $props();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let gitBranch = $state<string | null>(null);
+  let gitCounts = $state<{ dirty: number } | null>(null);
+
+  async function refreshGit() {
+    if (!isTauriAvailable()) {
+      gitBranch = null;
+      gitCounts = null;
+      return;
+    }
+    const root = $files.workspacePath;
+    if (!root) {
+      gitBranch = null;
+      gitCounts = null;
+      return;
+    }
+    try {
+      gitBranch = await gitCurrentBranch(root);
+      const st = await gitStatus(root);
+      const dirty = st.filter((r) => r.worktree !== "-" || r.index !== "-").length;
+      gitCounts = { dirty };
+    } catch {
+      gitBranch = null;
+      gitCounts = null;
+    }
+  }
 
   async function tick() {
     const line = await pollBackendHealth({
@@ -37,6 +64,7 @@
       selectedModel: $settings.selectedModel,
       ollamaEndpoint: $settings.ollamaEndpoint,
       llamacppEndpoint: $settings.llamacppEndpoint,
+      llamacppApiKey: $settings.llamacppApiKey,
       anthropicApiKey: $settings.apiKeys.anthropic,
     });
     backendStatus.set(line);
@@ -57,14 +85,26 @@
       $settings.selectedModel,
       $settings.ollamaEndpoint,
       $settings.llamacppEndpoint,
+      $settings.llamacppApiKey,
       $settings.apiKeys.anthropic,
+      $files.workspacePath,
     ];
     void tick();
+    void refreshGit();
   });
 </script>
 
 <div class="status-bar">
   <div class="status-bar__left" role="status" aria-live="polite">
+    {#if gitBranch}
+      <span class="git-pill" title="Git branch">
+        {gitBranch}
+        {#if gitCounts && gitCounts.dirty > 0}
+          <span class="git-dirty">· {gitCounts.dirty}</span>
+        {/if}
+      </span>
+      <span class="status-sep" aria-hidden="true"></span>
+    {/if}
     <span class="status-label">{$backendStatus.label}</span>
     <span class="status-dot" class:green={$backendStatus.dot === "green"} class:red={$backendStatus.dot === "red"} class:yellow={$backendStatus.dot === "yellow"} class:idle={$backendStatus.dot === "idle"} title={$backendStatus.detail}></span>
     <span class="status-detail">{$backendStatus.detail}</span>
@@ -186,6 +226,28 @@
   .status-toggle :global(svg) {
     width: 14px;
     height: 14px;
+    flex-shrink: 0;
+  }
+
+  .git-pill {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: #c0c0c0;
+    flex-shrink: 0;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .git-dirty {
+    color: #d29922;
+  }
+
+  .status-sep {
+    width: 1px;
+    height: 12px;
+    background: #3c3c3c;
     flex-shrink: 0;
   }
 

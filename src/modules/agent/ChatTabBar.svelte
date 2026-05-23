@@ -1,6 +1,5 @@
 <script lang="ts">
   import { chat } from "$lib/stores/chat";
-  import { isTauriAvailable, sendToHarness } from "$lib/ipc";
   import ShellTabBubble from "../workbench/ShellTabBubble.svelte";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Plus from "@lucide/svelte/icons/plus";
@@ -9,9 +8,6 @@
 
   function newChat() {
     chat.newSession();
-    if (isTauriAvailable()) {
-      sendToHarness("clear", {}).catch(() => {});
-    }
   }
 
   $effect(() => {

@@ -1,13 +1,24 @@
 import { writable, derived } from "svelte/store";
 
+export interface StoredToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
 export interface Message {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   content: string;
   timestamp: number;
   /** Claude extended thinking summary/text when the provider streamed it. */
   thinking?: string;
   toolCalls?: ToolCall[];
+  /** OpenAI-style tool call ids for role=tool messages. */
+  toolCallId?: string;
+  toolName?: string;
+  /** Set on assistant messages that requested tools. */
+  rawToolCalls?: StoredToolCall[];
 }
 
 export interface ToolCall {
