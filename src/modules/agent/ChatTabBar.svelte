@@ -1,8 +1,8 @@
 <script lang="ts">
   import { chat } from "$lib/stores/chat";
   import ShellTabBubble from "../workbench/ShellTabBubble.svelte";
-  import MessageSquare from "@lucide/svelte/icons/message-square";
-  import Plus from "@lucide/svelte/icons/plus";
+  import ChatCircleIcon from "phosphor-svelte/lib/ChatCircleIcon";
+  import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 
   let tabScroll: HTMLDivElement;
 
@@ -30,14 +30,14 @@
           onClose={() => chat.closeSession(session.id)}
         >
           {#snippet icon()}
-            <MessageSquare />
+            <ChatCircleIcon size={14} />
           {/snippet}
         </ShellTabBubble>
       </div>
     {/each}
   </div>
   <button type="button" class="hdr-tab-aux-btn" onclick={newChat} title="New chat" aria-label="New chat">
-    <Plus />
+    <PlusIcon size={14} />
   </button>
 </div>
 

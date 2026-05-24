@@ -160,18 +160,91 @@ Sessions (multi-tab chat), `history` of closed sessions (`MAX_HISTORY`), `isStre
 
 `mode`: `allow_all` vs whitelist-driven confirm path; used on Anthropic-style tool flows (see harness / UI).
 
+**Global store** (`tinyllama.toolPolicy.v2` in `localStorage`) plus optional **project layer** from `.tinyllama/tools.json` under the open workspace (merged via `effectiveToolPolicy` derived store). Settings UI edits global policy only; project file is edited on disk or future project settings UI.
+
 ---
 
-## 8. Workspace resolution
+## 8. Projects and workspaces
+
+### 8.1 Product model (intent)
+
+In Tiny Llama, **each folder the user opens is a project** (synonym: **workspace**). A project is the unit of:
+
+- **Explorer root** — one expandable tree rooted at that folder.
+- **Tool and agent context** — relative paths, `run_shell` cwd, git commands, and the `--- Workspace ---` block in the system prompt all refer to this root.
+- **Chat history** — conversations belong to the project they were started in (not shared across unrelated folders).
+- **Editor state** — open file tabs and active tab selection restore when returning to that project.
+- **Project-specific settings** — overrides that differ per repo (tool rules, custom tools, system prompt, and eventually model/backend defaults where it makes sense).
+
+**Global (app-wide) settings** remain for things that are truly machine-level: API keys, default provider endpoints, workbench theme, icon theme, keybindings, window layout preferences that are not tied to a repo.
+
+**Non-goals for v1 of project scoping:** multi-root workspaces (multiple folders in one project), cloud sync, separate windows per project (single main window switches project by changing folder).
+
+### 8.2 What is scoped today vs planned
+
+| Concern | Today | Storage | Planned (per project) |
+|--------|--------|---------|------------------------|
+| Explorer tree | Yes | In-memory `files.tree` + `workspacePath` | Same |
+| System prompt file | Yes | On disk: `<project>/.tinyllama/prompt.md` | Same |
+| Tool rules / custom tools | Partial | On disk: `<project>/.tinyllama/tools.json` merged at runtime | Same + optional UI |
+| Agent tool cwd / path sandbox | Yes | In-memory `files.workspacePath` per message | Same |
+| Chat sessions & message history | **No** | In-memory only (`chat` store); **lost on app quit**; **not keyed by project** | Persist per project id |
+| Workbench tabs (editor / terminal / preview) | **No** | `localStorage` `tinyllama.workbench.v1` — **one global strip** for all folders | Persist per project id |
+| Provider API keys, endpoints, model pick | **No** | `localStorage` `tinyllama.settings.v3` — global | Optional per-project overrides |
+| Tool policy defaults (allow/ask/deny) | **No** | Global `localStorage` + project merge for rules only | Project defaults in `.tinyllama/` |
+| Workbench theme, pane widths, shortcuts | **No** | Global `localStorage` | Likely stay global |
+
+**Implication today:** switching the open folder in one session changes tools, explorer, and loaded prompt, but **does not swap chat history or saved editor tabs** to match that folder. Opening a different folder after restart still restores the **same global tab list** from `localStorage`, which may point at paths outside the newly opened project until the user closes them.
+
+### 8.3 How chat uses the project folder (current behavior)
+
+Chat does **not** load a per-project history file yet. It **does** bind each turn to whatever `files.workspacePath` is at send time.
+
+**1. Workspace becomes active**
+
+- User picks a folder (`pick_workspace_folder` → `applyWorkspaceFolder`) or app starts with `get_workspace_path` (see §8.4).
+- `files.workspacePath` is set to the normalized absolute path.
+- Explorer loads via `list_dir` under a single root row (`buildWorkspaceTree` in `src/lib/workspace.ts`).
+- `systemPrompt.load(workspacePath)` reads `<project>/.tinyllama/prompt.md` if present (Tauri `read_system_prompt`).
+- `reloadProjectTools(workspacePath)` loads `<project>/.tinyllama/tools.json` into the project layer of tool policy.
+
+**2. Chat UI lifecycle (`ChatPane.svelte`)**
+
+- On mount: if Tauri and `workspacePath` already set → load system prompt + project tools (same as above).
+- `$effect` on `$files.workspacePath`: when the path changes → `reloadProjectTools` again (prompt reload is tied to `applyWorkspaceFolder` / Prompt panel, not every path change in this effect).
+
+**3. Each user message (`runAgentLoop`)**
+
+- `workspacePath = get(files).workspacePath ?? "/"` — tools refuse with a clear error if no real folder is open (`/` fallback).
+- `buildSystemPrompt()` = mode base prompt (`MODE_CONFIG`) + `buildWorkspaceContextBlock(workspacePath)` + optional custom text from `systemPrompt` store (from `.tinyllama/prompt.md`).
+- Tool calls use `executeTool(..., workspacePath, ...)` so paths resolve under the project root (`src/lib/tools/pathUtils.ts`).
+
+**4. What is not tied to the folder**
+
+- Chat **sessions** (tabs in the chat strip) live in the `chat` store only; switching projects does not save/load a separate session list.
+- **Closed chat history** is likewise in-memory until the app exits.
+
+So: the model always “starts” a turn with the **current** workspace path and prompt overlay; it does **not** yet “resume” a project-specific chat transcript from disk when you open that folder again.
+
+### 8.4 Workspace resolution (path on disk)
 
 **Rust** (`commands.rs`):
 
-1. If `workspace_root.txt` exists under OS config dir (`tiny-llama/`) and contains a valid directory path → **override**.
-2. Else **`std::env::current_dir()`** (process CWD, typically project dir in dev).
+1. If `workspace_root.txt` exists under OS config dir (`tiny-llama/`) and contains a valid directory path → **override** (last folder picked via UI is also written here by `pick_workspace_folder`).
+2. Else **`std::env::current_dir()`** (process CWD, typically repo dir when launched via `tauri dev` from the project).
 
-**Frontend** (`applyWorkspaceFolder` in `src/lib/workspace.ts`): sets `workspacePath`, `list_dir`, `files.setTree` with **normalized** `FileEntry` rows.
+**Frontend** (`applyWorkspaceFolder` in `src/lib/workspace.ts`): sets `workspacePath`, rebuilds explorer tree with a **single root entry** for the folder name, calls `systemPrompt.load`, and is the right place to hook future per-project store hydration (chat + tabs).
 
 **Explorer filter** (`filesystem.rs`): skips dotfiles, `node_modules`, `target`, `dist`.
+
+**On-disk project metadata (conventions)**
+
+| Path | Purpose |
+|------|---------|
+| `<project>/.tinyllama/prompt.md` | Custom instructions appended to the mode system prompt |
+| `<project>/.tinyllama/tools.json` | `toolRules`, `customTools` merged over global tool policy |
+
+Future project persistence will likely extend `.tinyllama/` (e.g. `chat.json`, `workbench.json`) or a single `project.json` index—**not implemented yet**; see §8.2.
 
 ---
 
@@ -325,7 +398,7 @@ From `README.md` / stubs: Git depth, LSP, rich file search, inline tool diffs, s
 | Harness | Pi-style coding agent loop in the sidecar |
 | Sidecar | Node `index.js` subprocess controlled by Tauri |
 | Workbench | Overall IDE chrome: chat + center + right + status |
-| Workspace | Root folder for explorer + default terminal cwd |
+| Workspace / Project | Root folder the user opened; explorer root, tool cwd, and (when implemented) scoped chat + tabs |
 
 ---
 

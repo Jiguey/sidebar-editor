@@ -36,6 +36,29 @@ function ok(output: string): ToolResult {
   return { success: true, output };
 }
 
+function toolErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message || e.name || "Error";
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    return (e as { message: string }).message;
+  }
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+function requireWorkspacePath(workspacePath: string): ToolResult | null {
+  const root = workspacePath?.trim();
+  if (!root || root === "/") {
+    return fail(
+      "No workspace folder is open. Use the folder icon at the bottom of the right sidebar to open a project directory."
+    );
+  }
+  return null;
+}
+
 function requireString(args: Record<string, unknown>, key: string): string | ToolResult {
   const value = args[key];
   if (typeof value !== "string" || !value.trim()) {
@@ -336,6 +359,9 @@ export async function executeTool(
     return fail("Tool execution requires the Tauri desktop environment.");
   }
 
+  const wsCheck = requireWorkspacePath(workspacePath);
+  if (wsCheck) return wsCheck;
+
   const handler = TOOL_HANDLERS[name];
   if (!handler) {
     return fail(`Unknown tool: ${name}`);
@@ -344,8 +370,7 @@ export async function executeTool(
   try {
     return await handler(args, workspacePath, context);
   } catch (e) {
-    const error = e as Error;
-    return fail(`Tool execution failed: ${error.message}`);
+    return fail(`Tool execution failed: ${toolErrorMessage(e)}`);
   }
 }
 

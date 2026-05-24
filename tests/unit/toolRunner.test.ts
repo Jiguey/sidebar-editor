@@ -53,6 +53,25 @@ describe("toolRunner", () => {
       });
     });
 
+    describe("when no workspace folder is open", () => {
+      it("returns a clear error instead of undefined", async () => {
+        const result = await executeTool("write_file", { path: "hello.txt", content: "hi" }, "/");
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("No workspace folder");
+        expect(result.output).not.toContain("undefined");
+      });
+    });
+
+    describe("error formatting", () => {
+      it("includes string rejections from invoke", async () => {
+        mockReadFile.mockRejectedValue("permission denied");
+        const result = await executeTool("read_file", { path: "x.txt" }, workspacePath);
+        expect(result.success).toBe(false);
+        expect(result.output).toContain("permission denied");
+        expect(result.output).not.toContain("undefined");
+      });
+    });
+
     describe("read_file", () => {
       it("reads file with relative path", async () => {
         mockReadFile.mockResolvedValue("content");
@@ -82,6 +101,18 @@ describe("toolRunner", () => {
     });
 
     describe("create_file", () => {
+      it("maps /filename to workspace root (LLM mistake)", async () => {
+        mockPathExists.mockResolvedValue(false);
+        mockWriteFile.mockResolvedValue(undefined);
+        const result = await executeTool(
+          "create_file",
+          { path: "/output.txt", content: "hi" },
+          workspacePath
+        );
+        expect(result.success).toBe(true);
+        expect(mockWriteFile).toHaveBeenCalledWith("/test/workspace/output.txt", "hi");
+      });
+
       it("creates file when it does not exist", async () => {
         mockPathExists.mockResolvedValue(false);
         mockWriteFile.mockResolvedValue(undefined);

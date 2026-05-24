@@ -307,8 +307,26 @@ pub fn run_shell(
     }
 }
 
-const SYSTEM_PROMPT_DIR: &str = ".tinyllama";
+const TINYLLAMA_DIR: &str = ".tinyllama";
 const SYSTEM_PROMPT_FILE: &str = "prompt.md";
+const PROJECT_STATE_FILE: &str = "state.json";
+
+fn tinyllama_dir(workspace_path: &str) -> Result<PathBuf, String> {
+    let ws = Path::new(workspace_path);
+    if !ws.is_dir() {
+        return Err(format!("Workspace path is not a directory: {workspace_path}"));
+    }
+    Ok(ws.join(TINYLLAMA_DIR))
+}
+
+fn ensure_tinyllama_dir(workspace_path: &str) -> Result<PathBuf, String> {
+    let dir = tinyllama_dir(workspace_path)?;
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create .tinyllama directory: {e}"))?;
+    }
+    Ok(dir)
+}
 
 #[tauri::command]
 pub fn read_system_prompt(workspace_path: String) -> Result<Option<String>, String> {
@@ -317,7 +335,7 @@ pub fn read_system_prompt(workspace_path: String) -> Result<Option<String>, Stri
         return Err(format!("Workspace path is not a directory: {workspace_path}"));
     }
 
-    let prompt_path = ws.join(SYSTEM_PROMPT_DIR).join(SYSTEM_PROMPT_FILE);
+    let prompt_path = ws.join(TINYLLAMA_DIR).join(SYSTEM_PROMPT_FILE);
     if !prompt_path.exists() {
         return Ok(None);
     }
@@ -334,13 +352,47 @@ pub fn write_system_prompt(workspace_path: String, content: String) -> Result<()
         return Err(format!("Workspace path is not a directory: {workspace_path}"));
     }
 
-    let prompt_dir = ws.join(SYSTEM_PROMPT_DIR);
-    if !prompt_dir.exists() {
-        std::fs::create_dir_all(&prompt_dir)
-            .map_err(|e| format!("Failed to create .tinyllama directory: {e}"))?;
-    }
+    let prompt_dir = ensure_tinyllama_dir(&workspace_path)?;
 
     let prompt_path = prompt_dir.join(SYSTEM_PROMPT_FILE);
     std::fs::write(&prompt_path, content)
         .map_err(|e| format!("Failed to write system prompt: {e}"))
+}
+
+#[tauri::command]
+pub fn read_project_state(workspace_path: String) -> Result<Option<String>, String> {
+    let dir = tinyllama_dir(&workspace_path)?;
+    let state_path = dir.join(PROJECT_STATE_FILE);
+    if !state_path.exists() {
+        return Ok(None);
+    }
+    std::fs::read_to_string(&state_path)
+        .map(Some)
+        .map_err(|e| format!("Failed to read project state: {e}"))
+}
+
+#[tauri::command]
+pub fn write_project_state(workspace_path: String, content: String) -> Result<(), String> {
+    let dir = ensure_tinyllama_dir(&workspace_path)?;
+    let state_path = dir.join(PROJECT_STATE_FILE);
+    std::fs::write(&state_path, content)
+        .map_err(|e| format!("Failed to write project state: {e}"))
+}
+
+#[tauri::command]
+pub fn icon_pack_get_dir() -> Option<String> {
+    crate::modules::icon_pack::icon_pack_dir()
+}
+
+#[tauri::command]
+pub fn icon_pack_refresh_bundled() -> Result<String, String> {
+    crate::modules::icon_pack::refresh_vscode_icons_pack()
+}
+
+#[tauri::command]
+pub fn pick_icon_pack_folder() -> Result<Option<String>, String> {
+    let picked = rfd::FileDialog::new()
+        .set_title("Select icon pack folder")
+        .pick_folder();
+    Ok(picked.map(|p| p.to_string_lossy().into_owned()))
 }

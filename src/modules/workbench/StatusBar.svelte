@@ -4,11 +4,8 @@
   import { files } from "$lib/stores/files";
   import { backendStatus, pollBackendHealth } from "$lib/stores/backendStatus";
   import { gitCurrentBranch, gitStatus, isTauriAvailable } from "$lib/ipc";
-  import PanelLeft from "@lucide/svelte/icons/panel-left";
-  import PanelRight from "@lucide/svelte/icons/panel-right";
-  import PanelBottom from "@lucide/svelte/icons/panel-bottom";
-  import FolderOpen from "@lucide/svelte/icons/folder-open";
-  import SettingsIcon from "@lucide/svelte/icons/settings";
+  import SidebarIcon from "phosphor-svelte/lib/SidebarIcon";
+  import RowsIcon from "phosphor-svelte/lib/RowsIcon";
 
   const POLL_MS = 10_000;
 
@@ -19,8 +16,6 @@
     onToggleLeft,
     onToggleRight,
     onToggleBottom,
-    onOpenWorkspace,
-    onOpenSettings,
   }: {
     showLeftPanel?: boolean;
     showRightPanel?: boolean;
@@ -28,8 +23,6 @@
     onToggleLeft?: () => void;
     onToggleRight?: () => void;
     onToggleBottom?: () => void;
-    onOpenWorkspace?: () => void;
-    onOpenSettings?: () => void;
   } = $props();
   let timer: ReturnType<typeof setInterval> | null = null;
   let gitBranch = $state<string | null>(null);
@@ -109,7 +102,7 @@
     <span class="status-dot" class:green={$backendStatus.dot === "green"} class:red={$backendStatus.dot === "red"} class:yellow={$backendStatus.dot === "yellow"} class:idle={$backendStatus.dot === "idle"} title={$backendStatus.detail}></span>
     <span class="status-detail">{$backendStatus.detail}</span>
   </div>
-  <div class="status-bar__actions" role="toolbar" aria-label="Panels, workspace, and settings">
+  <div class="status-bar__actions" role="toolbar" aria-label="Panel toggles">
     <button
       type="button"
       class="status-toggle"
@@ -118,7 +111,7 @@
       title="Toggle chat"
       onclick={() => onToggleLeft?.()}
     >
-      <PanelLeft />
+      <SidebarIcon size={14} />
     </button>
     <button
       type="button"
@@ -128,7 +121,7 @@
       title="Toggle bottom panel"
       onclick={() => onToggleBottom?.()}
     >
-      <PanelBottom />
+      <RowsIcon size={14} />
     </button>
     <button
       type="button"
@@ -138,18 +131,7 @@
       title="Toggle explorer"
       onclick={() => onToggleRight?.()}
     >
-      <PanelRight />
-    </button>
-    <button
-      type="button"
-      class="status-toggle status-toggle--after-panels"
-      title="Open workspace folder (explorer + new terminals)"
-      onclick={() => onOpenWorkspace?.()}
-    >
-      <FolderOpen />
-    </button>
-    <button type="button" class="status-toggle" title="Settings" onclick={() => onOpenSettings?.()}>
-      <SettingsIcon />
+      <SidebarIcon size={14} mirrored />
     </button>
   </div>
 </div>
@@ -159,12 +141,15 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 24px;
+    box-sizing: border-box;
+    height: var(--workbench-shell-header-height);
+    min-height: var(--workbench-shell-header-height);
     padding: 0 8px 0 12px;
-    font-size: 11px;
-    color: #a0a0a0;
-    background: #252526;
-    border-top: 1px solid transparent;
+    font-size: 10px;
+    line-height: 1.25;
+    color: var(--muted-foreground);
+    background: color-mix(in srgb, var(--surface, var(--card)) 88%, var(--background) 12%);
+    border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     flex-shrink: 0;
     min-width: 0;
   }
@@ -184,10 +169,6 @@
     flex-shrink: 0;
   }
 
-  .status-toggle--after-panels {
-    margin-left: 8px;
-  }
-
   .status-toggle {
     display: inline-flex;
     align-items: center;
@@ -198,41 +179,41 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #7a7a7a;
+    color: var(--muted-foreground);
     cursor: pointer;
   }
 
   .status-toggle:hover,
   .status-toggle:active {
     background: transparent;
-    color: #b8b8b8;
+    color: var(--foreground);
   }
 
   .status-toggle.active {
     background: transparent;
-    color: #ffffff;
+    color: var(--foreground);
   }
 
   .status-toggle.active:hover,
   .status-toggle.active:active {
-    color: #ffffff;
+    color: var(--foreground);
   }
 
   .status-toggle:focus-visible {
-    outline: 1px solid #6e6e6e;
+    outline: 1px solid var(--ring);
     outline-offset: 1px;
   }
 
   .status-toggle :global(svg) {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     flex-shrink: 0;
   }
 
   .git-pill {
     font-family: ui-monospace, monospace;
     font-size: 10px;
-    color: #c0c0c0;
+    color: var(--foreground);
     flex-shrink: 0;
     max-width: 140px;
     overflow: hidden;
@@ -247,13 +228,13 @@
   .status-sep {
     width: 1px;
     height: 12px;
-    background: #3c3c3c;
+    background: color-mix(in srgb, var(--border) 55%, transparent);
     flex-shrink: 0;
   }
 
   .status-label {
     font-weight: 600;
-    color: #cccccc;
+    color: var(--foreground);
     flex-shrink: 0;
   }
 

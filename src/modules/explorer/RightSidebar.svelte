@@ -2,9 +2,11 @@
   import FileTree from "./FileTree.svelte";
   import GitPanel from "./GitPanel.svelte";
   import PromptPanel from "./PromptPanel.svelte";
-  import FolderTree from "@lucide/svelte/icons/folder-tree";
-  import GitBranch from "@lucide/svelte/icons/git-branch";
-  import ScrollText from "@lucide/svelte/icons/scroll-text";
+  import FilesIcon from "phosphor-svelte/lib/FilesIcon";
+  import GitDiffIcon from "phosphor-svelte/lib/GitDiffIcon";
+  import FileMdIcon from "phosphor-svelte/lib/FileMdIcon";
+  import FolderOpenIcon from "phosphor-svelte/lib/FolderOpenIcon";
+  import GearIcon from "phosphor-svelte/lib/GearIcon";
 
   type Tab = "files" | "git" | "prompt";
   let activeTab = $state<Tab>("files");
@@ -12,11 +14,15 @@
   let {
     dockedOnly = false,
     onRequestExpand,
+    onOpenWorkspace,
+    onOpenSettings,
     /** Synced to shell so the aside width matches the activity strip when the tree/search pane is closed. */
     secondaryOpen = $bindable(true),
   } = $props<{
     dockedOnly?: boolean;
     onRequestExpand?: () => void;
+    onOpenWorkspace?: () => void;
+    onOpenSettings?: () => void;
     secondaryOpen?: boolean;
   }>();
 
@@ -59,24 +65,39 @@
 
   <!-- Activity strip: always rendered; stays visible when the secondary pane is collapsed. -->
   <div class="sidebar-icons" role="toolbar" aria-label="Right activity bar">
-    {#each tabs as tab}
+    <div class="sidebar-icons__main">
+      {#each tabs as tab}
+        <button
+          type="button"
+          class="icon-btn"
+          class:active={dockedOnly ? activeTab === tab.id : secondaryOpen && activeTab === tab.id}
+          aria-pressed={dockedOnly ? activeTab === tab.id : secondaryOpen && activeTab === tab.id}
+          onclick={() => onIconClick(tab.id)}
+          title={tab.title}
+        >
+          {#if tab.id === "files"}
+            <FilesIcon class="acc-icon" size={20} aria-hidden="true" />
+          {:else if tab.id === "git"}
+            <GitDiffIcon class="acc-icon" size={20} aria-hidden="true" />
+          {:else if tab.id === "prompt"}
+            <FileMdIcon class="acc-icon" size={20} aria-hidden="true" />
+          {/if}
+        </button>
+      {/each}
+    </div>
+    <div class="sidebar-icons__footer" role="group" aria-label="Workspace and settings">
       <button
         type="button"
         class="icon-btn"
-        class:active={dockedOnly ? activeTab === tab.id : secondaryOpen && activeTab === tab.id}
-        aria-pressed={dockedOnly ? activeTab === tab.id : secondaryOpen && activeTab === tab.id}
-        onclick={() => onIconClick(tab.id)}
-        title={tab.title}
+        title="Open workspace folder (explorer + new terminals)"
+        onclick={() => onOpenWorkspace?.()}
       >
-        {#if tab.id === "files"}
-          <FolderTree class="acc-icon" aria-hidden="true" />
-        {:else if tab.id === "git"}
-          <GitBranch class="acc-icon" aria-hidden="true" />
-        {:else if tab.id === "prompt"}
-          <ScrollText class="acc-icon" aria-hidden="true" />
-        {/if}
+        <FolderOpenIcon class="acc-icon" size={20} aria-hidden="true" />
       </button>
-    {/each}
+      <button type="button" class="icon-btn" title="Settings" onclick={() => onOpenSettings?.()}>
+        <GearIcon class="acc-icon" size={20} aria-hidden="true" />
+      </button>
+    </div>
   </div>
 </div>
 
@@ -123,9 +144,25 @@
     width: 34px;
     min-width: 34px;
     max-width: 34px;
+    min-height: 0;
+    height: 100%;
     box-sizing: border-box;
     background: var(--activity-bar-bg);
     border-left: 1px solid var(--activity-bar-border);
+  }
+
+  .sidebar-icons__main {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .sidebar-icons__footer {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    margin-top: auto;
+    border-top: 1px solid var(--activity-bar-border);
   }
 
   .icon-btn {

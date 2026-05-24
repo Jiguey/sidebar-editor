@@ -1,3 +1,4 @@
+import { get } from "svelte/store";
 import { files, type FileEntry } from "./stores/files";
 import { listDir } from "./ipc";
 import { normalizeFilePath } from "./fsPath";
@@ -16,10 +17,49 @@ export function normalizeFileEntry(e: FileEntry & { isDir?: boolean }): FileEntr
   };
 }
 
-/** Point explorer (and new terminals) at `path` and refresh the tree from disk. */
+/** Display name for the workspace folder (last path segment). */
+export function workspaceFolderName(workspacePath: string): string {
+  const normalized = normalizeFilePath(workspacePath.trim());
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? normalized;
+}
+
+/** VS Code–style single root row: the open project folder (expand/collapse). */
+export function createWorkspaceRootEntry(
+  workspacePath: string,
+  children: FileEntry[],
+  expanded = true
+): FileEntry {
+  const normalized = normalizeFilePath(workspacePath.trim());
+  return {
+    name: workspaceFolderName(normalized),
+    path: normalized,
+    is_dir: true,
+    expanded,
+    children,
+  };
+}
+
+export function buildWorkspaceTree(
+  workspacePath: string,
+  children: FileEntry[],
+  expanded = true
+): FileEntry[] {
+  return [createWorkspaceRootEntry(workspacePath, children, expanded)];
+}
+
+/** Point explorer at `path`, swap per-project chat + editor tabs from `.tinyllama/state.json`. */
 export async function applyWorkspaceFolder(path: string): Promise<void> {
-  const normalized = normalizeFilePath(path.trim());
-  files.setWorkspacePath(normalized);
+  const { switchProjectWorkspace } = await import("./projectState");
+  await switchProjectWorkspace(path);
+}
+
+/** Refresh children under the workspace root (keeps root expanded state). */
+export async function refreshWorkspaceTree(workspacePath: string): Promise<void> {
+  const normalized = normalizeFilePath(workspacePath.trim());
   const raw = await listDir(normalized);
-  files.setTree(raw.map((x) => normalizeFileEntry(x as FileEntry & { isDir?: boolean })));
+  const children = raw.map((x) => normalizeFileEntry(x as FileEntry & { isDir?: boolean }));
+  const root = get(files).tree.find((e) => normalizeFilePath(e.path) === normalized);
+  const expanded = root?.expanded ?? true;
+  files.setTree(buildWorkspaceTree(normalized, children, expanded));
 }

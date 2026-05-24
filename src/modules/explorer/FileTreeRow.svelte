@@ -2,24 +2,17 @@
   import type { FileEntry } from "$lib/stores/files";
   import { normalizeFilePath } from "$lib/fsPath";
   import FileTreeRow from "./FileTreeRow.svelte";
+  import FileIcon from "$lib/components/FileIcon.svelte";
 
   interface Props {
     entry: FileEntry;
     depth: number;
     onActivate: (entry: FileEntry) => void | Promise<void>;
-    getCodicon: (entry: FileEntry) => string;
     highlightPath?: string | null;
     onContextMenu?: (entry: FileEntry, clientX: number, clientY: number) => void;
   }
 
-  let {
-    entry,
-    depth,
-    onActivate,
-    getCodicon,
-    highlightPath = null,
-    onContextMenu,
-  }: Props = $props();
+  let { entry, depth, onActivate, highlightPath = null, onContextMenu }: Props = $props();
 
   const isHighlighted = $derived(
     highlightPath != null && normalizeFilePath(entry.path) === normalizeFilePath(highlightPath)
@@ -38,7 +31,7 @@
       onContextMenu?.(entry, e.clientX, e.clientY);
     }}
   >
-    <span class="codicon {getCodicon(entry)}" aria-hidden="true"></span>
+    <FileIcon name={entry.name} isDir={entry.is_dir} expanded={entry.expanded ?? false} />
     <span class="name">{entry.name}</span>
   </button>
 </div>
@@ -48,7 +41,6 @@
       entry={child}
       depth={depth + 1}
       {onActivate}
-      {getCodicon}
       {highlightPath}
       {onContextMenu}
     />
@@ -89,9 +81,11 @@
     color: var(--muted-foreground);
   }
 
-  .tree-button :global(.codicon) {
+  .tree-button :global(.codicon),
+  .tree-button :global(.file-icon-img) {
     font-size: 16px;
     width: 18px;
+    height: 18px;
     flex-shrink: 0;
     color: var(--muted-foreground);
   }

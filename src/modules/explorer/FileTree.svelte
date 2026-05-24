@@ -2,7 +2,7 @@
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import { files, type FileEntry } from "$lib/stores/files";
-  import { workbench, activeWorkbenchTab, workbenchEditorTabId } from "$lib/stores/workbench";
+  import { workbench, activeWorkbenchTab } from "$lib/stores/workbench";
   import {
     listDir,
     readFile,
@@ -11,25 +11,42 @@
     isTauriAvailable,
     deleteEntry,
     renameEntry,
+    pickWorkspaceFolder,
   } from "$lib/ipc";
-  import { applyWorkspaceFolder, normalizeFileEntry } from "$lib/workspace";
+  import {
+    applyWorkspaceFolder,
+    normalizeFileEntry,
+    refreshWorkspaceTree,
+    workspaceFolderName,
+  } from "$lib/workspace";
   import { normalizeFilePath } from "$lib/fsPath";
   import FileTreeRow from "./FileTreeRow.svelte";
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let browserMode = $state(false);
+  let desktopAvailable = $state(isTauriAvailable());
   let highlightPath = $state<string | null>(null);
   let ctxMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
 
   async function reloadWorkspaceTree() {
     const ws = get(files).workspacePath;
-    if (!ws || browserMode) return;
+    if (!ws || !desktopAvailable) return;
     try {
-      const raw = await listDir(ws);
-      files.setTree(raw.map((c) => normalizeFileEntry(c as FileEntry & { isDir?: boolean })));
+      await refreshWorkspaceTree(ws);
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function openWorkspaceFolder() {
+    if (!desktopAvailable) return;
+    try {
+      const path = await pickWorkspaceFolder();
+      if (!path) return;
+      await applyWorkspaceFolder(path);
+      error = null;
+    } catch (e) {
+      error = String(e);
     }
   }
 
@@ -70,7 +87,7 @@
   async function ctxDelete() {
     const e = ctxMenu?.entry;
     closeCtx();
-    if (!e || e.is_dir || !isTauriAvailable()) return;
+    if (!e || e.is_dir || !desktopAvailable) return;
     if (!confirm(`Delete “${e.name}”? This cannot be undone.`)) return;
     try {
       await deleteEntry(e.path);
@@ -83,7 +100,7 @@
   async function ctxRename() {
     const e = ctxMenu?.entry;
     closeCtx();
-    if (!e || e.is_dir || !isTauriAvailable()) return;
+    if (!e || e.is_dir || !desktopAvailable) return;
     const next = window.prompt("New file name", e.name);
     if (!next || next === e.name) return;
     const parent = e.path.slice(0, -e.name.length).replace(/\/$/, "");
@@ -97,15 +114,17 @@
   }
 
   onMount(async () => {
-    if (!isTauriAvailable()) {
-      browserMode = true;
+    desktopAvailable = isTauriAvailable();
+    if (!desktopAvailable) {
       loading = false;
       return;
     }
 
     try {
       const workspace = await getWorkspacePath();
-      await applyWorkspaceFolder(workspace);
+      if (workspace) {
+        await applyWorkspaceFolder(workspace);
+      }
     } catch (e) {
       error = String(e);
     } finally {
@@ -137,36 +156,22 @@
 
     try {
       const content = await readFile(entry.path);
-      files.openFile({
+      workbench.openEditorFile({
         path: entry.path,
         name: entry.name,
         content,
         isDirty: false,
         language: getLanguageFromPath(entry.path),
       });
-      workbench.ensureEditorTab(entry.path, entry.name);
       workbench.syncFromOpenFiles();
-      workbench.setActiveTab(workbenchEditorTabId(entry.path));
     } catch (e) {
       console.error("Failed to read file:", e);
     }
   }
 
-  /** VS Code / Cursor codicon names for the explorer tree. */
-  function getCodicon(entry: FileEntry): string {
-    if (entry.is_dir) {
-      return entry.expanded ? "codicon-folder-opened" : "codicon-folder";
-    }
-    const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
-    if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte", "html", "htm"].includes(ext)) {
-      return "codicon-file-code";
-    }
-    if (ext === "json" || ext === "jsonc") return "codicon-json";
-    if (ext === "md" || ext === "mdx") return "codicon-markdown";
-    if (ext === "py") return "codicon-python";
-    if (["css", "scss", "less"].includes(ext)) return "codicon-symbol-color";
-    return "codicon-file";
-  }
+  let workspaceLabel = $derived(
+    $files.workspacePath ? workspaceFolderName($files.workspacePath) : null
+  );
 </script>
 
 <svelte:window onpointerdown={closeCtx} />
@@ -174,24 +179,38 @@
 <div class="file-tree">
   {#if loading}
     <div class="loading">Loading files...</div>
-  {:else if browserMode}
-    <div class="browser-mode">
-      <p>Browser Mode</p>
-      <p class="hint">Run with <code>npm run tauri dev</code> to access files</p>
+  {:else if !desktopAvailable}
+    <div class="tree-prompt">
+      <p class="prompt-title">Desktop app required</p>
+      <p class="hint">
+        File access, the explorer, tools, and the editor need the Tauri shell. Run:
+      </p>
+      <code class="cmd">pnpm run tauri dev</code>
+      <p class="hint">Opening <code>http://localhost:14200</code> in a browser alone will not load your project files.</p>
     </div>
   {:else if error}
     <div class="error">{error}</div>
+  {:else if !$files.workspacePath}
+    <div class="tree-prompt">
+      <p class="prompt-title">No folder open</p>
+      <p class="hint">Open your project root — tools and the agent use this path as cwd.</p>
+      <button type="button" class="open-folder-btn" onclick={() => void openWorkspaceFolder()}>
+        Open folder…
+      </button>
+    </div>
   {:else}
+    <div class="workspace-header" title={$files.workspacePath}>
+      <span class="workspace-label">{workspaceLabel}</span>
+    </div>
     <div class="tree-content">
       {#if $files.tree.length === 0}
-        <p class="tree-empty">This folder is empty (hidden names like <code>.git</code> are filtered).</p>
+        <p class="tree-empty">Workspace has no visible files.</p>
       {:else}
         {#each $files.tree as entry (entry.path)}
           <FileTreeRow
             {entry}
             depth={0}
             onActivate={handleActivate}
-            {getCodicon}
             highlightPath={highlightPath}
             onContextMenu={onRowContext}
           />
@@ -229,8 +248,27 @@
     overflow: hidden;
   }
 
+  .workspace-header {
+    flex-shrink: 0;
+    padding: 6px 12px 4px;
+    border-bottom: 1px solid color-mix(in srgb, var(--sidebar-border, var(--border)) 55%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-label {
+    color: var(--foreground);
+  }
+
   .loading,
-  .error {
+  .error,
+  .tree-prompt {
     padding: 16px;
     color: var(--muted-foreground);
     font-size: 13px;
@@ -240,27 +278,55 @@
     color: var(--destructive);
   }
 
-  .browser-mode {
-    padding: 16px;
-    text-align: center;
+  .tree-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .browser-mode p {
-    color: var(--muted-foreground);
-    font-size: 13px;
+  .prompt-title {
     margin: 0;
+    font-weight: 600;
+    color: var(--foreground);
   }
 
-  .browser-mode .hint {
-    margin-top: 8px;
-    font-size: 11px;
+  .hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
   }
 
-  .browser-mode code {
+  .cmd {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
     background: var(--muted);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: monospace;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--foreground);
+  }
+
+  .tree-prompt code {
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--muted);
+  }
+
+  .open-folder-btn {
+    margin-top: 4px;
+    padding: 6px 12px;
+    border: 1px solid var(--sidebar-border, var(--border));
+    border-radius: 6px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font-size: 12px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+
+  .open-folder-btn:hover {
+    background: var(--muted);
   }
 
   .tree-content {
@@ -268,7 +334,7 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 8px 0;
+    padding: 4px 0 8px;
   }
 
   .tree-empty {
@@ -276,14 +342,6 @@
     font-size: 12px;
     line-height: 1.45;
     color: var(--muted-foreground);
-  }
-
-  .tree-empty code {
-    font-size: 11px;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: var(--muted);
-    color: var(--foreground);
   }
 
   .ctx-menu {

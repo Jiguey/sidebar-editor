@@ -3,9 +3,9 @@
   import { files } from "$lib/stores/files";
   import { normalizeFilePath } from "$lib/fsPath";
   import ShellTabBubble from "./ShellTabBubble.svelte";
-  import FileText from "@lucide/svelte/icons/file-text";
-  import Terminal from "@lucide/svelte/icons/terminal";
-  import Monitor from "@lucide/svelte/icons/monitor";
+  import FileTextIcon from "phosphor-svelte/lib/FileTextIcon";
+  import TerminalIcon from "phosphor-svelte/lib/TerminalIcon";
+  import MonitorIcon from "phosphor-svelte/lib/MonitorIcon";
 </script>
 
 <div
@@ -31,11 +31,11 @@
       >
         {#snippet icon()}
           {#if tab.kind === "editor"}
-            <FileText />
+            <FileTextIcon size={14} />
           {:else if tab.kind === "terminal"}
-            <Terminal />
+            <TerminalIcon size={14} />
           {:else}
-            <Monitor />
+            <MonitorIcon size={14} />
           {/if}
         {/snippet}
       </ShellTabBubble>

@@ -12,7 +12,7 @@ The product goal is a lightweight coding workbench (editor, explorer, terminal, 
 |-------|-------------|
 | **Desktop Shell** | Tauri 2, `@tauri-apps/api`, `tauri-plugin-shell` |
 | **Frontend** | Svelte 5, Vite 6, TypeScript, Tailwind CSS 4 |
-| **UI Components** | bits-ui, shadcn-svelte-style primitives, Lucide icons, VS Code codicons |
+| **UI Components** | bits-ui, shadcn-svelte-style primitives, [Phosphor](https://github.com/haruaki07/phosphor-svelte) icons (MIT), VS Code codicons for file tree |
 | **Editor** | CodeMirror 6 (JS/TS, Rust, Python, Markdown, etc.) |
 | **Terminal** | xterm.js + `@xterm/addon-fit` |
 | **Rust Backend** | serde, git2, portable-pty, notify, rfd, walkdir, reqwest |

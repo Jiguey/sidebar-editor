@@ -20,24 +20,34 @@
   import { onMount, onDestroy } from "svelte";
   import { isTauriAvailable } from "$lib/ipc";
   import {
-    streamChat as streamChatOpenAI,
-    type Message as ProviderMessage,
-    type StreamEvent,
-  } from "$lib/providers/openaiCompat";
-  import { streamChat as streamChatAnthropic } from "$lib/providers/anthropic";
-  import { getToolsForPolicy, getToolDescription } from "$lib/toolPolicy";
-  import { toolNeedsUserApproval, toolIsDenied } from "$lib/toolPolicy";
+    buildProviderMessages,
+    appendAssistantToolCalls,
+    appendToolResults,
+  } from "$lib/agent/conversation";
+  import { streamOneTurn } from "$lib/agent/streamTurn";
+  import { buildWorkspaceContextBlock } from "$lib/agent/workspaceContext";
+  import { syncUiAfterFilesystemTool } from "$lib/filesystemSync";
+  import type { StoredToolCall } from "$lib/stores/chat";
+  import {
+    getToolsForPolicy,
+    getToolDescription,
+    toolNeedsUserApproval,
+    toolIsDenied,
+    type ToolPolicyState,
+  } from "$lib/toolPolicy";
   import { executeTool } from "$lib/tools/toolRunner";
 
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import History from "@lucide/svelte/icons/history";
-  import ImagePlus from "@lucide/svelte/icons/image-plus";
-  import MessageSquare from "@lucide/svelte/icons/message-square";
-  import Mic from "@lucide/svelte/icons/mic";
-  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import SettingsIcon from "@lucide/svelte/icons/settings";
-  import Square from "@lucide/svelte/icons/square";
+  const MAX_AGENT_STEPS = 12;
+
+  import ArrowUpIcon from "phosphor-svelte/lib/ArrowUpIcon";
+  import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
+  import ClockCounterClockwiseIcon from "phosphor-svelte/lib/ClockCounterClockwiseIcon";
+  import ImageSquareIcon from "phosphor-svelte/lib/ImageSquareIcon";
+  import ChatCircleIcon from "phosphor-svelte/lib/ChatCircleIcon";
+  import MicrophoneIcon from "phosphor-svelte/lib/MicrophoneIcon";
+  import ArrowsClockwiseIcon from "phosphor-svelte/lib/ArrowsClockwiseIcon";
+  import GearIcon from "phosphor-svelte/lib/GearIcon";
+  import StopIcon from "phosphor-svelte/lib/StopIcon";
 
   interface Props {
     onOpenSettings?: () => void;
@@ -484,11 +494,13 @@
     const modeConfig = MODE_CONFIG[$currentMode];
     const basePrompt = modeConfig.basePrompt;
     const userPrompt = $systemPrompt;
+    const workspaceBlock = buildWorkspaceContextBlock($files.workspacePath);
 
+    const parts = [basePrompt + workspaceBlock];
     if (userPrompt.trim()) {
-      return `${basePrompt}\n\n--- Custom Instructions ---\n${userPrompt}`;
+      parts.push(`--- Custom Instructions ---\n${userPrompt}`);
     }
-    return basePrompt;
+    return parts.join("\n\n");
   }
 
   async function executeToolCallsWithApproval(
@@ -545,6 +557,8 @@
       });
       chat.setToolCall(null);
 
+      await syncUiAfterFilesystemTool(workspacePath, tc.name, args, result.success);
+
       results.push({
         id: tc.id,
         name: tc.name,
@@ -562,7 +576,16 @@
     const policyState = get(effectiveToolPolicy);
     const tools = getToolsForPolicy(policyState, modeConfig.tools);
     const systemPromptText = buildSystemPrompt();
-    const workspacePath = get(files).workspacePath ?? "/";
+    const workspacePath = get(files).workspacePath;
+    if (!workspacePath?.trim()) {
+      chat.addMessage({
+        role: "assistant",
+        content:
+          "Error: No project folder is open. Use the folder icon on the right activity bar to open your workspace, then try again.",
+      });
+      chat.setStreaming(false);
+      return;
+    }
     const history = get(activeSession)?.messages ?? [];
 
     let providerMessages = buildProviderMessages(systemPromptText, history);
@@ -819,9 +842,9 @@
         $chat.historyPickerOpen ? chat.closeHistoryPicker() : chat.openHistoryPicker()}
     >
       {#if $chat.historyPickerOpen}
-        <MessageSquare />
+        <ChatCircleIcon size={18} />
       {:else}
-        <History />
+        <ClockCounterClockwiseIcon size={18} />
       {/if}
     </button>
     {#if $chat.historyPickerOpen}
@@ -994,7 +1017,7 @@
                   aria-label="More allow options"
                   title="Allow options"
                 >
-                  <ChevronDown aria-hidden="true" />
+                  <CaretDownIcon size={14} aria-hidden="true" />
                 </button>
               </div>
               {#if toolApprovalMenuOpen}
@@ -1035,7 +1058,7 @@
             title="Choose mode"
           >
             <span class="composer-mode-label">{MODE_CONFIG[$currentMode].label}</span>
-            <ChevronDown aria-hidden="true" />
+            <CaretDownIcon size={14} aria-hidden="true" />
           </button>
           {#if modeMenuOpen}
             <div class="mode-popup" role="listbox" aria-label="Choose mode">
@@ -1065,7 +1088,7 @@
             title="Choose model"
           >
             <span class="composer-model-label">{modelTriggerLabel}</span>
-            <ChevronDown aria-hidden="true" />
+            <CaretDownIcon size={14} aria-hidden="true" />
           </button>
           {#if modelMenuOpen}
             <div class="model-popup" role="listbox" aria-label="Choose model">
@@ -1080,7 +1103,7 @@
                       title="Refresh Ollama models"
                       aria-label="Refresh Ollama models"
                     >
-                      <RefreshCw aria-hidden="true" />
+                      <ArrowsClockwiseIcon size={14} aria-hidden="true" />
                     </button>
                     <button
                       type="button"
@@ -1092,7 +1115,7 @@
                       title="Provider settings"
                       aria-label="Provider settings"
                     >
-                      <SettingsIcon aria-hidden="true" />
+                      <GearIcon size={14} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -1177,7 +1200,7 @@
             title="Stop generating"
             aria-label="Stop generating"
           >
-            <Square aria-hidden="true" />
+            <StopIcon size={16} aria-hidden="true" />
           </button>
         {:else}
           <input
@@ -1193,7 +1216,7 @@
             title="Attach file"
             aria-label="Attach file"
           >
-            <ImagePlus aria-hidden="true" />
+            <ImageSquareIcon size={16} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -1204,7 +1227,7 @@
             aria-label={speechListening ? "Stop dictation" : "Speech to text"}
             aria-pressed={speechListening}
           >
-            <Mic aria-hidden="true" />
+            <MicrophoneIcon size={16} aria-hidden="true" />
           </button>
           {#if inputValue.trim()}
             <button
@@ -1214,7 +1237,7 @@
               title="Send"
               aria-label="Send message"
             >
-              <ArrowUp aria-hidden="true" />
+              <ArrowUpIcon size={16} aria-hidden="true" />
             </button>
           {/if}
         {/if}

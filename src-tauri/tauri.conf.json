@@ -25,6 +25,10 @@
     ],
     "security": {
       "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$DATA/**", "$HOME/**"]
+      },
       "capabilities": ["default"]
     }
   },

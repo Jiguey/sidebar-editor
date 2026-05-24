@@ -4,26 +4,21 @@
   import type { WorkbenchTab } from "$lib/stores/workbench";
   import { files } from "$lib/stores/files";
   import { writeFile } from "$lib/ipc";
+  import { loadCodeMirror, type CodeMirrorKit } from "$lib/editor/loadCodeMirror";
 
   interface Props {
-    activeTab: WorkbenchTab | null;
-    activeFile: OpenFile | null;
+    editorTab: WorkbenchTab | null;
+    editorFile: OpenFile | null;
     editorPaths: string[];
   }
 
-  /** Keep a single `$props()` reference — destructuring breaks `$effect` tracking for store-driven updates. */
   let props: Props = $props();
 
   let editorContainer: HTMLDivElement | undefined = $state();
   let editorView: import("@codemirror/view").EditorView | null = null;
   const states = new Map<string, import("@codemirror/state").EditorState>();
-
-  let EditorState: typeof import("@codemirror/state").EditorState;
-  let EditorViewCtor: typeof import("@codemirror/view").EditorView;
-  let scrollPastEnd: typeof import("@codemirror/view").scrollPastEnd;
-  let basicSetup: typeof import("codemirror").basicSetup;
-  let languageExtensions: Record<string, unknown> = {};
-  let cmReady = $state(false);
+  let kit: CodeMirrorKit | null = $state(null);
+  let resizeObserver: ResizeObserver | null = null;
 
   function pruneStates(paths: string[]) {
     const allowed = new Set(paths);
@@ -32,8 +27,8 @@
     }
   }
 
-  function editorTheme() {
-    return EditorViewCtor.theme(
+  function editorTheme(cm: CodeMirrorKit) {
+    return cm.EditorView.theme(
       {
         "&": {
           height: "100%",
@@ -45,10 +40,8 @@
           color: "var(--editor-fg, #d4d4d4)",
         },
         ".cm-scroller": {
-          flex: "1 1 0",
-          minHeight: "0",
-          overflowX: "auto",
-          overflowY: "auto",
+          height: "100%",
+          overflow: "auto",
         },
         ".cm-content": {
           fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
@@ -76,21 +69,23 @@
     );
   }
 
-  function listenerFor(path: string) {
-    return EditorViewCtor.updateListener.of((update: import("@codemirror/view").ViewUpdate) => {
-      if (update.docChanged) {
-        files.updateFileContent(path, update.state.doc.toString());
-        states.set(path, update.state);
-      }
-    });
-  }
-
-  function createState(file: OpenFile) {
-    const langExt = languageExtensions[file.language];
-    const lang = langExt != null ? [langExt as import("@codemirror/state").Extension] : [];
-    return EditorState.create({
+  function createState(cm: CodeMirrorKit, file: OpenFile) {
+    const langExt = cm.languageExtensions[file.language];
+    const lang = langExt != null ? [langExt] : [];
+    return cm.EditorState.create({
       doc: file.content,
-      extensions: [basicSetup, scrollPastEnd!(), ...lang, listenerFor(file.path), editorTheme()],
+      extensions: [
+        cm.basicSetup,
+        cm.scrollPastEnd(),
+        ...lang,
+        cm.EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            files.updateFileContent(file.path, update.state.doc.toString());
+            states.set(file.path, update.state);
+          }
+        }),
+        editorTheme(cm),
+      ],
     });
   }
 
@@ -98,11 +93,10 @@
     pruneStates(props.editorPaths);
   });
 
-  /** `cmReady` must be in the dependency graph: CodeMirror loads async, so `EditorViewCtor` alone does not retrigger this effect. */
   $effect(() => {
-    if (!cmReady || !editorContainer || !EditorViewCtor) return;
-    const activeTab = props.activeTab;
-    const activeFile = props.activeFile;
+    if (!kit || !editorContainer) return;
+    const activeTab = props.editorTab;
+    const activeFile = props.editorFile;
     if (activeTab?.kind !== "editor" || !activeFile) return;
 
     const path = activeFile.path;
@@ -115,13 +109,13 @@
     }
 
     let nextState = states.get(path);
-    if (!nextState) {
-      nextState = createState(activeFile);
+    if (!nextState || nextState.doc.toString() !== activeFile.content) {
+      nextState = createState(kit, activeFile);
       states.set(path, nextState);
     }
 
     if (!editorView) {
-      editorView = new EditorViewCtor({
+      editorView = new kit.EditorView({
         state: nextState,
         parent: editorContainer,
       });
@@ -135,9 +129,25 @@
     });
   });
 
+  function relayoutEditor() {
+    if (!editorView || !editorContainer) return;
+    const h = editorContainer.clientHeight;
+    if (h > 0) {
+      editorView.scrollDOM.style.minHeight = `${h}px`;
+    }
+    editorView.requestMeasure();
+  }
+
+  /** Re-layout when switching back from terminal/preview (parent was hidden). */
+  $effect(() => {
+    if (props.editorTab?.kind === "editor" && editorView) {
+      void tick().then(() => relayoutEditor());
+    }
+  });
+
   async function saveActive() {
-    const activeTab = props.activeTab;
-    const activeFile = props.activeFile;
+    const activeTab = props.editorTab;
+    const activeFile = props.editorFile;
     if (activeTab?.kind !== "editor" || !activeFile || !editorView) return;
     try {
       const content = editorView.state.doc.toString();
@@ -155,40 +165,25 @@
     }
   }
 
-  onMount(async () => {
-    const [stateModule, viewModule, setupModule, jsModule, htmlModule, cssModule, jsonModule, mdModule, rustModule, pythonModule] =
-      await Promise.all([
-        import("@codemirror/state"),
-        import("@codemirror/view"),
-        import("codemirror"),
-        import("@codemirror/lang-javascript"),
-        import("@codemirror/lang-html"),
-        import("@codemirror/lang-css"),
-        import("@codemirror/lang-json"),
-        import("@codemirror/lang-markdown"),
-        import("@codemirror/lang-rust"),
-        import("@codemirror/lang-python"),
-      ]);
+  onMount(() => {
+    void loadCodeMirror().then((loaded) => {
+      kit = loaded;
+    });
 
-    EditorState = stateModule.EditorState;
-    EditorViewCtor = viewModule.EditorView;
-    scrollPastEnd = viewModule.scrollPastEnd;
-    basicSetup = setupModule.basicSetup;
+    resizeObserver = new ResizeObserver(() => {
+      relayoutEditor();
+    });
+  });
 
-    languageExtensions = {
-      javascript: jsModule.javascript(),
-      typescript: jsModule.javascript({ typescript: true }),
-      html: htmlModule.html(),
-      css: cssModule.css(),
-      json: jsonModule.json(),
-      markdown: mdModule.markdown(),
-      rust: rustModule.rust(),
-      python: pythonModule.python(),
-    };
-    cmReady = true;
+  $effect(() => {
+    if (!resizeObserver || !editorContainer) return;
+    resizeObserver.observe(editorContainer);
+    return () => resizeObserver?.unobserve(editorContainer);
   });
 
   onDestroy(() => {
+    resizeObserver?.disconnect();
+    resizeObserver = null;
     editorView?.destroy();
     editorView = null;
   });
@@ -196,22 +191,57 @@
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
-<!-- Only hide when another workbench tab kind is explicitly active (null = show editor area). -->
 <div
-  class="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-  class:hidden={props.activeTab != null && props.activeTab.kind !== "editor"}
+  class="editor-surface"
+  class:editor-surface--hidden={props.editorTab != null && props.editorTab.kind !== "editor"}
+  data-testid="editor-surface"
 >
-  <div class="flex min-h-0 flex-1 flex-col overflow-hidden" bind:this={editorContainer}></div>
-  {#if !props.activeFile}
-    <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-muted-foreground">
-      <div class="opacity-30">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-      </div>
+  <div class="editor-surface__cm" bind:this={editorContainer} data-testid="editor-cm-host"></div>
+  {#if props.editorTab?.kind === "editor" && !props.editorFile}
+    <div class="editor-surface__empty pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-muted-foreground">
       <p class="text-sm">No file open</p>
       <p class="text-xs">Select a file from the explorer</p>
     </div>
+  {:else if props.editorTab?.kind === "editor" && props.editorFile && !kit}
+    <div class="editor-surface__empty pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
+      <p class="text-sm">Loading editor…</p>
+    </div>
   {/if}
 </div>
+
+<style>
+  .editor-surface {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--editor-bg, #1e1e1e);
+  }
+
+  .editor-surface--hidden {
+    visibility: hidden;
+    position: absolute;
+    inset: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+    flex: none;
+  }
+
+  .editor-surface__cm {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .editor-surface__cm :global(.cm-editor) {
+    height: 100%;
+  }
+
+  .editor-surface__cm :global(.cm-scroller) {
+    height: 100%;
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  }
+</style>

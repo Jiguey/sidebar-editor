@@ -1,7 +1,7 @@
 import { writable, derived, get } from "svelte/store";
 import { ptyClose } from "../ipc";
 import { normalizeFilePath } from "../fsPath";
-import { files } from "./files";
+import { files, type OpenFile } from "./files";
 
 export type WorkbenchTabKind = "editor" | "terminal" | "preview";
 
@@ -25,8 +25,6 @@ export type WorkbenchTab =
       url: string;
     };
 
-const STORAGE_KEY = "tinyllama.workbench.v1";
-
 function editorTabId(path: string) {
   return `editor:${normalizeFilePath(path)}`;
 }
@@ -42,46 +40,14 @@ function normalizePersistedTab(tab: WorkbenchTab): WorkbenchTab {
   return { ...tab, id: editorTabId(path), path };
 }
 
-function safeParse(raw: string | null): {
-  tabs: WorkbenchTab[];
-  activeTabId: string | null;
-} | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw) as { tabs?: WorkbenchTab[]; activeTabId?: string | null };
-    if (!Array.isArray(v.tabs)) return null;
-    return { tabs: v.tabs, activeTabId: v.activeTabId ?? null };
-  } catch {
-    return null;
-  }
-}
-
-function persistSnapshot(snapshot: { tabs: WorkbenchTab[]; activeTabId: string | null }) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  } catch {
-    /* ignore quota */
-  }
-}
-
 function createWorkbenchStore() {
-  const initial = typeof localStorage !== "undefined" ? safeParse(localStorage.getItem(STORAGE_KEY)) : null;
-
-  const initialTabs = (initial?.tabs ?? []).map(normalizePersistedTab);
-  let initialActive = initial?.activeTabId ?? null;
-  if (initialActive?.startsWith("editor:")) {
-    initialActive = editorTabId(initialActive.slice("editor:".length));
-  }
-
   const stateWritable = writable<{
     tabs: WorkbenchTab[];
     activeTabId: string | null;
   }>({
-    tabs: initialTabs,
-    activeTabId: initialActive,
+    tabs: [],
+    activeTabId: null,
   });
-
-  stateWritable.subscribe((state) => persistSnapshot(state));
 
   return {
     subscribe: stateWritable.subscribe,
@@ -143,11 +109,39 @@ function createWorkbenchStore() {
             activeTabId = firstEditor?.id ?? (tabs.length ? tabs[tabs.length - 1].id : null);
           }
         }
+        const activeTab = tabs.find((t) => t.id === activeTabId);
+        if (activeTab?.kind === "editor") {
+          files.setActiveFile(activeTab.path);
+        }
         return { tabs, activeTabId };
       });
     },
+  /** Open or focus an editor tab and ensure the in-memory buffer exists. */
+    openEditorFile(file: OpenFile) {
+      const canon = normalizeFilePath(file.path);
+      const stored: OpenFile = { ...file, path: canon };
+      files.openFile(stored);
+      stateWritable.update((s) => {
+        const id = editorTabId(canon);
+        const exists = s.tabs.find((t) => t.id === id);
+        const label = stored.name || canon.split("/").pop() || canon;
+        if (exists) {
+          return { ...s, activeTabId: id };
+        }
+        return {
+          tabs: [...s.tabs, { id, kind: "editor" as const, path: canon, title: label }],
+          activeTabId: id,
+        };
+      });
+      files.setActiveFile(canon);
+    },
     ensureEditorTab(path: string, title?: string) {
       const canon = normalizeFilePath(path);
+      const existing = get(files).openFiles.find((f) => normalizeFilePath(f.path) === canon);
+      if (existing) {
+        this.openEditorFile(existing);
+        return;
+      }
       stateWritable.update((s) => {
         const id = editorTabId(canon);
         const exists = s.tabs.find((t) => t.id === id);
@@ -220,6 +214,20 @@ function createWorkbenchStore() {
         }),
       }));
     },
+    replaceProjectState(snapshot: {
+      tabs: WorkbenchTab[];
+      activeTabId: string | null;
+    }) {
+      const tabs = snapshot.tabs.map(normalizePersistedTab);
+      let activeTabId = snapshot.activeTabId;
+      if (activeTabId?.startsWith("editor:")) {
+        activeTabId = editorTabId(activeTabId.slice("editor:".length));
+      }
+      if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
+        activeTabId = tabs[0]?.id ?? null;
+      }
+      stateWritable.set({ tabs, activeTabId });
+    },
     reset() {
       stateWritable.set({ tabs: [], activeTabId: null });
     },
@@ -243,3 +251,11 @@ export const workbench = createWorkbenchStore();
 export const activeWorkbenchTab = derived(workbench, ($w) =>
   $w.tabs.find((t) => t.id === $w.activeTabId) ?? null
 );
+
+/** Open buffer for the active editor tab (tab path is source of truth, not activeFilePath alone). */
+export const activeEditorFile = derived([workbench, files], ([$w, $f]) => {
+  const tab = $w.tabs.find((t) => t.id === $w.activeTabId);
+  if (!tab || tab.kind !== "editor") return null;
+  const key = normalizeFilePath(tab.path);
+  return $f.openFiles.find((file) => normalizeFilePath(file.path) === key) ?? null;
+});

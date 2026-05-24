@@ -7,20 +7,50 @@ export function isAbsolutePath(filePath: string): boolean {
 }
 
 export function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\/$/, "");
-  const normalizedRelative = relative.replace(/^\.\//, "");
-  return `${normalizedBase}/${normalizedRelative}`;
+  const baseNorm = normalizePath(base);
+  if (!baseNorm || baseNorm === "/") {
+    throw new Error("Workspace path is not set or invalid");
+  }
+  const rel = relative.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (!rel || rel.includes("..")) {
+    throw new Error(`Invalid relative path: ${relative}`);
+  }
+  return `${baseNorm}/${rel}`;
 }
 
+/**
+ * Resolve a tool path against the workspace.
+ * Absolute paths under the workspace are kept; root-anchored mistakes like `/test.txt`
+ * are treated as relative to the workspace root.
+ */
 export function resolvePath(workspacePath: string, filePath: string): string {
-  if (isAbsolutePath(filePath)) {
-    return filePath;
+  const trimmed = filePath.trim();
+  if (!trimmed) {
+    throw new Error("Path is empty");
   }
-  return joinPath(workspacePath, filePath);
+
+  if (isAbsolutePath(trimmed)) {
+    const root = normalizePath(workspacePath);
+    const target = normalizePath(trimmed);
+    if (root && root !== "/" && (target === root || target.startsWith(`${root}/`))) {
+      return target;
+    }
+    // Model often emits "/file.txt" meaning workspace root, not filesystem "/".
+    const asRelative = trimmed.replace(/^\/+/, "");
+    if (asRelative && !asRelative.includes("..") && !asRelative.includes("/")) {
+      return joinPath(workspacePath, asRelative);
+    }
+    return target;
+  }
+
+  return joinPath(workspacePath, trimmed);
 }
 
 export function assertWithinWorkspace(workspacePath: string, resolvedPath: string): void {
   const root = normalizePath(workspacePath);
+  if (!root || root === "/") {
+    throw new Error("Workspace path is not set or invalid");
+  }
   const target = normalizePath(resolvedPath);
   if (target === root) return;
   if (!target.startsWith(`${root}/`)) {

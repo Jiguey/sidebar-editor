@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolvePath, assertWithinWorkspace, resolveWorkspacePath } from "../../src/lib/tools/pathUtils";
+import { resolvePath, assertWithinWorkspace, resolveWorkspacePath, joinPath } from "../../src/lib/tools/pathUtils";
 
 describe("pathUtils", () => {
   const workspace = "/test/workspace";
@@ -8,8 +8,22 @@ describe("pathUtils", () => {
     expect(resolvePath(workspace, "src/a.ts")).toBe("/test/workspace/src/a.ts");
   });
 
-  it("resolvePath keeps absolute paths", () => {
+  it("resolvePath maps root-anchored mistake to workspace", () => {
+    expect(resolvePath(workspace, "/test.txt")).toBe("/test/workspace/test.txt");
+    expect(resolvePath(workspace, "test.txt")).toBe("/test/workspace/test.txt");
+  });
+
+  it("resolvePath keeps absolute paths under workspace", () => {
+    expect(resolvePath(workspace, "/test/workspace/src/a.ts")).toBe("/test/workspace/src/a.ts");
+  });
+
+  it("resolvePath keeps true absolute paths outside workspace for assert to reject", () => {
     expect(resolvePath(workspace, "/etc/passwd")).toBe("/etc/passwd");
+  });
+
+  it("joinPath does not turn workspace into empty base", () => {
+    expect(joinPath(workspace, "test.txt")).toBe("/test/workspace/test.txt");
+    expect(() => joinPath("/", "test.txt")).toThrow(/not set/);
   });
 
   it("assertWithinWorkspace allows paths under workspace", () => {
@@ -24,5 +38,10 @@ describe("pathUtils", () => {
 
   it("resolveWorkspacePath rejects escape via absolute path", () => {
     expect(() => resolveWorkspacePath(workspace, "/etc/passwd")).toThrow(/outside the workspace/);
+  });
+
+  it("resolveWorkspacePath allows create_file at workspace root", () => {
+    expect(resolveWorkspacePath(workspace, "test.txt")).toBe("/test/workspace/test.txt");
+    expect(resolveWorkspacePath(workspace, "/test.txt")).toBe("/test/workspace/test.txt");
   });
 });

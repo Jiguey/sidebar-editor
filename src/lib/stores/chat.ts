@@ -219,6 +219,30 @@ function createChatStore() {
       update((s) => ({ ...s, historyPickerOpen: false }));
     },
     /** Ensures there is an active tab (e.g. before first message when all tabs were closed). */
+    /** Replace in-memory chat with a per-project snapshot (folder switch / load). */
+    replaceProjectState(snapshot: {
+      sessions: ChatSession[];
+      history: ChatSession[];
+      activeSessionId: string | null;
+    }) {
+      let sessions = snapshot.sessions;
+      let activeSessionId = snapshot.activeSessionId;
+      if (!sessions.length) {
+        const s = makeSession();
+        sessions = [s];
+        activeSessionId = s.id;
+      } else if (!activeSessionId || !sessions.some((x) => x.id === activeSessionId)) {
+        activeSessionId = sessions[0].id;
+      }
+      set({
+        sessions,
+        history: snapshot.history ?? [],
+        activeSessionId,
+        isStreaming: false,
+        currentToolCall: null,
+        historyPickerOpen: false,
+      });
+    },
     ensureActiveSession: (): string => {
       let id = "";
       update((s) => {

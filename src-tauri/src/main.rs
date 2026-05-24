@@ -5,8 +5,10 @@ mod modules;
 use modules::commands::{
     delete_entry, find_files, get_workspace_path, git_commit, git_current_branch, git_diff,
     git_log, git_stage, git_status, git_unstage, grep_workspace, list_dir, list_dir_tree,
-    open_settings_window, path_exists, pick_workspace_folder, read_file, read_system_prompt,
-    rename_entry, run_shell, web_fetch, write_file, write_system_prompt,
+    icon_pack_get_dir, icon_pack_refresh_bundled, open_settings_window, path_exists,
+    pick_icon_pack_folder, pick_workspace_folder, read_file, read_project_state,
+    read_system_prompt, rename_entry, run_shell, web_fetch, write_file, write_project_state,
+    write_system_prompt,
 };
 use modules::pty::{pty_close, pty_create, pty_resize, pty_write, PtyManager};
 use tauri::Manager;
@@ -43,6 +45,11 @@ fn main() {
             run_shell,
             read_system_prompt,
             write_system_prompt,
+            read_project_state,
+            write_project_state,
+            icon_pack_get_dir,
+            icon_pack_refresh_bundled,
+            pick_icon_pack_folder,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

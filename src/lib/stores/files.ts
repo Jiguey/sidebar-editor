@@ -78,7 +78,15 @@ function createFilesStore() {
       update((state) => {
         const exists = state.openFiles.find((f) => normalizeFilePath(f.path) === canon);
         if (exists) {
-          return { ...state, activeFilePath: canon };
+          return {
+            ...state,
+            activeFilePath: canon,
+            openFiles: state.openFiles.map((f) =>
+              normalizeFilePath(f.path) === canon
+                ? { ...stored, isDirty: file.isDirty ?? stored.isDirty }
+                : f
+            ),
+          };
         }
         return {
           ...state,
@@ -119,6 +127,18 @@ function createFilesStore() {
           normalizeFilePath(f.path) === canon ? { ...f, isDirty: false } : f
         ),
       }));
+    },
+    clearOpenFiles() {
+      update((state) => ({ ...state, openFiles: [], activeFilePath: null }));
+    },
+    /** Test-only reset (workbench unit tests). */
+    resetForTests() {
+      set({
+        tree: [],
+        openFiles: [],
+        activeFilePath: null,
+        workspacePath: null,
+      });
     },
   };
 }

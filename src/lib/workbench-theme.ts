@@ -1,7 +1,7 @@
 /** Presets applied via `data-workbench-theme` on `<html>` (see `styles/workbench-themes.css`). */
 export const WORKBENCH_THEME_OPTIONS = [
-  { id: "vscode-dark", label: "VS Code Dark (default)" },
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha (default)" },
+  { id: "vscode-dark", label: "VS Code Dark" },
   { id: "tokyo-night", label: "Tokyo Night" },
   { id: "one-dark-pro", label: "One Dark Pro" },
   { id: "tiny-llama", label: "Tiny Llama" },
@@ -15,15 +15,15 @@ const KNOWN = new Set<string>(WORKBENCH_THEME_OPTIONS.map((t) => t.id));
 
 export function normalizeWorkbenchTheme(id: unknown): WorkbenchThemeId {
   if (typeof id === "string" && KNOWN.has(id)) return id as WorkbenchThemeId;
-  return "vscode-dark";
+  return "catppuccin-mocha";
 }
 
-/** `vscode-dark` clears the attribute so tokens come from `globals.css` `:root` / `.dark`. */
+/** `catppuccin-mocha` and `vscode-dark` use base tokens from `globals.css`. */
 export function applyWorkbenchTheme(id: string | undefined | null): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const v = (id ?? "vscode-dark").trim();
-  if (!KNOWN.has(v) || v === "vscode-dark") {
+  const v = (id ?? "catppuccin-mocha").trim();
+  if (!KNOWN.has(v) || v === "catppuccin-mocha") {
     root.removeAttribute("data-workbench-theme");
     return;
   }

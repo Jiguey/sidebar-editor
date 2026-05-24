@@ -13,7 +13,7 @@
 
   /** Center tab strip, chat toolbar, explorer (etc.) top row — keeps columns visually aligned. */
   --workbench-row-header-height: 26px;
-  /** Top shell row (chat + workbench tabs). */
+  /** Top shell row (chat + workbench tabs) and bottom status bar. */
   --workbench-shell-header-height: 30px;
 
   /* Editor / workbench surface (explicit for CodeMirror + xterm) */

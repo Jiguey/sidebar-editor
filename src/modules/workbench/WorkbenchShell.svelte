@@ -16,8 +16,8 @@
   import { files } from "$lib/stores/files";
   import { settings } from "$lib/stores/settings";
   import { applyWorkbenchTheme } from "$lib/workbench-theme";
+  import { iconTheme } from "$lib/stores/iconTheme";
   import {
-    readFile,
     isTauriAvailable,
     openSettingsWindow,
     closeAuxiliaryWebviewWindows,
@@ -25,6 +25,7 @@
     pickWorkspaceFolder,
   } from "$lib/ipc";
   import { applyWorkspaceFolder } from "$lib/workspace";
+  import { initProjectStateAutosave, persistCurrentProjectState } from "$lib/projectState";
   import { dispatchWorkbenchShortcut } from "../shortcuts/dispatcher";
 
   const PANE_WIDTH_KEY = "tinyllama.paneWidths.v1";
@@ -164,6 +165,7 @@
   });
 
   onMount(() => {
+    void iconTheme.init();
     const clampPanesToWindow = () => {
       leftPaneWidth = clamp(leftPaneWidth, LEFT_MIN, LEFT_MAX);
       rightPaneWidth = clamp(rightPaneWidth, RIGHT_MIN, rightPaneMax());
@@ -172,17 +174,23 @@
     window.addEventListener("resize", clampPanesToWindow);
     clampPanesToWindow();
 
+    initProjectStateAutosave();
+    const onBeforeUnload = () => {
+      void persistCurrentProjectState();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
     if (!isTauriAvailable()) {
-      return () => window.removeEventListener("resize", clampPanesToWindow);
+      return () => {
+        window.removeEventListener("resize", clampPanesToWindow);
+        window.removeEventListener("beforeunload", onBeforeUnload);
+      };
     }
-    void (async () => {
-      try {
-        await workbench.hydrateEditorTabs(readFile);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => window.removeEventListener("resize", clampPanesToWindow);
+    return () => {
+      window.removeEventListener("resize", clampPanesToWindow);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      void persistCurrentProjectState();
+    };
   });
 
   async function newTerminalTab() {
@@ -296,7 +304,7 @@
 
     <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div
-        class="center-workbench-stack relative z-0 min-h-0 flex-1 overflow-hidden border-0 outline-none"
+        class="center-workbench-stack relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden border-0 outline-none"
       >
         <CenterWorkbench />
       </div>
@@ -353,6 +361,8 @@
         bind:secondaryOpen={rightExplorerSecondaryOpen}
         dockedOnly={!showRightPanel}
         onRequestExpand={() => (showRightPanel = true)}
+        onOpenWorkspace={() => void chooseWorkspaceFolder()}
+        onOpenSettings={openSettingsModal}
       />
     </aside>
   </div>
@@ -364,8 +374,6 @@
     onToggleLeft={() => (showLeftPanel = !showLeftPanel)}
     onToggleRight={() => (showRightPanel = !showRightPanel)}
     onToggleBottom={() => (showBottomPanel = !showBottomPanel)}
-    onOpenWorkspace={() => void chooseWorkspaceFolder()}
-    onOpenSettings={openSettingsModal}
   />
 </div>
 
@@ -438,5 +446,12 @@
   .center-workbench-stack {
     border: none;
     box-shadow: none;
+    min-height: 0;
+  }
+
+  .center-workbench-stack :global(> *) {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
   }
 </style>

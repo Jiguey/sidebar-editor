@@ -1,7 +1,13 @@
 import type { FileEntry } from "./stores/files";
 import type { GitLogEntry, GitPathStatus } from "./gitTypes";
 
-const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
+function detectTauri(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+  return w.__TAURI__ != null || w.__TAURI_INTERNALS__ != null;
+}
+
+const isTauri = detectTauri();
 
 let invoke: typeof import("@tauri-apps/api/core").invoke;
 let listen: typeof import("@tauri-apps/api/event").listen;
@@ -244,6 +250,16 @@ export async function writeSystemPrompt(workspacePath: string, content: string):
   return invoke<void>("write_system_prompt", { workspacePath, content });
 }
 
+export async function readProjectState(workspacePath: string): Promise<string | null> {
+  await ensureTauriApi();
+  return invoke<string | null>("read_project_state", { workspacePath });
+}
+
+export async function writeProjectState(workspacePath: string, content: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("write_project_state", { workspacePath, content });
+}
+
 export async function findFiles(
   workspacePath: string,
   globPattern: string,
@@ -281,4 +297,19 @@ export async function webFetch(
     allowedHosts,
     maxBytes: maxBytes ?? null,
   });
+}
+
+export async function iconPackGetDir(): Promise<string | null> {
+  await ensureTauriApi();
+  return invoke<string | null>("icon_pack_get_dir");
+}
+
+export async function iconPackRefreshBundled(): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("icon_pack_refresh_bundled");
+}
+
+export async function pickIconPackFolder(): Promise<string | null> {
+  await ensureTauriApi();
+  return invoke<string | null>("pick_icon_pack_folder");
 }

@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Toaster as Sonner, type ToasterProps as SonnerProps } from "svelte-sonner";
 	import { mode } from "mode-watcher";
-	import Loader2Icon from '@lucide/svelte/icons/loader-2';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
-	import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
-	import InfoIcon from '@lucide/svelte/icons/info';
-	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import CircleNotchIcon from "phosphor-svelte/lib/CircleNotchIcon";
+	import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
+	import XCircleIcon from "phosphor-svelte/lib/XCircleIcon";
+	import InfoIcon from "phosphor-svelte/lib/InfoIcon";
+	import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 
 	let { ...restProps }: SonnerProps = $props();
 </script>
@@ -17,18 +17,18 @@
 	{...restProps}
 >
 	{#snippet loadingIcon()}
-		<Loader2Icon class="size-4 animate-spin" />
+		<CircleNotchIcon size={16} class="animate-spin" />
 	{/snippet}
 	{#snippet successIcon()}
-		<CircleCheckIcon class="size-4" />
+		<CheckCircleIcon size={16} />
 	{/snippet}
 	{#snippet errorIcon()}
-		<OctagonXIcon class="size-4" />
+		<XCircleIcon size={16} />
 	{/snippet}
 	{#snippet infoIcon()}
-		<InfoIcon class="size-4" />
+		<InfoIcon size={16} />
 	{/snippet}
 	{#snippet warningIcon()}
-		<TriangleAlertIcon class="size-4" />
+		<WarningIcon size={16} />
 	{/snippet}
 </Sonner>

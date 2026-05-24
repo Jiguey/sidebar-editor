@@ -3,8 +3,8 @@
   import { files } from "$lib/stores/files";
   import { isTauriAvailable } from "$lib/ipc";
   import { onMount } from "svelte";
-  import Save from "@lucide/svelte/icons/save";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import FloppyDiskIcon from "phosphor-svelte/lib/FloppyDiskIcon";
+  import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 
   let draft = $state("");
   let saving = $state(false);
@@ -75,7 +75,7 @@
           title="Discard changes"
           aria-label="Discard changes"
         >
-          <RotateCcw />
+          <ArrowCounterClockwiseIcon size={16} />
         </button>
       {/if}
       <button
@@ -86,7 +86,7 @@
         title="Save"
         aria-label="Save system prompt"
       >
-        <Save />
+        <FloppyDiskIcon size={16} />
       </button>
     </div>
   </div>
