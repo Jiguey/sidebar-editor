@@ -45,6 +45,8 @@
   import { SHORTCUT_DEFAULTS } from "../shortcuts/defaults";
   import { WORKBENCH_THEME_OPTIONS, type WorkbenchThemeId } from "$lib/workbench-theme";
   import { iconTheme } from "$lib/stores/iconTheme";
+  import { syntaxTheme } from "$lib/stores/syntaxTheme";
+  import { SYNTAX_COLOR_FIELDS, type SyntaxColorMap } from "$lib/editor/syntaxColors";
   import { VSCODE_ICONS_ATTRIBUTION } from "$lib/icon-packs/types";
   import { pickIconPackFolder, isTauriAvailable as isTauri } from "$lib/ipc";
 
@@ -63,7 +65,9 @@
     | "providers-llamacpp"
     | "providers-anthropic"
     | "tools"
-    | "appearance"
+    | "appearance-theme"
+    | "appearance-icons"
+    | "appearance-syntax"
     | "keybindings";
 
   const backendToSection: Record<ChatBackend, Section> = {
@@ -91,12 +95,13 @@
   let chatBackend = $state<ChatBackend>("ollama");
   let anthropicExtendedThinking = $state(true);
   let ollamaContextChoice = $state(8192);
-  let workbenchTheme = $state<WorkbenchThemeId>("vscode-dark");
+  let workbenchTheme = $state<WorkbenchThemeId>("cursor-dark");
   let webFetchAllowedHostsText = $state("");
-  let iconThemeId = $state<"vscode-icons" | "codicons" | "custom">("vscode-icons");
+  let iconThemeId = $state<"seti" | "vscode-icons" | "codicons" | "custom">("seti");
   let iconPackCustomPath = $state("");
   let iconRefreshStatus = $state("");
   let iconRefreshing = $state(false);
+  let syntaxColors = $state<SyntaxColorMap>(syntaxTheme.get());
 
   let modelSearchQuery = $state("");
   let modelSearchResults = $state<OllamaLibraryModel[]>([]);
@@ -128,7 +133,9 @@
     { id: "providers-llamacpp", label: "llama.cpp", group: "Providers" },
     { id: "providers-anthropic", label: "Anthropic", group: "Providers" },
     { id: "tools", label: "Tools" },
-    { id: "appearance", label: "Appearance" },
+    { id: "appearance-theme", label: "Theme", group: "Appearance" },
+    { id: "appearance-icons", label: "Icons", group: "Appearance" },
+    { id: "appearance-syntax", label: "Syntax", group: "Appearance" },
     { id: "keybindings", label: "Keybindings" },
   ];
 
@@ -159,6 +166,7 @@
     webFetchAllowedHostsText = $settings.webFetchAllowedHosts.join("\n");
     iconThemeId = $iconTheme.themeId;
     iconPackCustomPath = $iconTheme.customPackPath ?? "";
+    syntaxColors = { ...syntaxTheme.get() };
     llamacppModels = $settings.llamacppModels;
     activeSection = backendToSection[$settings.chatBackend] ?? "providers-ollama";
     void connectOllama();
@@ -398,6 +406,7 @@
     if (iconThemeId === "custom" && iconPackCustomPath) {
       iconTheme.setCustomPackPath(iconPackCustomPath);
     }
+    syntaxTheme.persist(syntaxColors);
 
     if (chatBackend === "ollama") {
       const sid = selectedModel;
@@ -963,9 +972,25 @@
             </div>
           </div>
 
-        {:else if activeSection === "appearance"}
+        {:else if activeSection === "appearance-theme"}
           <div class="stack">
-            <p class="group-label">Icons</p>
+            <h3 class="provider-page-title">Theme</h3>
+            <p class="note">
+              Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
+            </p>
+            <label class="field">
+              <span class="name">Color theme</span>
+              <select class="input" bind:value={workbenchTheme}>
+                {#each WORKBENCH_THEME_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+
+        {:else if activeSection === "appearance-icons"}
+          <div class="stack">
+            <h3 class="provider-page-title">Icons</h3>
             <p class="note">
               File and folder icons in the explorer. Default pack:
               <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
@@ -983,7 +1008,8 @@
                   void iconTheme.reloadManifest();
                 }}
               >
-                <option value="vscode-icons">VS Code Icons (default)</option>
+                <option value="seti">Seti (Cursor default)</option>
+                <option value="vscode-icons">VS Code Icons (SVG)</option>
                 <option value="codicons">Built-in codicons (simple)</option>
                 <option value="custom">Custom folder…</option>
               </select>
@@ -1026,10 +1052,8 @@
                   iconRefreshStatus = result.ok
                     ? `Refreshed pack (${result.path})`
                     : `Refresh failed: ${result.error}`;
-                  if (iconThemeId !== "vscode-icons") {
-                    iconThemeId = "vscode-icons";
-                    iconTheme.setThemeId("vscode-icons");
-                  }
+                  void iconTheme.reloadManifest();
+                  iconTheme.bumpRevision();
                 }}
               >
                 {iconRefreshing ? "Refreshing…" : "Refresh default icon pack"}
@@ -1058,19 +1082,60 @@
                 </a>.
               </p>
             </details>
+          </div>
 
-            <p class="group-label">Theme</p>
+        {:else if activeSection === "appearance-syntax"}
+          <div class="stack">
+            <h3 class="provider-page-title">Syntax highlighting</h3>
             <p class="note">
-              Workbench color palette — editor, explorer, chrome, and terminal.
+              Colors in the code editor for every language. Default palette: Tokyo Night.
+              Changes preview live; click Save to keep them.
             </p>
-            <label class="field">
-              <span class="name">Color theme</span>
-              <select class="input" bind:value={workbenchTheme}>
-                {#each WORKBENCH_THEME_OPTIONS as opt}
-                  <option value={opt.id}>{opt.label}</option>
-                {/each}
-              </select>
-            </label>
+            {#each SYNTAX_COLOR_FIELDS as field}
+              <label class="field syntax-color-field">
+                <span class="name">{field.label}</span>
+                <span class="syntax-color-hint">{field.hint}</span>
+                <div class="syntax-color-row">
+                  <input
+                    type="color"
+                    class="syntax-color-swatch"
+                    value={syntaxColors[field.key]}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).value;
+                      syntaxColors = { ...syntaxColors, [field.key]: v };
+                      syntaxTheme.apply(syntaxColors);
+                    }}
+                  />
+                  <input
+                    type="text"
+                    class="input syntax-color-hex"
+                    value={syntaxColors[field.key]}
+                    spellcheck={false}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).value;
+                      syntaxColors = { ...syntaxColors, [field.key]: v };
+                      syntaxTheme.apply(syntaxColors);
+                    }}
+                  />
+                </div>
+              </label>
+            {/each}
+            <div class="syntax-preview" aria-hidden="true">
+              <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// comment</span></span>
+              <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">count</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">42</span><span style="color: {syntaxColors.operator}">;</span></span>
+              <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">MyClass</span> <span style="color: {syntaxColors.operator}">{`{`}</span></span>
+              <span class="syntax-preview-line">  <span style="color: {syntaxColors.function}">render</span><span style="color: {syntaxColors.operator}">()</span> <span style="color: {syntaxColors.operator}">{`{`}</span> <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.string}">"hello"</span><span style="color: {syntaxColors.operator}">;</span> <span style="color: {syntaxColors.operator}">{`}`}</span></span>
+              <span class="syntax-preview-line"><span style="color: {syntaxColors.operator}">{`}`}</span></span>
+            </div>
+            <button
+              type="button"
+              class="btn ghost"
+              onclick={() => {
+                syntaxColors = syntaxTheme.resetToDefaults();
+              }}
+            >
+              Reset to Tokyo Night defaults
+            </button>
           </div>
 
         {:else if activeSection === "keybindings"}
@@ -2106,5 +2171,58 @@
 
   .attribution-details a {
     color: #6eb6ff;
+  }
+
+  .syntax-color-field .name {
+    display: block;
+  }
+
+  .syntax-color-hint {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  .syntax-color-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+  }
+
+  .syntax-color-swatch {
+    width: 36px;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: #1e1e1e;
+    cursor: pointer;
+  }
+
+  .syntax-color-hex {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    text-transform: lowercase;
+  }
+
+  .syntax-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border-radius: 6px;
+    background: var(--editor-bg, #1a1b26);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .syntax-preview-line {
+    display: block;
+    white-space: pre;
   }
 </style>

@@ -35,6 +35,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@codemirror/language": "^6.11.0",
     "@codemirror/lang-css": "^6.3.0",
     "@codemirror/lang-html": "^6.4.0",
     "@codemirror/lang-javascript": "^6.2.0",

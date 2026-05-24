@@ -2,9 +2,61 @@
  * Workbench palettes (editor, explorer, activity bar, terminal ANSI).
  * Settings → Appearance, or `data-workbench-theme` on `<html class="dark">`.
  *
- * Presets: VS Code Dark (default, from globals.css), Catppuccin Mocha, Tokyo Night,
+ * Presets: Cursor Dark (default, from globals.css), VS Code Dark, Catppuccin Mocha, Tokyo Night,
  * One Dark Pro, Tiny Llama (One Dark Pro palette + tab accent), Dracula, GitHub Dark.
  */
+
+/** Classic VS Code dark (pre–Cursor Dark). */
+.dark[data-workbench-theme="vscode-dark"] {
+  --editor-bg: #1e1e1e;
+  --editor-fg: #d4d4d4;
+  --editor-gutter-fg: #858585;
+  --editor-line-hl: #2a2d2e;
+  --editor-selection: #264f78;
+
+  --background: #1e1e1e;
+  --foreground: #d4d4d4;
+  --card: #252526;
+  --card-foreground: #d4d4d4;
+  --popover: #252526;
+  --popover-foreground: #d4d4d4;
+  --primary: #007acc;
+  --primary-foreground: #ffffff;
+  --secondary: #2d2d30;
+  --secondary-foreground: #d4d4d4;
+  --muted: #3c3c3c;
+  --muted-foreground: #a0a0a0;
+  --accent: #323235;
+  --accent-foreground: #d4d4d4;
+  --destructive: #f14c4c;
+  --border: #3c3c3c;
+  --input: #3c3c3c;
+  --ring: #007acc;
+  --sidebar: #252526;
+  --sidebar-foreground: #d4d4d4;
+  --sidebar-primary: #007acc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2d2d30;
+  --sidebar-accent-foreground: #d4d4d4;
+  --sidebar-border: #3c3c3c;
+  --sidebar-ring: #007acc;
+  --surface: #252526;
+  --surface-elevated: #2d2d30;
+  --success: #89d185;
+  --activity-bar-bg: #333333;
+  --activity-bar-fg: #808080;
+  --activity-bar-active: #d4d4d4;
+  --activity-bar-accent: #007acc;
+  --workbench-tab-active-indicator: #007acc;
+  --terminal-ansi-black: #3c3c3c;
+  --terminal-ansi-red: #f14c4c;
+  --terminal-ansi-green: #89d185;
+  --terminal-ansi-yellow: #dcdcaa;
+  --terminal-ansi-blue: #569cd6;
+  --terminal-ansi-magenta: #c586c0;
+  --terminal-ansi-cyan: #4ec9b0;
+  --terminal-ansi-white: #d4d4d4;
+}
 
 .dark[data-workbench-theme="catppuccin-mocha"] {
   --editor-bg: #1e1e2e;

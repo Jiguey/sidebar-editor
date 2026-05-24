@@ -1,0 +1,96 @@
+/**
+ * CodeMirror syntax tokens — defaults: Tokyo Night.
+ * Overridden at runtime from Settings → Appearance → Syntax (see syntaxTheme store).
+ */
+:root,
+.dark {
+  --syntax-default: #c0caf5;
+  --syntax-keyword: #bb9af7;
+  --syntax-function: #7aa2f7;
+  --syntax-variable: #c0caf5;
+  --syntax-number: #ff9e64;
+  --syntax-string: #9ece6a;
+  --syntax-type: #2ac3de;
+  --syntax-operator: #f7768e;
+  --syntax-property: #73daca;
+  --syntax-comment: #565f89;
+  --syntax-bool: #ff9e64;
+  --syntax-class: #2ac3de;
+  --syntax-parameter: #c0caf5;
+  --syntax-punctuation: #f7768e;
+  --syntax-tag: #2ac3de;
+  --syntax-attribute: #73daca;
+  --syntax-regexp: #9ece6a;
+  --syntax-meta: #565f89;
+  --syntax-heading: #c0caf5;
+  --syntax-link: #bb9af7;
+  --syntax-invalid: #f7768e;
+  --syntax-strong: #bb9af7;
+  --syntax-emphasis: #2ac3de;
+}
+
+/* Class-based token colors (see `lib/editor/syntaxTheme.ts`). */
+.cm-editor .tl-syn-comment {
+  color: var(--syntax-comment);
+}
+.cm-editor .tl-syn-keyword {
+  color: var(--syntax-keyword);
+}
+.cm-editor .tl-syn-string {
+  color: var(--syntax-string);
+}
+.cm-editor .tl-syn-number,
+.cm-editor .tl-syn-bool {
+  color: var(--syntax-number);
+}
+.cm-editor .tl-syn-function {
+  color: var(--syntax-function);
+}
+.cm-editor .tl-syn-type {
+  color: var(--syntax-type);
+}
+.cm-editor .tl-syn-variable {
+  color: var(--syntax-variable);
+}
+.cm-editor .tl-syn-parameter {
+  color: var(--syntax-parameter);
+}
+.cm-editor .tl-syn-property {
+  color: var(--syntax-property);
+}
+.cm-editor .tl-syn-tag {
+  color: var(--syntax-tag);
+}
+.cm-editor .tl-syn-punctuation {
+  color: var(--syntax-punctuation);
+}
+.cm-editor .tl-syn-operator {
+  color: var(--syntax-operator);
+}
+.cm-editor .tl-syn-regexp {
+  color: var(--syntax-regexp);
+}
+.cm-editor .tl-syn-meta {
+  color: var(--syntax-meta);
+}
+.cm-editor .tl-syn-heading {
+  color: var(--syntax-heading);
+  font-weight: bold;
+}
+.cm-editor .tl-syn-emphasis {
+  color: var(--syntax-emphasis);
+  font-style: italic;
+}
+.cm-editor .tl-syn-link {
+  color: var(--syntax-link);
+  text-decoration: underline;
+}
+.cm-editor .tl-syn-invalid {
+  color: var(--syntax-invalid);
+}
+
+/* Default code text when no token class applies. */
+.cm-editor .cm-content,
+.cm-editor .cm-line {
+  color: var(--syntax-default);
+}

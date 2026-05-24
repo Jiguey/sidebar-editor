@@ -5,6 +5,7 @@
   import { files } from "$lib/stores/files";
   import { writeFile } from "$lib/ipc";
   import { loadCodeMirror, type CodeMirrorKit } from "$lib/editor/loadCodeMirror";
+  import { syntaxTheme } from "$lib/stores/syntaxTheme";
 
   interface Props {
     editorTab: WorkbenchTab | null;
@@ -36,8 +37,7 @@
           maxHeight: "100%",
           display: "flex",
           flexDirection: "column",
-          backgroundColor: "var(--editor-bg, #1e1e1e)",
-          color: "var(--editor-fg, #d4d4d4)",
+          backgroundColor: "var(--editor-bg, #181818)",
         },
         ".cm-scroller": {
           height: "100%",
@@ -48,21 +48,21 @@
           fontSize: "14px",
         },
         ".cm-gutters": {
-          backgroundColor: "var(--editor-bg, #1e1e1e)",
-          color: "var(--editor-gutter-fg, #858585)",
+          backgroundColor: "var(--editor-bg, #181818)",
+          color: "var(--editor-gutter-fg, #a0a0a0)",
           border: "none",
         },
         ".cm-activeLineGutter": {
-          backgroundColor: "var(--editor-line-hl, #2a2d2e)",
+          backgroundColor: "var(--editor-line-hl, #262626)",
         },
         ".cm-activeLine": {
-          backgroundColor: "var(--editor-line-hl, #2a2d2e)",
+          backgroundColor: "var(--editor-line-hl, #262626)",
         },
         ".cm-selectionBackground": {
-          backgroundColor: "var(--editor-selection, #264f78) !important",
+          backgroundColor: "var(--editor-selection, #404040) !important",
         },
         "&.cm-focused .cm-cursor": {
-          borderLeftColor: "var(--editor-fg, #d4d4d4)",
+          borderLeftColor: "var(--editor-fg, #e4e4e4)",
         },
       },
       { dark: true }
@@ -75,9 +75,10 @@
     return cm.EditorState.create({
       doc: file.content,
       extensions: [
-        cm.basicSetup,
-        cm.scrollPastEnd(),
+        ...cm.editorBaseSetup,
         ...lang,
+        cm.syntaxHighlighting,
+        cm.scrollPastEnd(),
         cm.EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             files.updateFileContent(file.path, update.state.doc.toString());
@@ -88,6 +89,14 @@
       ],
     });
   }
+
+  /** Re-highlight when syntax colors change in Settings (CSS vars update on :root). */
+  $effect(() => {
+  void $syntaxTheme;
+    if (editorView) {
+      editorView.requestMeasure();
+    }
+  });
 
   $effect(() => {
     pruneStates(props.editorPaths);

@@ -1,13 +1,16 @@
 import { writable, derived, get } from "svelte/store";
 import type { IconThemeId, VscodeIconManifest } from "../icon-packs/types";
+import type { SetiIconManifest } from "../icon-packs/setiTypes";
 import {
   bundledIconPackBaseUrl,
   clearBundledManifestCache,
   loadBundledVscodeIconManifest,
 } from "../icon-packs/bundled";
+import { clearSetiManifestCache, loadBundledSetiManifest } from "../icon-packs/setiBundled";
 import { iconPackGetDir, iconPackRefreshBundled, isTauriAvailable, readFile } from "../ipc";
 
-const STORAGE_KEY = "tinyllama.iconTheme.v1";
+const STORAGE_KEY = "tinyllama.iconTheme.v2";
+const LEGACY_STORAGE_KEY = "tinyllama.iconTheme.v1";
 
 type IconThemeState = {
   themeId: IconThemeId;
@@ -15,25 +18,52 @@ type IconThemeState = {
   revision: number;
 };
 
+function normalizeThemeId(id: unknown): IconThemeId {
+  if (
+    id === "seti" ||
+    id === "codicons" ||
+    id === "custom" ||
+    id === "vscode-icons"
+  ) {
+    return id;
+  }
+  return "seti";
+}
+
 function loadState(): IconThemeState {
   if (typeof localStorage === "undefined") {
-    return { themeId: "vscode-icons", customPackPath: null, revision: 0 };
+    return { themeId: "seti", customPackPath: null, revision: 0 };
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { themeId: "vscode-icons", customPackPath: null, revision: 0 };
-    const parsed = JSON.parse(raw) as Partial<IconThemeState>;
-    const themeId =
-      parsed.themeId === "codicons" || parsed.themeId === "custom" || parsed.themeId === "vscode-icons"
-        ? parsed.themeId
-        : "vscode-icons";
-    return {
-      themeId,
-      customPackPath: typeof parsed.customPackPath === "string" ? parsed.customPackPath : null,
-      revision: typeof parsed.revision === "number" ? parsed.revision : 0,
-    };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<IconThemeState>;
+      return {
+        themeId: normalizeThemeId(parsed.themeId),
+        customPackPath: typeof parsed.customPackPath === "string" ? parsed.customPackPath : null,
+        revision: typeof parsed.revision === "number" ? parsed.revision : 0,
+      };
+    }
+
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw) as Partial<IconThemeState>;
+      let themeId = normalizeThemeId(parsed.themeId);
+      // Cursor uses Seti; old default was vscode-icons SVG — upgrade once.
+      if (themeId === "vscode-icons") themeId = "seti";
+      const migrated: IconThemeState = {
+        themeId,
+        customPackPath: typeof parsed.customPackPath === "string" ? parsed.customPackPath : null,
+        revision: typeof parsed.revision === "number" ? parsed.revision : 0,
+      };
+      persist(migrated);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return migrated;
+    }
+
+    return { themeId: "seti", customPackPath: null, revision: 0 };
   } catch {
-    return { themeId: "vscode-icons", customPackPath: null, revision: 0 };
+    return { themeId: "seti", customPackPath: null, revision: 0 };
   }
 }
 
@@ -47,6 +77,7 @@ function persist(state: IconThemeState): void {
 }
 
 let manifestCache: VscodeIconManifest | null = null;
+let setiManifestCache: SetiIconManifest | null = null;
 let packBaseDir: string | null = null;
 let packSource: "bundled" | "appdata" | "custom" | null = null;
 
@@ -89,7 +120,7 @@ async function readManifestFromDir(dir: string): Promise<VscodeIconManifest> {
 }
 
 async function loadManifestForTheme(state: IconThemeState): Promise<VscodeIconManifest | null> {
-  if (state.themeId === "codicons") return null;
+  if (state.themeId === "codicons" || state.themeId === "seti") return null;
 
   if (state.themeId === "custom" && state.customPackPath) {
     manifestCache = await readManifestFromDir(state.customPackPath);
@@ -122,7 +153,7 @@ function createIconThemeStore() {
 
   async function ensureManifest(): Promise<VscodeIconManifest | null> {
     const state = get({ subscribe });
-    if (state.themeId === "codicons") return null;
+    if (state.themeId === "codicons" || state.themeId === "seti") return null;
     if (manifestCache && packSource) return manifestCache;
     return loadManifestForTheme(state);
   }
@@ -147,7 +178,7 @@ function createIconThemeStore() {
         const next = {
           ...s,
           customPackPath,
-          themeId: (customPackPath ? "custom" : "vscode-icons") as IconThemeId,
+          themeId: (customPackPath ? "custom" : "seti") as IconThemeId,
         };
         persist(next);
         return next;
@@ -158,9 +189,11 @@ function createIconThemeStore() {
 
     invalidateManifest: () => {
       manifestCache = null;
+      setiManifestCache = null;
       packSource = null;
       packBaseDir = null;
       clearBundledManifestCache();
+      clearSetiManifestCache();
     },
 
     bumpRevision: () => {
@@ -171,9 +204,22 @@ function createIconThemeStore() {
       });
     },
 
+    async ensureSetiManifest(): Promise<SetiIconManifest> {
+      if (setiManifestCache) return setiManifestCache;
+      setiManifestCache = await loadBundledSetiManifest();
+      return setiManifestCache;
+    },
+
     async init(): Promise<void> {
       try {
-        await ensureManifest();
+        const state = get({ subscribe });
+        if (state.themeId === "seti") {
+          await loadBundledSetiManifest().then((m) => {
+            setiManifestCache = m;
+          });
+        } else {
+          await ensureManifest();
+        }
       } finally {
         manifestReady.set(true);
       }
@@ -201,7 +247,7 @@ function createIconThemeStore() {
         manifestCache = null;
         await ensureManifest();
         update((s) => {
-          const next: IconThemeState = { ...s, revision: s.revision + 1, themeId: "vscode-icons" };
+          const next: IconThemeState = { ...s, revision: s.revision + 1 };
           persist(next);
           return next;
         });
@@ -235,3 +281,5 @@ function createIconThemeStore() {
 export const iconTheme = createIconThemeStore();
 
 export const usesCodicons = derived(iconTheme, ($t) => $t.themeId === "codicons");
+
+export const usesSetiIcons = derived(iconTheme, ($t) => $t.themeId === "seti");

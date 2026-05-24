@@ -64,7 +64,7 @@ function createSettingsStore() {
     ollamaModels: [],
     llamacppModels: [],
     anthropicExtendedThinking: true,
-    workbenchTheme: "vscode-dark",
+    workbenchTheme: "cursor-dark",
     anthropicContextBudget: null,
     webFetchAllowedHosts: DEFAULT_WEB_FETCH_HOSTS,
   };

@@ -13,7 +13,14 @@ export type VscodeIconManifest = {
   folderNamesExpanded: Record<string, string>;
 };
 
-export type IconThemeId = "vscode-icons" | "codicons" | "custom";
+export type IconThemeId = "seti" | "vscode-icons" | "codicons" | "custom";
+
+export const SETI_ICONS_ATTRIBUTION = {
+  name: "Seti UI",
+  author: "Jesse Weed",
+  repository: "https://github.com/jesseweed/seti-ui",
+  license: "MIT",
+};
 
 export const VSCODE_ICONS_ATTRIBUTION = {
   name: "Icons – Maintained (vscode-icons)",

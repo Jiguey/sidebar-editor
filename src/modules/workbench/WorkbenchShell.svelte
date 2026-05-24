@@ -26,6 +26,7 @@
   } from "$lib/ipc";
   import { applyWorkspaceFolder } from "$lib/workspace";
   import { initProjectStateAutosave, persistCurrentProjectState } from "$lib/projectState";
+  import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { dispatchWorkbenchShortcut } from "../shortcuts/dispatcher";
 
   const PANE_WIDTH_KEY = "tinyllama.paneWidths.v1";
@@ -174,6 +175,7 @@
     window.addEventListener("resize", clampPanesToWindow);
     clampPanesToWindow();
 
+    syntaxTheme.init();
     initProjectStateAutosave();
     const onBeforeUnload = () => {
       void persistCurrentProjectState();

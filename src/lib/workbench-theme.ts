@@ -1,7 +1,8 @@
 /** Presets applied via `data-workbench-theme` on `<html>` (see `styles/workbench-themes.css`). */
 export const WORKBENCH_THEME_OPTIONS = [
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha (default)" },
+  { id: "cursor-dark", label: "Cursor Dark (default)" },
   { id: "vscode-dark", label: "VS Code Dark" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
   { id: "tokyo-night", label: "Tokyo Night" },
   { id: "one-dark-pro", label: "One Dark Pro" },
   { id: "tiny-llama", label: "Tiny Llama" },
@@ -15,15 +16,15 @@ const KNOWN = new Set<string>(WORKBENCH_THEME_OPTIONS.map((t) => t.id));
 
 export function normalizeWorkbenchTheme(id: unknown): WorkbenchThemeId {
   if (typeof id === "string" && KNOWN.has(id)) return id as WorkbenchThemeId;
-  return "catppuccin-mocha";
+  return "cursor-dark";
 }
 
-/** `catppuccin-mocha` and `vscode-dark` use base tokens from `globals.css`. */
+/** `cursor-dark` uses base tokens from `globals.css` (matches Linux Cursor default). */
 export function applyWorkbenchTheme(id: string | undefined | null): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const v = (id ?? "catppuccin-mocha").trim();
-  if (!KNOWN.has(v) || v === "catppuccin-mocha") {
+  const v = (id ?? "cursor-dark").trim();
+  if (!KNOWN.has(v) || v === "cursor-dark") {
     root.removeAttribute("data-workbench-theme");
     return;
   }

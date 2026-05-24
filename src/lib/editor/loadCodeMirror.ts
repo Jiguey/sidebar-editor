@@ -1,11 +1,68 @@
+import type { Extension } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
+import {
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+  keymap,
+  EditorView,
+  scrollPastEnd,
+} from "@codemirror/view";
+import { foldGutter, indentOnInput, bracketMatching } from "@codemirror/language";
+import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import {
+  closeBrackets,
+  autocompletion,
+  closeBracketsKeymap,
+  completionKeymap,
+} from "@codemirror/autocomplete";
+import { lintKeymap } from "@codemirror/lint";
+import { foldKeymap } from "@codemirror/language";
 import type { OpenFile } from "$lib/stores/files";
+import { editorSyntaxHighlighting } from "./syntaxTheme";
+
+/** Same as codemirror's `basicSetup` but without `defaultHighlightStyle` (we use custom syntax). */
+export const editorBaseSetup: Extension[] = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  bracketMatching(),
+  closeBrackets(),
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    ...lintKeymap,
+  ]),
+];
 
 export type CodeMirrorKit = {
-  EditorState: typeof import("@codemirror/state").EditorState;
-  EditorView: typeof import("@codemirror/view").EditorView;
-  scrollPastEnd: typeof import("@codemirror/view").scrollPastEnd;
-  basicSetup: typeof import("codemirror").basicSetup;
-  languageExtensions: Record<string, import("@codemirror/state").Extension>;
+  EditorState: typeof EditorState;
+  EditorView: typeof EditorView;
+  scrollPastEnd: typeof scrollPastEnd;
+  editorBaseSetup: Extension[];
+  syntaxHighlighting: Extension;
+  languageExtensions: Record<string, Extension>;
 };
 
 let loadPromise: Promise<CodeMirrorKit> | null = null;
@@ -14,9 +71,6 @@ let loadPromise: Promise<CodeMirrorKit> | null = null;
 export function loadCodeMirror(): Promise<CodeMirrorKit> {
   if (!loadPromise) {
     loadPromise = Promise.all([
-      import("@codemirror/state"),
-      import("@codemirror/view"),
-      import("codemirror"),
       import("@codemirror/lang-javascript"),
       import("@codemirror/lang-html"),
       import("@codemirror/lang-css"),
@@ -24,24 +78,23 @@ export function loadCodeMirror(): Promise<CodeMirrorKit> {
       import("@codemirror/lang-markdown"),
       import("@codemirror/lang-rust"),
       import("@codemirror/lang-python"),
-    ]).then(
-      ([stateModule, viewModule, setupModule, jsModule, htmlModule, cssModule, jsonModule, mdModule, rustModule, pythonModule]) => ({
-        EditorState: stateModule.EditorState,
-        EditorView: viewModule.EditorView,
-        scrollPastEnd: viewModule.scrollPastEnd,
-        basicSetup: setupModule.basicSetup,
-        languageExtensions: {
-          javascript: jsModule.javascript(),
-          typescript: jsModule.javascript({ typescript: true }),
-          html: htmlModule.html(),
-          css: cssModule.css(),
-          json: jsonModule.json(),
-          markdown: mdModule.markdown(),
-          rust: rustModule.rust(),
-          python: pythonModule.python(),
-        },
-      })
-    );
+    ]).then(([jsModule, htmlModule, cssModule, jsonModule, mdModule, rustModule, pythonModule]) => ({
+      EditorState,
+      EditorView,
+      scrollPastEnd,
+      editorBaseSetup,
+      syntaxHighlighting: editorSyntaxHighlighting,
+      languageExtensions: {
+        javascript: jsModule.javascript(),
+        typescript: jsModule.javascript({ typescript: true }),
+        html: htmlModule.html(),
+        css: cssModule.css(),
+        json: jsonModule.json(),
+        markdown: mdModule.markdown(),
+        rust: rustModule.rust(),
+        python: pythonModule.python(),
+      },
+    }));
   }
   return loadPromise;
 }
@@ -56,9 +109,10 @@ export function createEditorState(
   return kit.EditorState.create({
     doc: file.content,
     extensions: [
-      kit.basicSetup,
-      kit.scrollPastEnd(),
+      ...kit.editorBaseSetup,
       ...lang,
+      kit.syntaxHighlighting,
+      kit.scrollPastEnd(),
       kit.EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           onDocChange(file.path, update.state.doc.toString());
