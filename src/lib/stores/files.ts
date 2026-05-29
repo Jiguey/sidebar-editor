@@ -60,10 +60,31 @@ function createFilesStore() {
     setChildren: (path: string, children: FileEntry[]) => {
       const key = normalizeFilePath(path);
       update((state) => {
+        const mergeChildren = (
+          previous: FileEntry[] | undefined,
+          next: FileEntry[]
+        ): FileEntry[] => {
+          if (!previous?.length) return next;
+          const previousByPath = new Map(
+            previous.map((entry) => [normalizeFilePath(entry.path), entry])
+          );
+          return next.map((entry) => {
+            const old = previousByPath.get(normalizeFilePath(entry.path));
+            if (old?.expanded && old.children) {
+              return { ...entry, expanded: true, children: old.children };
+            }
+            return entry;
+          });
+        };
+
         const setInTree = (entries: FileEntry[]): FileEntry[] => {
           return entries.map((entry) => {
             if (normalizeFilePath(entry.path) === key) {
-              return { ...entry, children, expanded: true };
+              return {
+                ...entry,
+                children: mergeChildren(entry.children, children),
+                expanded: true,
+              };
             }
             if (entry.children) {
               return { ...entry, children: setInTree(entry.children) };

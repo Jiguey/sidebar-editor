@@ -17,7 +17,7 @@ let apiLoad: Promise<void> | null = null;
 function ensureTauriApi(): Promise<void> {
   if (!isTauri) {
     return Promise.reject(
-      new Error("Tauri API unavailable. Run with 'npm run tauri dev' instead of 'npm run dev'.")
+      new Error("Tauri API unavailable. Run with 'pnpm tauri dev' instead of 'pnpm dev'.")
     );
   }
   if (!apiLoad) {
@@ -154,6 +154,24 @@ export async function gitFileAtHead(repoPath: string, path: string): Promise<str
 export async function gitDiscard(repoPath: string, path: string): Promise<void> {
   await ensureTauriApi();
   return invoke<void>("git_discard", { repoPath, path });
+}
+
+export async function gitCreateCheckpoint(
+  repoPath: string,
+  refSuffix: string
+): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("git_create_checkpoint", { repoPath, refSuffix });
+}
+
+export async function gitRestoreCheckpoint(repoPath: string, oid: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("git_restore_checkpoint", { repoPath, oid });
+}
+
+export async function gitIsRepo(repoPath: string): Promise<boolean> {
+  await ensureTauriApi();
+  return invoke<boolean>("git_is_repo", { repoPath });
 }
 
 export async function renameEntry(from: string, to: string): Promise<void> {

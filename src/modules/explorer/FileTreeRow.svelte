@@ -179,9 +179,9 @@
 
   .tree-button :global(.codicon),
   .tree-button :global(.file-icon-img) {
-    font-size: var(--explorer-icon-size, 15px);
-    width: calc(var(--explorer-icon-size, 15px) + 2px);
-    height: calc(var(--explorer-icon-size, 15px) + 2px);
+    font-size: var(--explorer-icon-size, 12px);
+    width: calc(var(--explorer-icon-size, 12px) + 2px);
+    height: calc(var(--explorer-icon-size, 12px) + 2px);
     flex-shrink: 0;
     color: inherit;
   }

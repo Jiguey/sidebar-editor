@@ -13,7 +13,12 @@
     contextOptionsUpTo,
     pickContextOption,
   } from "$lib/ollamaClient";
-  import { fetchLlamacppModelList, DEFAULT_LLAMACPP_ENDPOINT } from "$lib/llamaCppClient";
+  import {
+    fetchLlamacppModelList,
+    fetchLlamacppServerProps,
+    DEFAULT_LLAMACPP_ENDPOINT,
+    type LlamacppLiveServerInfo,
+  } from "$lib/llamaCppClient";
   import {
     searchModels,
     pullModel,
@@ -44,17 +49,33 @@
     type ProviderHealth,
   } from "$lib/providerHealth";
   import { SHORTCUT_DEFAULTS } from "../shortcuts/defaults";
-  import { WORKBENCH_THEME_OPTIONS, type WorkbenchThemeId } from "$lib/workbench-theme";
+  import {
+    WORKBENCH_THEME_OPTIONS,
+    applyWorkbenchTheme,
+    type WorkbenchThemeId,
+  } from "$lib/workbench-theme";
   import { iconTheme } from "$lib/stores/iconTheme";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { SYNTAX_COLOR_FIELDS, type SyntaxColorMap } from "$lib/editor/syntaxColors";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
+  import { chatAppearance } from "$lib/stores/chatAppearance";
   import {
     EXPLORER_APPEARANCE_FIELDS,
     type ExplorerAppearanceMap,
   } from "$lib/explorer/explorerAppearance";
+  import {
+    CHAT_APPEARANCE_COLOR_FIELDS,
+    CHAT_WAITING_STYLE_OPTIONS,
+    type ChatAppearanceMap,
+    type ChatWaitingStyle,
+  } from "$lib/chat/chatAppearance";
   import { VSCODE_ICONS_ATTRIBUTION } from "$lib/icon-packs/types";
   import { pickIconPackFolder, isTauriAvailable as isTauri } from "$lib/ipc";
+  import ProviderServerGuide from "./ProviderServerGuide.svelte";
+  import {
+    type LlamacppServerTemplate,
+    type OllamaServerTemplate,
+  } from "$lib/providerServerConfig";
 
   interface Props {
     open: boolean;
@@ -75,6 +96,7 @@
     | "appearance-icons"
     | "appearance-syntax"
     | "appearance-explorer"
+    | "appearance-chat"
     | "keybindings";
 
   const backendToSection: Record<ChatBackend, Section> = {
@@ -102,10 +124,39 @@
   let chatBackend = $state<ChatBackend>("ollama");
   let anthropicExtendedThinking = $state(true);
   let ollamaContextChoice = $state(8192);
-  let workbenchTheme = $state<WorkbenchThemeId>("cursor-dark");
+  let llamacppContextChoice = $state(8192);
+  let ollamaServerTemplate = $state<OllamaServerTemplate>({
+    modelsPath: "/mnt/data/ollama/models",
+    contextLength: 8192,
+    numThreads: 6,
+    keepAlive: -1,
+    maxLoadedModels: 1,
+    numParallel: 1,
+    newEngine: false,
+    flashAttention: false,
+    useHsaOverride: false,
+    hsaOverrideVersion: "9.0.6",
+  });
+  let llamacppServerTemplate = $state<LlamacppServerTemplate>({
+    serviceName: "llamacpp",
+    modelPath: "/mnt/data/llamacpp-models/Qwen2.5-1.5B-Instruct-Q5_K_M.gguf",
+    host: "127.0.0.1",
+    port: 8080,
+    context: 8192,
+    ngl: 99,
+    threads: 6,
+    threadsBatch: 12,
+    ubatch: 512,
+    batch: 512,
+    flashAttn: true,
+    mlock: true,
+    jinja: true,
+    user: "Nxe5",
+  });
+  let workbenchTheme = $state<WorkbenchThemeId>("vscode-dark");
   let webFetchAllowedHostsText = $state("");
-  let maxAgentSteps = $state(12);
-  let maxToolCallsPerRun = $state(48);
+  let maxAgentSteps = $state(0);
+  let maxToolCallsPerRun = $state(0);
   let maxToolsPerTurn = $state(0);
   let iconThemeId = $state<"seti" | "vscode-icons" | "codicons" | "custom">("seti");
   let iconPackCustomPath = $state("");
@@ -113,6 +164,7 @@
   let iconRefreshing = $state(false);
   let syntaxColors = $state<SyntaxColorMap>(syntaxTheme.get());
   let explorerColors = $state<ExplorerAppearanceMap>(explorerAppearance.get());
+  let chatColors = $state<ChatAppearanceMap>(chatAppearance.get());
 
   let modelSearchQuery = $state("");
   let modelSearchResults = $state<OllamaLibraryModel[]>([]);
@@ -132,6 +184,7 @@
   let ollamaStatus = $state<ProviderStatus>(idleProviderStatus());
   let llamacppStatus = $state<ProviderStatus>(idleProviderStatus());
   let llamacppModels = $state<ModelConfig[]>([]);
+  let llamacppLiveProps = $state<LlamacppLiveServerInfo | null>(null);
 
   let canRunShell = $derived(isTauriAvailable() && !!$files.workspacePath);
 
@@ -148,6 +201,7 @@
     { id: "appearance-icons", label: "Icons", group: "Appearance" },
     { id: "appearance-syntax", label: "Syntax", group: "Appearance" },
     { id: "appearance-explorer", label: "Explorer", group: "Appearance" },
+    { id: "appearance-chat", label: "Chat activity", group: "Appearance" },
     { id: "keybindings", label: "Keybindings" },
   ];
 
@@ -183,7 +237,10 @@
     iconPackCustomPath = $iconTheme.customPackPath ?? "";
     syntaxColors = { ...syntaxTheme.get() };
     explorerColors = { ...explorerAppearance.get() };
+    chatColors = { ...chatAppearance.get() };
     llamacppModels = $settings.llamacppModels;
+    ollamaServerTemplate = structuredClone($settings.ollamaServerTemplate);
+    llamacppServerTemplate = structuredClone($settings.llamacppServerTemplate);
     activeSection = backendToSection[$settings.chatBackend] ?? "providers-ollama";
     void connectOllama();
     void connectLlamacpp();
@@ -225,11 +282,29 @@
   async function fetchLlamacppModels() {
     loadingLlamacpp = true;
     try {
-      const rows = await fetchLlamacppModelList(llamacppEndpoint, llamacppApiKey);
+      const props = await fetchLlamacppServerProps(llamacppEndpoint, llamacppApiKey);
+      llamacppLiveProps = props.nCtx != null || props.model != null ? props : null;
+      const rows = await fetchLlamacppModelList(
+        llamacppEndpoint,
+        llamacppApiKey,
+        props.nCtx ?? llamacppServerTemplate.context,
+        props
+      );
       llamacppModels = rows as ModelConfig[];
       settings.setLlamacppModels(llamacppModels);
+      if (props.nCtx != null) {
+        llamacppContextChoice = props.nCtx;
+      }
+      if (llamacppStatus.dot === "green" || llamacppStatus.dot === "yellow") {
+        const ctxNote = props.nCtx != null ? ` · ctx ${fmtCtx(props.nCtx)}` : "";
+        llamacppStatus = {
+          ...llamacppStatus,
+          detail: `${llamacppStatus.detail.replace(/ · ctx [\d.kM]+$/i, "")}${ctxNote}`,
+        };
+      }
     } catch {
       llamacppModels = [];
+      llamacppLiveProps = null;
       settings.setLlamacppModels([]);
     } finally {
       loadingLlamacpp = false;
@@ -292,6 +367,7 @@
     const port = portFromBaseUrl(llamacppEndpoint, 8080);
     await runProviderShell(stopLlamacppServerCommand(port));
     llamacppModels = [];
+    llamacppLiveProps = null;
     settings.setLlamacppModels([]);
     await checkLlamacppStatus();
   }
@@ -360,6 +436,27 @@
     const row = ollamaModels.find((m) => m.id === selectedModel);
     const cur = row?.contextWindow ?? Math.min(8192, max);
     ollamaContextChoice = pickContextOption(cur, max);
+  });
+
+  $effect(() => {
+    if (!visible || activeSection !== "providers-llamacpp") return;
+    void [selectedModel, llamacppModels, llamacppLiveProps];
+    const row = llamacppModels.find((m) => m.id === selectedModel);
+    llamacppContextChoice =
+      llamacppLiveProps?.nCtx ?? row?.contextWindow ?? llamacppServerTemplate.context;
+  });
+
+  const llamacppGenerationRows = $derived.by(() => {
+    const gen = llamacppLiveProps?.generationDefaults;
+    if (!gen) return [] as { key: string; value: string }[];
+    const skip = new Set(["n_ctx", "model"]);
+    return Object.entries(gen)
+      .filter(([k, v]) => !skip.has(k) && v != null && v !== "")
+      .slice(0, 12)
+      .map(([key, value]) => ({
+        key,
+        value: typeof value === "object" ? JSON.stringify(value) : String(value),
+      }));
   });
 
   function openToolEditor(name: string, builtin: boolean) {
@@ -436,6 +533,7 @@
     }
     syntaxTheme.persist(syntaxColors);
     explorerAppearance.persist(explorerColors);
+    chatAppearance.persist(chatColors);
 
     if (chatBackend === "ollama") {
       const sid = selectedModel;
@@ -445,6 +543,18 @@
       );
       settings.setOllamaModels(next);
     }
+
+    if (chatBackend === "llamacpp") {
+      const sid = selectedModel;
+      const models = get(settings).llamacppModels;
+      const next = models.map((m) =>
+        m.id === sid ? { ...m, contextWindow: llamacppContextChoice } : m
+      );
+      settings.setLlamacppModels(next.length ? next : models);
+    }
+
+    settings.setOllamaServerTemplate(ollamaServerTemplate);
+    settings.setLlamacppServerTemplate(llamacppServerTemplate);
 
     onClose();
   }
@@ -672,7 +782,7 @@
               {@const ctxMax = maxCtxForSelectedOllama(selectedModel)}
               {@const ctxOpts = contextOptionsUpTo(ctxMax)}
               <label class="field">
-                <span class="name">Context window</span>
+                <span class="name">Context window (API — next chat message)</span>
                 <select class="input" bind:value={ollamaContextChoice}>
                   {#each ctxOpts as n}
                     <option value={n}>{fmtCtx(n)} tokens (max {fmtCtx(ctxMax)})</option>
@@ -680,6 +790,14 @@
                 </select>
               </label>
             {/if}
+
+            <ProviderServerGuide
+              kind="ollama"
+              bind:ollamaTemplate={ollamaServerTemplate}
+              {ollamaEndpoint}
+              {selectedModel}
+              ollamaContext={ollamaContextChoice}
+            />
           </div>
 
         {:else if activeSection === "providers-llamacpp"}
@@ -760,11 +878,64 @@
               </div>
 
               <p class="group-label">Server Models</p>
+              {#if llamacppLiveProps}
+                <div class="live-server-panel">
+                  <p class="group-label">Running server (GET /props)</p>
+                  <dl class="live-server-dl">
+                    <dt>Context (n_ctx)</dt>
+                    <dd>
+                      {#if llamacppLiveProps.nCtx != null}
+                        {llamacppLiveProps.nCtx.toLocaleString()} tokens
+                      {:else}
+                        <span class="muted">Not reported — is llama-server running?</span>
+                      {/if}
+                    </dd>
+                    {#if llamacppLiveProps.model}
+                      <dt>Loaded model</dt>
+                      <dd><code class="inline-code">{llamacppLiveProps.model}</code></dd>
+                    {/if}
+                    {#if llamacppLiveProps.totalSlots != null}
+                      <dt>Parallel slots</dt>
+                      <dd>{llamacppLiveProps.totalSlots}</dd>
+                    {/if}
+                  </dl>
+                  {#if llamacppLiveProps.nCtx != null && llamacppServerTemplate.context !== llamacppLiveProps.nCtx}
+                    <p class="note caution">
+                      Saved template uses <code class="inline-code">-c {llamacppServerTemplate.context}</code>,
+                      but the running server reports
+                      <code class="inline-code">n_ctx={llamacppLiveProps.nCtx}</code>. Restart with the
+                      ExecStart below or update systemd.
+                    </p>
+                  {/if}
+                  {#if llamacppGenerationRows.length > 0}
+                    <p class="group-label">Default generation settings</p>
+                    <div class="api-table-wrap">
+                      <table class="api-table">
+                        <thead>
+                          <tr><th>Key</th><th>Value</th></tr>
+                        </thead>
+                        <tbody>
+                          {#each llamacppGenerationRows as row}
+                            <tr>
+                              <td><code class="inline-code">{row.key}</code></td>
+                              <td>{row.value}</td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
               {#if llamacppModels.length > 0}
                 <div class="model-list">
                   {#each llamacppModels as model}
                     <div class="model-list-item">
                       <span class="model-list-name">{model.name}</span>
+                      {#if model.contextWindow}
+                        <span class="model-list-meta">{fmtCtx(model.contextWindow)} ctx</span>
+                      {/if}
                     </div>
                   {/each}
                 </div>
@@ -833,6 +1004,34 @@
                 <span class="hint">Model id reported by llama-server, or your loaded GGUF name.</span>
               {/if}
             </label>
+
+            <label class="field">
+              <span class="name">Context window (chat meter &amp; num_ctx)</span>
+              <input
+                class="input"
+                type="number"
+                bind:value={llamacppContextChoice}
+                min="512"
+                step="512"
+                readonly={llamacppLiveProps?.nCtx != null}
+              />
+              <span class="hint">
+                {#if llamacppLiveProps?.nCtx != null}
+                  Synced from the running server (<code class="inline-code">GET /props</code>). Chat footer
+                  uses this value. Change <code class="inline-code">-c</code> in the service and restart to
+                  resize.
+                {:else}
+                  Connect to read <code class="inline-code">n_ctx</code> from the server, or set manually.
+                  Server context is fixed at launch (<code class="inline-code">-c</code>).
+                {/if}
+              </span>
+            </label>
+
+            <ProviderServerGuide
+              kind="llamacpp"
+              bind:llamacppTemplate={llamacppServerTemplate}
+              llamacppContext={llamacppContextChoice}
+            />
           </div>
 
         {:else if activeSection === "providers-anthropic"}
@@ -886,9 +1085,10 @@
           <div class="stack">
             <p class="group-label">Agent limits</p>
             <p class="note">
-              Caps for Plan and Agent modes on a single user message.
-              <strong>Steps</strong> are model ↔ tool round trips;
-              <strong>tool calls</strong> count each read, write, grep, etc. across all steps.
+              Optional caps for Plan and Agent modes on a single user message.
+              <strong>0 = unlimited</strong> (default). The agent loop otherwise stops when the
+              model finishes or the <strong>context budget</strong> for the active model is full
+              (see context meter in chat). Conversation compaction is not implemented yet.
             </p>
             <label class="field">
               <span class="name">Max agent steps</span>
@@ -901,7 +1101,7 @@
                 onchange={persistAgentLimits}
               />
               <span class="hint">
-                LLM turns per message ({AGENT_LIMIT_BOUNDS.maxAgentSteps.min}–{AGENT_LIMIT_BOUNDS.maxAgentSteps.max}, default 12).
+                LLM turns per message (0 = unlimited, max {AGENT_LIMIT_BOUNDS.maxAgentSteps.max}).
               </span>
             </label>
             <label class="field">
@@ -915,7 +1115,7 @@
                 onchange={persistAgentLimits}
               />
               <span class="hint">
-                Total tools executed per message ({AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.min}–{AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max}, default 48).
+                Total tools executed per message (0 = unlimited, max {AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max}).
               </span>
             </label>
             <label class="field">
@@ -1055,10 +1255,16 @@
             <h3 class="provider-page-title">Theme</h3>
             <p class="note">
               Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
+              <strong>VS Code Dark</strong> is the classic look (#1e1e1e, blue accents).
+              <strong>Cursor Dark</strong> matches the Linux Cursor IDE (darker #181818, cyan accents).
             </p>
             <label class="field">
               <span class="name">Color theme</span>
-              <select class="input" bind:value={workbenchTheme}>
+              <select
+                class="input"
+                bind:value={workbenchTheme}
+                onchange={() => applyWorkbenchTheme(workbenchTheme)}
+              >
                 {#each WORKBENCH_THEME_OPTIONS as opt}
                   <option value={opt.id}>{opt.label}</option>
                 {/each}
@@ -1221,6 +1427,73 @@
               }}
             >
               Reset explorer defaults
+            </button>
+          </div>
+
+        {:else if activeSection === "appearance-chat"}
+          <div class="stack">
+            <h3 class="provider-page-title">Chat activity</h3>
+            <p class="note">
+              Agent feed in the chat pane — waiting indicator style and colors for thoughts,
+              tools, and badges. Changes preview live; click Save to keep them.
+            </p>
+            <label class="field">
+              <span class="name">While waiting for the model</span>
+              <span class="syntax-color-hint">Before tools or reasoning appear</span>
+              <select
+                class="input"
+                value={chatColors.waitingStyle}
+                onchange={(e) => {
+                  chatColors = {
+                    ...chatColors,
+                    waitingStyle: (e.currentTarget as HTMLSelectElement)
+                      .value as ChatWaitingStyle,
+                  };
+                  chatAppearance.apply(chatColors);
+                }}
+              >
+                {#each CHAT_WAITING_STYLE_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+            </label>
+            {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
+              <label class="field syntax-color-field">
+                <span class="name">{field.label}</span>
+                <span class="syntax-color-hint">{field.hint}</span>
+                <div class="syntax-color-row">
+                  <input
+                    type="color"
+                    class="syntax-color-swatch"
+                    value={chatColors[field.key]}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).value;
+                      chatColors = { ...chatColors, [field.key]: v };
+                      chatAppearance.apply(chatColors);
+                    }}
+                  />
+                  <input
+                    type="text"
+                    class="input syntax-color-hex"
+                    value={chatColors[field.key]}
+                    spellcheck={false}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).value;
+                      chatColors = { ...chatColors, [field.key]: v };
+                      chatAppearance.apply(chatColors);
+                    }}
+                  />
+                </div>
+              </label>
+            {/each}
+            <button
+              type="button"
+              class="btn ghost"
+              onclick={() => {
+                chatColors = chatAppearance.resetToDefaults();
+              }}
+            >
+              Reset chat activity defaults
             </button>
           </div>
 
@@ -1691,6 +1964,42 @@
 
   .note.muted {
     color: #5c5c5c;
+  }
+
+  .note.caution {
+    color: #d4a656;
+    margin-top: 8px;
+  }
+
+  .live-server-panel {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #181818;
+  }
+
+  .live-server-dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    margin: 0 0 8px;
+    font-size: 12px;
+  }
+
+  .live-server-dl dt {
+    color: #737373;
+    font-weight: 500;
+  }
+
+  .live-server-dl dd {
+    margin: 0;
+    color: #e0e0e0;
+  }
+
+  .model-list-meta {
+    font-size: 10px;
+    color: #737373;
   }
 
   .note a {

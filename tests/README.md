@@ -3,11 +3,23 @@
 ## Running
 
 ```bash
-npm install
-npm test
+pnpm install
+pnpm test
 ```
 
-Watch mode: `npm run test:watch`
+Watch mode: `pnpm test:watch`
+
+## Architecture under test
+
+Tiny Llama uses a **two-tier** runtime—**no Node sidecar**:
+
+| Layer | What tests cover |
+|-------|------------------|
+| **Svelte / TS** | `tests/unit/` — providers (mocked `fetch`), `toolRunner`, policy, agent limits, plans parse (when added), etc. |
+| **Rust** | Exercised at runtime via Tauri in the app; not a separate Rust test crate in this repo yet |
+| **Live Ollama** | `tests/integration/ollama.test.ts` — HTTP to local Ollama, same protocol as `openaiCompat.ts` |
+
+The agent loop (`ChatPane` → `streamOneTurn` → `executeTool` → IPC) is validated with **unit tests** and manual `pnpm tauri dev`. There is no harness process to integration-test.
 
 ## Ollama integration
 
@@ -29,44 +41,43 @@ Optional: pull the set this repo suggests for the UI / local dev:
 Run only the Ollama integration file:
 
 ```bash
-npm run test:ollama
+pnpm test:ollama
 ```
 
 Or all tests with Ollama enabled:
 
 ```bash
-RUN_OLLAMA_TESTS=1 npm test
+RUN_OLLAMA_TESTS=1 pnpm test
 ```
 
 Optional host override:
 
 ```bash
-RUN_OLLAMA_TESTS=1 OLLAMA_HOST=http://127.0.0.1:11434 npm test
+RUN_OLLAMA_TESTS=1 OLLAMA_HOST=http://127.0.0.1:11434 pnpm test
 ```
 
 Override the model used in the chat completion test:
 
 ```bash
-RUN_OLLAMA_TESTS=1 OLLAMA_TEST_MODEL=qwen2.5:0.5b npm test
+RUN_OLLAMA_TESTS=1 OLLAMA_TEST_MODEL=qwen2.5:0.5b pnpm test
 ```
 
-## Harness and tools (current behaviour)
+## Agent and tools (current behaviour)
 
-1. **Process**: Tauri spawns the Node **sidecar** (`sidecar/dist/index.js`). The UI sends JSON lines: `start`, `chat`, `clear`, `approve_tool`, `stop`.
+1. **Agent loop** — `ChatPane.svelte` `runAgentLoop()`: `streamOneTurn()` → optional tools → append results → repeat until stop or limits.
 
-2. **Models / harness**: `start` carries `provider` (`anthropic` | `ollama` | `llamacpp`), `model`, keys, `workspacePath`, **`ollamaEndpoint`** / **`llamacppEndpoint`** + optional **`llamacppApiKey`**, **`harnessKind`** (`pi-latest` default, `pi-minimal` for read-only tools), and **`toolPolicy`**. The `started` event may include **`piPackageVersion`** from `@mariozechner/pi-coding-agent`.
+2. **Providers** — `src/lib/providers/anthropic.ts` and `openaiCompat.ts` stream via **`fetch`** in the webview (not a sidecar). Settings supply API keys, endpoints, and model id.
 
-3. **Anthropic**: The sidecar streams the Messages API with tool definitions. When the model emits a **tool_use** block:
-   - If policy says a prompt is needed, the sidecar yields **`tool_approval_needed`** and **waits** for an `approve_tool` line with the same `callId` as the tool-use id (or times out as deny).
-   - After approval it emits **`tool_start`** then **`tool_end`**. Execution against the workspace is still a **stub** (no Tauri `read_file` bridge yet).
-   - If denied, it emits **`tool_end`** with `denied: true` and a short assistant message.
+3. **Tools** — When the model returns tool calls, `executeToolCallsWithApproval()` runs `executeTool()` in `toolRunner.ts`, which calls Tauri commands (`read_file`, `grep_workspace`, `run_shell`, etc.). Policy `allow` / `ask` / `deny` is enforced in the UI.
 
-4. **Ollama**: Chat is plain text streaming; **tools are not passed** to Ollama yet, so you will not see tool cards from local models until that is implemented.
+4. **Ollama / llama.cpp** — OpenAI-compatible chat completions with tools when the server supports them (see `openaiCompat.test.ts` and optional live Ollama test).
 
-5. **Chat UI**: `tool_start` / streaming assistant text appear in the thread; **`tool_approval_needed`** opens the yellow **Allow / Deny** strip at the top of the chat pane.
+5. **Anthropic** — Messages API SSE with tool streaming and optional extended thinking (`anthropic.test.ts`).
+
+6. **Chat UI** — Tool cards, activity feed (`activity.ts`), and the approval strip for `ask` tools.
 
 ## What to add next
 
-- Wire **tool execution** to Tauri commands and stream real results into `tool_end`.
-- Pass **tools + structured output** to Ollama where the server supports it.
-- E2E tests under Tauri (heavy); keep unit/integration tests here first.
+- More unit coverage for `streamTurn` edge cases and provider error paths.
+- Tauri command tests (Rust `#[cfg(test)]` or dedicated crate) if filesystem/git regressions become painful.
+- E2E under Tauri (heavy); keep unit/integration tests here first.

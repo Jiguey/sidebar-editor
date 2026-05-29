@@ -33,6 +33,8 @@
   let desktopAvailable = $state(isTauriAvailable());
   let highlightPath = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
+  /** Skip redundant reveal work when the active editor path did not change. */
+  let lastRevealedPath = $state<string | null>(null);
   let gitRows = $state<GitPathStatus[]>([]);
   let ctxMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
 
@@ -85,6 +87,18 @@
     }
   }
 
+  function findEntry(entries: FileEntry[], path: string): FileEntry | null {
+    const key = normalizeFilePath(path);
+    for (const entry of entries) {
+      if (normalizeFilePath(entry.path) === key) return entry;
+      if (entry.children) {
+        const found = findEntry(entry.children, path);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
   async function revealPathInTree(absPath: string) {
     const ws = get(files).workspacePath?.replace(/\/$/, "") ?? "";
     if (!ws || !absPath.startsWith(ws)) return;
@@ -94,6 +108,8 @@
     let prefix = ws;
     for (let i = 0; i < parts.length - 1; i++) {
       prefix = `${prefix}/${parts[i]}`;
+      const existing = findEntry(get(files).tree, prefix);
+      if (existing?.expanded && existing.children) continue;
       try {
         const raw = await listDir(prefix);
         const children = raw.map((c) => normalizeFileEntry(c as FileEntry & { isDir?: boolean }));
@@ -106,9 +122,11 @@
 
   $effect(() => {
     const tab = $activeWorkbenchTab;
-    if (tab?.kind === "editor") {
-      void revealPathInTree(tab.path);
-    }
+    if (tab?.kind !== "editor") return;
+    const path = normalizeFilePath(tab.path);
+    if (path === lastRevealedPath) return;
+    lastRevealedPath = path;
+    void revealPathInTree(path);
   });
 
   function onRowContext(entry: FileEntry, x: number, y: number) {
@@ -192,6 +210,10 @@
       return;
     }
 
+    const path = normalizeFilePath(entry.path);
+    highlightPath = path;
+    lastRevealedPath = path;
+
     try {
       const content = await readFile(entry.path);
       workbench.openEditorFile({
@@ -201,7 +223,6 @@
         isDirty: false,
         language: getLanguageFromPath(entry.path),
       });
-      workbench.syncFromOpenFiles();
     } catch (e) {
       console.error("Failed to read file:", e);
     }
@@ -223,7 +244,7 @@
       <p class="hint">
         File access, the explorer, tools, and the editor need the Tauri shell. Run:
       </p>
-      <code class="cmd">pnpm run tauri dev</code>
+      <code class="cmd">pnpm tauri dev</code>
       <p class="hint">Opening <code>http://localhost:14200</code> in a browser alone will not load your project files.</p>
     </div>
   {:else if error}

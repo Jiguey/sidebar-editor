@@ -1,11 +1,12 @@
 import type { Tool } from "../providers/openaiCompat";
-import type { Message as ProviderMessage, StreamEvent } from "../providers/openaiCompat";
+import type { Message as ProviderMessage, StreamEvent, InferenceOptions } from "../providers/openaiCompat";
 import { streamChat as streamChatOpenAI } from "../providers/openaiCompat";
 import { streamChat as streamChatAnthropic } from "../providers/anthropic";
 import type { StoredToolCall } from "../stores/chat";
 
 export type StreamTurnResult = {
   content: string;
+  thinking: string;
   toolCalls: StoredToolCall[];
   usage?: { prompt_tokens: number; completion_tokens: number };
 };
@@ -21,8 +22,12 @@ export async function streamOneTurn(options: {
   extendedThinking?: boolean;
   signal?: AbortSignal;
   onDelta?: (content: string) => void;
+  onThinking?: (thinking: string) => void;
+  onToolCall?: (toolCall: StoredToolCall) => void;
+  inferenceOptions?: InferenceOptions;
 }): Promise<StreamTurnResult> {
   let fullContent = "";
+  let fullThinking = "";
   const toolCalls: StoredToolCall[] = [];
   let usage: StreamTurnResult["usage"];
 
@@ -31,12 +36,17 @@ export async function streamOneTurn(options: {
       if (event.type === "delta") {
         fullContent += event.content;
         options.onDelta?.(fullContent);
+      } else if (event.type === "thinking_delta") {
+        fullThinking += event.content;
+        options.onThinking?.(fullThinking);
       } else if (event.type === "tool_call") {
-        toolCalls.push({
+        const tc: StoredToolCall = {
           id: event.id,
           name: event.name,
           arguments: event.arguments,
-        });
+        };
+        toolCalls.push(tc);
+        options.onToolCall?.(tc);
       } else if (event.type === "done" && event.usage) {
         usage = {
           prompt_tokens: event.usage.prompt_tokens,
@@ -66,10 +76,11 @@ export async function streamOneTurn(options: {
       options.model,
       options.messages,
       options.tools,
-      options.signal
+      options.signal,
+      options.inferenceOptions
     );
     await processStream(stream);
   }
 
-  return { content: fullContent, toolCalls, usage };
+  return { content: fullContent, thinking: fullThinking, toolCalls, usage };
 }

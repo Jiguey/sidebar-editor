@@ -55,7 +55,7 @@ describeOllama("Ollama (integration)", () => {
     const contents = parsed.map((c) => c.message?.content ?? "");
     const last = parsed[lines.length - 1];
     expect(last?.done).toBe(true);
-    /** Cumulative content grows (same as Ollama SDK stream the sidecar consumes). */
+    /** Cumulative content grows (same SSE shape openaiCompat consumes). */
     for (let i = 1; i < contents.length; i++) {
       expect(contents[i].length).toBeGreaterThanOrEqual(contents[i - 1].length);
     }

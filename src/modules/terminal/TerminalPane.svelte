@@ -122,7 +122,7 @@
 
 <div class="flex h-full min-h-0 flex-1 flex-col bg-background">
   {#if !isTauriAvailable()}
-    <div class="p-4 text-sm text-muted-foreground">Terminal requires Tauri (run <code class="rounded bg-muted px-1">npm run tauri dev</code>).</div>
+    <div class="p-4 text-sm text-muted-foreground">Terminal requires Tauri (run <code class="rounded bg-muted px-1">pnpm tauri dev</code>).</div>
   {:else}
     <div class="min-h-0 flex-1 overflow-hidden px-1 pt-1" bind:this={rootEl}></div>
   {/if}

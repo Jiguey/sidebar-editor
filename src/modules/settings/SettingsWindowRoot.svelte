@@ -5,12 +5,14 @@
   import { applyWorkbenchTheme } from "$lib/workbench-theme";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
+  import { chatAppearance } from "$lib/stores/chatAppearance";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
   import WindowControls from "../workbench/WindowControls.svelte";
   import SettingsPane from "./SettingsPane.svelte";
 
   syntaxTheme.init();
   explorerAppearance.init();
+  chatAppearance.init();
 
   function onClose() {
     void getCurrentWindow().close();

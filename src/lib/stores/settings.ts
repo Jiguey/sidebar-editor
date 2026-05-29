@@ -1,10 +1,18 @@
 import { writable } from "svelte/store";
 import {
-  clampAgentLimits,
   DEFAULT_AGENT_LIMITS,
+  normalizeAgentLimits,
   type AgentLimits,
 } from "../agentLimits";
 import { DEFAULT_LLAMACPP_ENDPOINT } from "../llamaCppClient";
+import {
+  DEFAULT_LLAMACPP_SERVER_TEMPLATE,
+  DEFAULT_OLLAMA_SERVER_TEMPLATE,
+  normalizeLlamacppServerTemplate,
+  normalizeOllamaServerTemplate,
+  type LlamacppServerTemplate,
+  type OllamaServerTemplate,
+} from "../providerServerConfig";
 import { normalizeWorkbenchTheme, type WorkbenchThemeId } from "../workbench-theme";
 
 export type { AgentLimits };
@@ -49,6 +57,8 @@ function createSettingsStore() {
     anthropicContextBudget: number | null;
     webFetchAllowedHosts: string[];
     agentLimits: AgentLimits;
+    ollamaServerTemplate: OllamaServerTemplate;
+    llamacppServerTemplate: LlamacppServerTemplate;
   };
 
   const DEFAULT_WEB_FETCH_HOSTS = [
@@ -73,10 +83,12 @@ function createSettingsStore() {
     ollamaModels: [],
     llamacppModels: [],
     anthropicExtendedThinking: true,
-    workbenchTheme: "cursor-dark",
+    workbenchTheme: "vscode-dark",
     anthropicContextBudget: null,
     webFetchAllowedHosts: DEFAULT_WEB_FETCH_HOSTS,
     agentLimits: { ...DEFAULT_AGENT_LIMITS },
+    ollamaServerTemplate: { ...DEFAULT_OLLAMA_SERVER_TEMPLATE },
+    llamacppServerTemplate: { ...DEFAULT_LLAMACPP_SERVER_TEMPLATE },
   };
 
   function normalizeLoaded(parsed: Partial<SettingsState>): SettingsState {
@@ -100,7 +112,9 @@ function createSettingsStore() {
           : typeof parsed.anthropicContextBudget === "number"
             ? parsed.anthropicContextBudget
             : defaultState.anthropicContextBudget,
-      agentLimits: clampAgentLimits(parsed.agentLimits),
+      agentLimits: normalizeAgentLimits(parsed.agentLimits),
+      ollamaServerTemplate: normalizeOllamaServerTemplate(parsed.ollamaServerTemplate),
+      llamacppServerTemplate: normalizeLlamacppServerTemplate(parsed.llamacppServerTemplate),
     };
   }
 
@@ -272,7 +286,25 @@ function createSettingsStore() {
     setAgentLimits: (agentLimits: Partial<AgentLimits>) => {
       update((state) => ({
         ...state,
-        agentLimits: clampAgentLimits({ ...state.agentLimits, ...agentLimits }),
+        agentLimits: normalizeAgentLimits({ ...state.agentLimits, ...agentLimits }),
+      }));
+    },
+    setOllamaServerTemplate: (template: Partial<OllamaServerTemplate>) => {
+      update((state) => ({
+        ...state,
+        ollamaServerTemplate: normalizeOllamaServerTemplate({
+          ...state.ollamaServerTemplate,
+          ...template,
+        }),
+      }));
+    },
+    setLlamacppServerTemplate: (template: Partial<LlamacppServerTemplate>) => {
+      update((state) => ({
+        ...state,
+        llamacppServerTemplate: normalizeLlamacppServerTemplate({
+          ...state.llamacppServerTemplate,
+          ...template,
+        }),
       }));
     },
   };

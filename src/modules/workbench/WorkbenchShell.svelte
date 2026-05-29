@@ -30,6 +30,7 @@
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { dispatchWorkbenchShortcut } from "../shortcuts/dispatcher";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
+  import { chatAppearance } from "$lib/stores/chatAppearance";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
 
   const PANE_WIDTH_KEY = "tinyllama.paneWidths.v1";
@@ -180,6 +181,7 @@
 
     syntaxTheme.init();
     explorerAppearance.init();
+    chatAppearance.init();
     initProjectStateAutosave();
     const onBeforeUnload = () => {
       void persistCurrentProjectState();

@@ -135,6 +135,36 @@ describe("openaiCompat", () => {
       expect(body.tools).toBeUndefined();
     });
 
+    it("yields thinking_delta for reasoning_content", async () => {
+      const body =
+        sseChunk({
+          id: "1",
+          object: "chat.completion.chunk",
+          created: 123,
+          model: "test",
+          choices: [{ index: 0, delta: { reasoning_content: "Hmm…" } }],
+        }) +
+        "data: [DONE]\n\n";
+
+      global.fetch = vi.fn().mockResolvedValue(createMockResponse(body));
+
+      const events = await collect(
+        streamChat("http://localhost:11434", "model", [], undefined, undefined, { think: true })
+      );
+
+      const thinking = events.filter(
+        (e): e is Extract<StreamEvent, { type: "thinking_delta" }> => e.type === "thinking_delta"
+      );
+      expect(thinking).toHaveLength(1);
+      expect(thinking[0].content).toBe("Hmm…");
+
+      const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(JSON.parse(options.body as string).think).toBe(true);
+    });
+
     it("yields delta events for content", async () => {
       const body =
         sseChunk({
@@ -282,6 +312,24 @@ describe("openaiCompat", () => {
       );
 
       expect(events).toHaveLength(0);
+    });
+
+    it("includes inference options when provided", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        createMockResponse("data: [DONE]\n\n")
+      );
+      global.fetch = mockFetch;
+
+      await collect(
+        streamChat("http://localhost:11434", "model", [], undefined, undefined, {
+          num_ctx: 4096,
+          num_thread: 6,
+        })
+      );
+
+      const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(options.body as string);
+      expect(body.options).toEqual({ num_ctx: 4096, num_thread: 6 });
     });
 
     it("yields done event at end of stream", async () => {

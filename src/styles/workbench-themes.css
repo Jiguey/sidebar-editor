@@ -1,12 +1,68 @@
 /**
  * Workbench palettes (editor, explorer, activity bar, terminal ANSI).
- * Settings → Appearance, or `data-workbench-theme` on `<html class="dark">`.
+ * Settings → Appearance → Theme, or `data-workbench-theme` on `<html class="dark">`.
  *
- * Presets: Cursor Dark (default, from globals.css), VS Code Dark, Catppuccin Mocha, Tokyo Night,
- * One Dark Pro, Tiny Llama (One Dark Pro palette + tab accent), Dracula, GitHub Dark.
+ * Default: VS Code Dark (globals.css). Presets below override when selected.
  */
 
-/** Classic VS Code dark (pre–Cursor Dark). */
+/** Linux Cursor IDE dark (darker than VS Code; was the former default). */
+.dark[data-workbench-theme="cursor-dark"] {
+  --editor-bg: #181818;
+  --editor-fg: #e4e4e4;
+  --editor-gutter-fg: #a0a0a0;
+  --editor-line-hl: #262626;
+  --editor-selection: #404040;
+
+  --background: #181818;
+  --foreground: #e4e4e4;
+  --card: #141414;
+  --card-foreground: #e4e4e4;
+  --popover: #141414;
+  --popover-foreground: #e4e4e4;
+  --primary: #88c0d0;
+  --primary-foreground: #141414;
+  --secondary: #262626;
+  --secondary-foreground: #e4e4e4;
+  --muted: #2a2a2a;
+  --muted-foreground: #a0a0a0;
+  --accent: #343434;
+  --accent-foreground: #e4e4e4;
+  --destructive: #e34671;
+  --border: #2a2a2a;
+  --input: #1e1e1e;
+  --ring: #88c0d0;
+  --chart-1: #88c0d0;
+  --chart-2: #3fa266;
+  --chart-3: #d2943e;
+  --chart-4: #b48ead;
+  --chart-5: #e394dc;
+  --sidebar: #141414;
+  --sidebar-foreground: #c8c8c8;
+  --sidebar-primary: #88c0d0;
+  --sidebar-primary-foreground: #141414;
+  --sidebar-accent: #262626;
+  --sidebar-accent-foreground: #e4e4e4;
+  --sidebar-border: #2a2a2a;
+  --sidebar-ring: #88c0d0;
+  --surface: #141414;
+  --surface-elevated: #262626;
+  --success: #3fa266;
+  --activity-bar-bg: #141414;
+  --activity-bar-fg: #a0a0a0;
+  --activity-bar-active: #e4e4e4;
+  --activity-bar-accent: #88c0d0;
+  --workbench-tab-active-indicator: #88c0d0;
+  --terminal-ansi-black: #242424;
+  --terminal-ansi-red: #fc6b83;
+  --terminal-ansi-green: #3fa266;
+  --terminal-ansi-yellow: #d2943e;
+  --terminal-ansi-blue: #81a1c1;
+  --terminal-ansi-magenta: #b48ead;
+  --terminal-ansi-cyan: #88c0d0;
+  --terminal-ansi-white: #e4e4e4;
+}
+
+/** Same as default globals; kept for explicit selection in Settings. */
 .dark[data-workbench-theme="vscode-dark"] {
   --editor-bg: #1e1e1e;
   --editor-fg: #d4d4d4;

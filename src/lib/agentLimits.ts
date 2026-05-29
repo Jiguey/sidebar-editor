@@ -1,24 +1,24 @@
 /** Configurable caps for the agent loop (one user message → multi-step tool chain). */
 
 export type AgentLimits = {
-  /** LLM ↔ tool round trips per user message. */
+  /** LLM ↔ tool round trips per user message. 0 = unlimited. */
   maxAgentSteps: number;
-  /** Total tool executions across all steps for one user message. */
+  /** Total tool executions across all steps for one user message. 0 = unlimited. */
   maxToolCallsPerRun: number;
-  /** Tool calls allowed from a single model response; 0 = unlimited. */
+  /** Tool calls allowed from a single model response. 0 = unlimited. */
   maxToolsPerTurn: number;
 };
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
-  maxAgentSteps: 12,
-  maxToolCallsPerRun: 48,
+  maxAgentSteps: 0,
+  maxToolCallsPerRun: 0,
   maxToolsPerTurn: 0,
 };
 
 export const AGENT_LIMIT_BOUNDS = {
-  maxAgentSteps: { min: 1, max: 40 },
-  maxToolCallsPerRun: { min: 1, max: 200 },
-  maxToolsPerTurn: { min: 0, max: 20 },
+  maxAgentSteps: { min: 0, max: 200 },
+  maxToolCallsPerRun: { min: 0, max: 500 },
+  maxToolsPerTurn: { min: 0, max: 50 },
 } as const;
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -26,6 +26,10 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
     return fallback;
   }
   return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+export function isUnlimitedCap(value: number): boolean {
+  return value <= 0;
 }
 
 export function clampAgentLimits(raw: Partial<AgentLimits> | undefined): AgentLimits {
@@ -50,4 +54,28 @@ export function clampAgentLimits(raw: Partial<AgentLimits> | undefined): AgentLi
       DEFAULT_AGENT_LIMITS.maxToolsPerTurn
     ),
   };
+}
+
+/** Migrate saved limits that matched the old fixed defaults to unlimited. */
+export function normalizeAgentLimits(raw: Partial<AgentLimits> | undefined): AgentLimits {
+  const c = clampAgentLimits(raw);
+  if (c.maxAgentSteps === 12 && c.maxToolCallsPerRun === 48 && c.maxToolsPerTurn === 0) {
+    return { ...DEFAULT_AGENT_LIMITS };
+  }
+  return c;
+}
+
+export function shouldContinueAgentStep(step: number, limits: AgentLimits): boolean {
+  if (isUnlimitedCap(limits.maxAgentSteps)) return true;
+  return step < limits.maxAgentSteps;
+}
+
+export function isToolRunCapReached(executed: number, limits: AgentLimits): boolean {
+  if (isUnlimitedCap(limits.maxToolCallsPerRun)) return false;
+  return executed >= limits.maxToolCallsPerRun;
+}
+
+export function perTurnToolCap(limits: AgentLimits, toolCallCount: number): number {
+  if (isUnlimitedCap(limits.maxToolsPerTurn)) return toolCallCount;
+  return limits.maxToolsPerTurn;
 }

@@ -90,8 +90,8 @@
       {#if !isTauriAvailable()}
         <div class="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
           Integrated terminal needs the desktop app. Run
-          <code class="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">npm run tauri dev</code>
-          instead of <code class="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono">npm run dev</code>.
+          <code class="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">pnpm tauri dev</code>
+          instead of <code class="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono">pnpm dev</code>.
         </div>
       {:else if terminalError}
         <div class="flex h-full items-center justify-center p-4 text-center text-sm text-destructive">

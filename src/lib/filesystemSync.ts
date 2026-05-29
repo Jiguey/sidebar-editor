@@ -6,6 +6,7 @@ import { normalizeFilePath } from "./fsPath";
 import { normalizeFileEntry, refreshWorkspaceTree } from "./workspace";
 import { resolveWorkspacePath } from "./tools/pathUtils";
 import { bumpGitRefresh } from "./stores/gitRefresh";
+import { pathsFromToolInput } from "./agent/toolDisplay";
 
 function findEntry(entries: FileEntry[], path: string): FileEntry | null {
   const key = normalizeFilePath(path);
@@ -63,39 +64,6 @@ function resolveToolPath(workspacePath: string, raw: string): string {
   return resolveWorkspacePath(workspacePath, raw);
 }
 
-function pathsFromTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  workspacePath: string
-): string[] {
-  const paths: string[] = [];
-  const push = (p: unknown) => {
-    if (typeof p === "string" && p.trim()) {
-      try {
-        paths.push(resolveToolPath(workspacePath, p.trim()));
-      } catch {
-        /* ignore bad paths */
-      }
-    }
-  };
-
-  switch (toolName) {
-    case "write_file":
-    case "create_file":
-    case "delete_file":
-    case "read_file":
-      push(args.path);
-      break;
-    case "move_file":
-      push(args.from);
-      push(args.to);
-      break;
-    default:
-      break;
-  }
-  return paths;
-}
-
 const FS_MUTATING_TOOLS = new Set([
   "write_file",
   "create_file",
@@ -113,7 +81,7 @@ export async function syncUiAfterFilesystemTool(
   if (!success || !isTauriAvailable() || !FS_MUTATING_TOOLS.has(toolName)) return;
 
   const ws = normalizeFilePath(workspacePath);
-  const paths = pathsFromTool(toolName, args, ws);
+  const paths = pathsFromToolInput(toolName, args, ws);
 
   await refreshVisibleExplorer(ws);
 
@@ -147,7 +115,12 @@ export async function syncUiAfterFilesystemTool(
 
   if (toolName === "write_file") {
     for (const p of paths) {
-      if (!p.endsWith("/")) await reloadOpenFileIfVisible(p);
+      if (!p.endsWith("/")) {
+        const canon = normalizeFilePath(p);
+        const open = get(files).openFiles.find((f) => normalizeFilePath(f.path) === canon);
+        if (open) await reloadOpenFileIfVisible(p);
+        else await openFileFromDisk(p);
+      }
     }
     return;
   }
@@ -177,6 +150,11 @@ async function reloadOpenFileIfVisible(path: string): Promise<void> {
     files.closeFile(canon);
     workbench.closeTab(workbenchEditorTabId(canon));
   }
+}
+
+/** Open a workspace file in the editor (e.g. from chat tool links). */
+export async function openWorkspaceFile(path: string): Promise<void> {
+  await openFileFromDisk(path);
 }
 
 async function openFileFromDisk(path: string): Promise<void> {

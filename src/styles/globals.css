@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Default dark: Cursor Dark (matches Linux Cursor IDE: theme-cursor + Seti file icons).
+ * Default dark: VS Code Dark (classic workbench). Cursor Dark is a selectable preset.
  */
 @font-face {
   font-family: "seti";
@@ -24,48 +24,48 @@
   /** Top shell row (chat + workbench tabs) and bottom status bar. */
   --workbench-shell-header-height: 36px;
 
-  /* Editor / workbench — Cursor Dark */
-  --editor-bg: #181818;
-  --editor-fg: #e4e4e4;
-  --editor-gutter-fg: #a0a0a0;
-  --editor-line-hl: #262626;
-  --editor-selection: #404040;
+  /* Editor / workbench — VS Code Dark */
+  --editor-bg: #1e1e1e;
+  --editor-fg: #d4d4d4;
+  --editor-gutter-fg: #858585;
+  --editor-line-hl: #2a2d2e;
+  --editor-selection: #264f78;
 
-  --background: #181818;
-  --foreground: #e4e4e4;
-  --card: #141414;
-  --card-foreground: #e4e4e4;
-  --popover: #141414;
-  --popover-foreground: #e4e4e4;
-  --primary: #88c0d0;
-  --primary-foreground: #141414;
-  --secondary: #262626;
-  --secondary-foreground: #e4e4e4;
-  --muted: #2a2a2a;
+  --background: #1e1e1e;
+  --foreground: #d4d4d4;
+  --card: #252526;
+  --card-foreground: #d4d4d4;
+  --popover: #252526;
+  --popover-foreground: #d4d4d4;
+  --primary: #007acc;
+  --primary-foreground: #ffffff;
+  --secondary: #2d2d30;
+  --secondary-foreground: #d4d4d4;
+  --muted: #3c3c3c;
   --muted-foreground: #a0a0a0;
-  --accent: #343434;
-  --accent-foreground: #e4e4e4;
-  --destructive: #e34671;
-  --border: #2a2a2a;
-  --input: #1e1e1e;
-  --ring: #88c0d0;
-  --chart-1: #88c0d0;
-  --chart-2: #3fa266;
-  --chart-3: #d2943e;
-  --chart-4: #b48ead;
-  --chart-5: #e394dc;
-  --sidebar: #141414;
-  --sidebar-foreground: #c8c8c8;
-  --sidebar-primary: #88c0d0;
-  --sidebar-primary-foreground: #141414;
-  --sidebar-accent: #262626;
-  --sidebar-accent-foreground: #e4e4e4;
-  --sidebar-border: #2a2a2a;
-  --sidebar-ring: #88c0d0;
+  --accent: #323235;
+  --accent-foreground: #d4d4d4;
+  --destructive: #f14c4c;
+  --border: #3c3c3c;
+  --input: #3c3c3c;
+  --ring: #007acc;
+  --chart-1: #007acc;
+  --chart-2: #4ec9b0;
+  --chart-3: #dcdcaa;
+  --chart-4: #c586c0;
+  --chart-5: #ce9178;
+  --sidebar: #252526;
+  --sidebar-foreground: #d4d4d4;
+  --sidebar-primary: #007acc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2d2d30;
+  --sidebar-accent-foreground: #d4d4d4;
+  --sidebar-border: #3c3c3c;
+  --sidebar-ring: #007acc;
 
   --explorer-selection-bg: #2a2a2a;
   --explorer-font-size: 12px;
-  --explorer-icon-size: 15px;
+  --explorer-icon-size: 12px;
   --explorer-file-modified: #d4a656;
   --explorer-file-untracked: #6b9bd1;
   --explorer-folder-open: #d4a656;
@@ -73,67 +73,67 @@
   --explorer-folder-modified: #c9a227;
   --explorer-folder-error: #e34671;
 
-  --surface: #141414;
-  --surface-elevated: #262626;
-  --success: #3fa266;
+  --surface: #252526;
+  --surface-elevated: #2d2d30;
+  --success: #89d185;
 
-  --activity-bar-bg: #141414;
-  --activity-bar-fg: #a0a0a0;
-  --activity-bar-active: #e4e4e4;
-  --activity-bar-accent: #88c0d0;
-  --workbench-tab-active-indicator: #88c0d0;
-  --terminal-ansi-black: #242424;
-  --terminal-ansi-red: #fc6b83;
-  --terminal-ansi-green: #3fa266;
-  --terminal-ansi-yellow: #d2943e;
-  --terminal-ansi-blue: #81a1c1;
-  --terminal-ansi-magenta: #b48ead;
-  --terminal-ansi-cyan: #88c0d0;
-  --terminal-ansi-white: #e4e4e4;
+  --activity-bar-bg: #333333;
+  --activity-bar-fg: #808080;
+  --activity-bar-active: #d4d4d4;
+  --activity-bar-accent: #007acc;
+  --workbench-tab-active-indicator: #007acc;
+  --terminal-ansi-black: #3c3c3c;
+  --terminal-ansi-red: #f14c4c;
+  --terminal-ansi-green: #89d185;
+  --terminal-ansi-yellow: #dcdcaa;
+  --terminal-ansi-blue: #569cd6;
+  --terminal-ansi-magenta: #c586c0;
+  --terminal-ansi-cyan: #4ec9b0;
+  --terminal-ansi-white: #d4d4d4;
 }
 
 .dark {
-  --editor-bg: #181818;
-  --editor-fg: #e4e4e4;
-  --editor-gutter-fg: #a0a0a0;
-  --editor-line-hl: #262626;
-  --editor-selection: #404040;
+  --editor-bg: #1e1e1e;
+  --editor-fg: #d4d4d4;
+  --editor-gutter-fg: #858585;
+  --editor-line-hl: #2a2d2e;
+  --editor-selection: #264f78;
 
-  --background: #181818;
-  --foreground: #e4e4e4;
-  --card: #141414;
-  --card-foreground: #e4e4e4;
-  --popover: #141414;
-  --popover-foreground: #e4e4e4;
-  --primary: #88c0d0;
-  --primary-foreground: #141414;
-  --secondary: #262626;
-  --secondary-foreground: #e4e4e4;
-  --muted: #2a2a2a;
+  --background: #1e1e1e;
+  --foreground: #d4d4d4;
+  --card: #252526;
+  --card-foreground: #d4d4d4;
+  --popover: #252526;
+  --popover-foreground: #d4d4d4;
+  --primary: #007acc;
+  --primary-foreground: #ffffff;
+  --secondary: #2d2d30;
+  --secondary-foreground: #d4d4d4;
+  --muted: #3c3c3c;
   --muted-foreground: #a0a0a0;
-  --accent: #343434;
-  --accent-foreground: #e4e4e4;
-  --destructive: #e34671;
-  --border: #2a2a2a;
-  --input: #1e1e1e;
-  --ring: #88c0d0;
-  --chart-1: #88c0d0;
-  --chart-2: #3fa266;
-  --chart-3: #d2943e;
-  --chart-4: #b48ead;
-  --chart-5: #e394dc;
-  --sidebar: #141414;
-  --sidebar-foreground: #c8c8c8;
-  --sidebar-primary: #88c0d0;
-  --sidebar-primary-foreground: #141414;
-  --sidebar-accent: #262626;
-  --sidebar-accent-foreground: #e4e4e4;
-  --sidebar-border: #2a2a2a;
-  --sidebar-ring: #88c0d0;
+  --accent: #323235;
+  --accent-foreground: #d4d4d4;
+  --destructive: #f14c4c;
+  --border: #3c3c3c;
+  --input: #3c3c3c;
+  --ring: #007acc;
+  --chart-1: #007acc;
+  --chart-2: #4ec9b0;
+  --chart-3: #dcdcaa;
+  --chart-4: #c586c0;
+  --chart-5: #ce9178;
+  --sidebar: #252526;
+  --sidebar-foreground: #d4d4d4;
+  --sidebar-primary: #007acc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2d2d30;
+  --sidebar-accent-foreground: #d4d4d4;
+  --sidebar-border: #3c3c3c;
+  --sidebar-ring: #007acc;
 
   --explorer-selection-bg: #2a2a2a;
   --explorer-font-size: 12px;
-  --explorer-icon-size: 15px;
+  --explorer-icon-size: 12px;
   --explorer-file-modified: #d4a656;
   --explorer-file-untracked: #6b9bd1;
   --explorer-folder-open: #d4a656;
@@ -141,23 +141,23 @@
   --explorer-folder-modified: #c9a227;
   --explorer-folder-error: #e34671;
 
-  --surface: #141414;
-  --surface-elevated: #262626;
-  --success: #3fa266;
+  --surface: #252526;
+  --surface-elevated: #2d2d30;
+  --success: #89d185;
 
-  --activity-bar-bg: #141414;
-  --activity-bar-fg: #a0a0a0;
-  --activity-bar-active: #e4e4e4;
-  --activity-bar-accent: #88c0d0;
-  --workbench-tab-active-indicator: #88c0d0;
-  --terminal-ansi-black: #242424;
-  --terminal-ansi-red: #fc6b83;
-  --terminal-ansi-green: #3fa266;
-  --terminal-ansi-yellow: #d2943e;
-  --terminal-ansi-blue: #81a1c1;
-  --terminal-ansi-magenta: #b48ead;
-  --terminal-ansi-cyan: #88c0d0;
-  --terminal-ansi-white: #e4e4e4;
+  --activity-bar-bg: #333333;
+  --activity-bar-fg: #808080;
+  --activity-bar-active: #d4d4d4;
+  --activity-bar-accent: #007acc;
+  --workbench-tab-active-indicator: #007acc;
+  --terminal-ansi-black: #3c3c3c;
+  --terminal-ansi-red: #f14c4c;
+  --terminal-ansi-green: #89d185;
+  --terminal-ansi-yellow: #dcdcaa;
+  --terminal-ansi-blue: #569cd6;
+  --terminal-ansi-magenta: #c586c0;
+  --terminal-ansi-cyan: #4ec9b0;
+  --terminal-ansi-white: #d4d4d4;
 }
 
 @theme inline {

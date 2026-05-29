@@ -5,7 +5,10 @@ use crate::modules::filesystem::{
 };
 use crate::modules::git::{
     git_commit as git_commit_inner, git_current_branch as git_current_branch_inner,
+    git_create_checkpoint as git_create_checkpoint_inner,
     git_diff as git_diff_inner, git_discard as git_discard_inner,
+    git_is_repo as git_is_repo_inner,
+    git_restore_checkpoint as git_restore_checkpoint_inner,
     git_file_at_head as git_file_at_head_inner, git_log as git_log_inner,
     git_stage as git_stage_inner, git_status as git_status_inner,
     git_unstage as git_unstage_inner, GitLogEntry, GitPathStatus,
@@ -113,6 +116,21 @@ pub fn git_file_at_head(repo_path: String, path: String) -> Result<Option<String
 #[tauri::command]
 pub fn git_discard(repo_path: String, path: String) -> Result<(), String> {
     git_discard_inner(&repo_path, &path)
+}
+
+#[tauri::command]
+pub fn git_create_checkpoint(repo_path: String, ref_suffix: String) -> Result<String, String> {
+    git_create_checkpoint_inner(&repo_path, &ref_suffix)
+}
+
+#[tauri::command]
+pub fn git_restore_checkpoint(repo_path: String, oid: String) -> Result<(), String> {
+    git_restore_checkpoint_inner(&repo_path, &oid)
+}
+
+#[tauri::command]
+pub fn git_is_repo(repo_path: String) -> bool {
+    git_is_repo_inner(&repo_path)
 }
 
 fn workspace_override_file() -> Option<PathBuf> {

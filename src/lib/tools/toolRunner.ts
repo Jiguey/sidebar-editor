@@ -233,14 +233,19 @@ async function runGetFileTree(
 
 async function detectTestCommand(workspacePath: string): Promise<string> {
   if (await pathExists(joinPath(workspacePath, "Cargo.toml"))) return "cargo test";
-  if (await pathExists(joinPath(workspacePath, "package.json"))) return "npm test";
+  if (await pathExists(joinPath(workspacePath, "package.json"))) {
+    if (await pathExists(joinPath(workspacePath, "pnpm-lock.yaml"))) return "pnpm test";
+    if (await pathExists(joinPath(workspacePath, "bun.lockb"))) return "bun test";
+    if (await pathExists(joinPath(workspacePath, "yarn.lock"))) return "yarn test";
+    return "npm test";
+  }
   if (
     (await pathExists(joinPath(workspacePath, "pyproject.toml"))) ||
     (await pathExists(joinPath(workspacePath, "pytest.ini")))
   ) {
     return "pytest";
   }
-  return "npm test";
+  return "pnpm test";
 }
 
 async function runTests(

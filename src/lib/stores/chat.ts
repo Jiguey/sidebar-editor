@@ -13,12 +13,22 @@ export interface Message {
   timestamp: number;
   /** Claude extended thinking summary/text when the provider streamed it. */
   thinking?: string;
+  /** Whimsical activity label for this assistant turn (e.g. "Deliberating"). */
+  activityLabel?: string;
   toolCalls?: ToolCall[];
   /** OpenAI-style tool call ids for role=tool messages. */
   toolCallId?: string;
   toolName?: string;
+  /** Parsed tool arguments (for UI). */
+  toolInput?: Record<string, unknown>;
+  /** Whether the tool succeeded. */
+  toolSuccess?: boolean;
+  /** Workspace file paths touched (for open-in-editor links). */
+  toolPaths?: string[];
   /** Set on assistant messages that requested tools. */
   rawToolCalls?: StoredToolCall[];
+  /** Git snapshot of the workspace immediately before this user message was sent. */
+  checkpointOid?: string;
 }
 
 export interface ToolCall {
@@ -241,6 +251,21 @@ function createChatStore() {
         isStreaming: false,
         currentToolCall: null,
         historyPickerOpen: false,
+      });
+    },
+    /** Drop the user message and everything after it (for rewind / resend). */
+    truncateBeforeUserMessage: (userMessageId: string) => {
+      update((s) => {
+        const aid = s.activeSessionId;
+        if (!aid) return s;
+        const sessions = s.sessions.map((sess) => {
+          if (sess.id !== aid) return sess;
+          const idx = sess.messages.findIndex((m) => m.id === userMessageId);
+          if (idx < 0 || sess.messages[idx]?.role !== "user") return sess;
+          const messages = sess.messages.slice(0, idx);
+          return { ...sess, messages, updatedAt: Date.now() };
+        });
+        return { ...s, sessions, isStreaming: false, currentToolCall: null };
       });
     },
     ensureActiveSession: (): string => {

@@ -245,7 +245,7 @@ export async function* streamChat(
           }
 
           if (event.delta.type === "thinking_delta" && event.delta.thinking) {
-            yield { type: "delta", content: `[thinking] ${event.delta.thinking}` };
+            yield { type: "thinking_delta", content: event.delta.thinking };
           }
 
           if (event.delta.type === "input_json_delta" && event.delta.partial_json) {

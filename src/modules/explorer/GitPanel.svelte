@@ -214,7 +214,7 @@
               onmouseleave={() => (hoverPath = null)}
             >
               <button type="button" class="file-main" onclick={() => void openDiff(r.path)}>
-                <FileIcon name={fileName(r.path)} size={16} />
+                <FileIcon name={fileName(r.path)} />
                 <span class="file-path">{r.path}</span>
                 <span class="status-badge {statusClass(label)}" title={label}>{label}</span>
               </button>
@@ -252,7 +252,7 @@
               onmouseleave={() => (hoverPath = null)}
             >
               <button type="button" class="file-main" onclick={() => void openDiff(r.path)}>
-                <FileIcon name={fileName(r.path)} size={16} />
+                <FileIcon name={fileName(r.path)} />
                 <span class="file-path">{r.path}</span>
                 <span class="status-badge {statusClass(label)}" title={label}>{label}</span>
               </button>

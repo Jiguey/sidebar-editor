@@ -25,8 +25,31 @@
     appendToolResults,
   } from "$lib/agent/conversation";
   import { streamOneTurn } from "$lib/agent/streamTurn";
+  import { inferenceOptionsForSettings } from "$lib/inferenceOptions";
   import { buildWorkspaceContextBlock } from "$lib/agent/workspaceContext";
-  import { syncUiAfterFilesystemTool } from "$lib/filesystemSync";
+  import { TOOL_SUMMARY_INSTRUCTION, shouldRunSynthesis, toolResultsAreSelfExplanatory } from "$lib/agent/synthesis";
+import {
+  recoverToolCallsFromText,
+  textLooksLikeFakeToolUse,
+  TOOL_USE_INSTRUCTION,
+} from "$lib/agent/textToolCalls";
+  import { syncUiAfterFilesystemTool, openWorkspaceFile } from "$lib/filesystemSync";
+  import { openableFilePaths } from "$lib/agent/toolDisplay";
+  import {
+    createLiveTurn,
+    groupAgentTurns,
+    groupAgentTurnsForDisplay,
+    parseToolInput,
+    upsertLiveTool,
+    type AgentTurnBlock,
+  } from "$lib/agent/activity";
+  import AgentActivityFeed from "$lib/components/AgentActivityFeed.svelte";
+  import {
+    applyFilesystemRewind,
+    createCheckpointBeforeUserMessage,
+    indexOfUserMessage,
+    restoreWorkspaceAfterRewind,
+  } from "$lib/agent/chatRewind";
   import type { StoredToolCall } from "$lib/stores/chat";
   import {
     getToolsForPolicy,
@@ -36,7 +59,18 @@
     type ToolPolicyState,
   } from "$lib/toolPolicy";
   import { executeTool } from "$lib/tools/toolRunner";
-  import type { AgentLimits } from "$lib/agentLimits";
+  import {
+    isToolRunCapReached,
+    perTurnToolCap,
+    shouldContinueAgentStep,
+    type AgentLimits,
+  } from "$lib/agentLimits";
+  import {
+    contextBudgetStopMessage,
+    estimateProviderMessagesTokens,
+    isAgentContextBudgetExceeded,
+    resolveModelContextWindow,
+  } from "$lib/contextBudget";
   import {
     chatFooterProfile,
     formatMonthlyUsageLabel,
@@ -82,20 +116,98 @@
   let inputValue = $state("");
   let userMessageExpanded = $state<Record<string, boolean>>({});
   let userMessageDraft = $state<Record<string, string>>({});
+  /** User message being edited in history; main Send rewinds here first. */
+  let editingUserMessageId = $state<string | null>(null);
+  let rewindNotice = $state<string | null>(null);
   let messagesContainer: HTMLDivElement;
 
   function expandUserMessage(id: string, content: string) {
+    const wasExpanded = userMessageExpanded[id];
+    if (wasExpanded) return;
+
+    (document.activeElement as HTMLElement | null)?.blur?.();
     userMessageDraft = { ...userMessageDraft, [id]: content };
-    userMessageExpanded = { ...userMessageExpanded, [id]: true };
+    userMessageExpanded = { [id]: true };
+    editingUserMessageId = id;
+    queueMicrotask(() => {
+      document
+        .querySelector<HTMLTextAreaElement>(`[data-user-edit-id="${id}"]`)
+        ?.focus();
+    });
+  }
+
+  function collapseAllHistoryEdits() {
+    if (!Object.keys(userMessageExpanded).length && !editingUserMessageId) return;
+    userMessageExpanded = {};
+    editingUserMessageId = null;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLTextAreaElement &&
+      active.dataset.userEditId != null
+    ) {
+      active.blur();
+    }
   }
 
   function collapseUserMessage(id: string) {
-    userMessageExpanded = { ...userMessageExpanded, [id]: false };
+    if (!userMessageExpanded[id]) return;
+    const next = { ...userMessageExpanded };
+    delete next[id];
+    userMessageExpanded = next;
+    if (editingUserMessageId === id) editingUserMessageId = null;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLTextAreaElement &&
+      active.dataset.userEditId === id
+    ) {
+      active.blur();
+    }
+  }
+
+  let thinkingOpen = $state<Record<string, boolean>>({});
+  let liveTurn = $state<AgentTurnBlock | null>(null);
+
+  function thoughtSectionKey(
+    blockId: string,
+    section: "thought" | "plan" | "response" | "tools"
+  ) {
+    return `${blockId}:${section}`;
+  }
+
+  function toggleThoughtSection(blockId: string, section: "thought" | "plan") {
+    const key = thoughtSectionKey(blockId, section);
+    thinkingOpen = { ...thinkingOpen, [key]: !thinkingOpen[key] };
+  }
+
+  function isResponseOpen(blockId: string): boolean {
+    const key = thoughtSectionKey(blockId, "response");
+    return thinkingOpen[key] !== false;
+  }
+
+  function toggleResponseSection(blockId: string) {
+    const key = thoughtSectionKey(blockId, "response");
+    thinkingOpen = { ...thinkingOpen, [key]: !isResponseOpen(blockId) };
+  }
+
+  function isToolsOpen(blockId: string): boolean {
+    return thinkingOpen[thoughtSectionKey(blockId, "tools")] === true;
+  }
+
+  function toggleToolsSection(blockId: string) {
+    const key = thoughtSectionKey(blockId, "tools");
+    thinkingOpen = { ...thinkingOpen, [key]: !isToolsOpen(blockId) };
+  }
+
+  function patchLiveTurn(patch: (turn: AgentTurnBlock) => AgentTurnBlock) {
+    if (!liveTurn) return;
+    liveTurn = patch(liveTurn);
+  }
+
+  async function openToolFile(path: string) {
+    await openWorkspaceFile(path);
   }
 
   let streamingContent = $state("");
-  let streamingThinking = $state("");
-  let thinkingPanelEl = $state<HTMLDivElement | undefined>(undefined);
   let streamWallStartMs = 0;
   let streamFirstTokenAt = 0;
   let lastTokPerSec = $state<number | null>(null);
@@ -151,14 +263,6 @@
         $settings.ollamaModels.some((m) => m.id === $settings.selectedModel))
   );
 
-  function effectiveOllamaContextWindow(selectedId: string, models: ModelConfig[]): number {
-    const row = models.find((m) => m.id === selectedId);
-    if (row) return row.contextWindow;
-    const rec = RECOMMENDED_OLLAMA_MODELS.find((r) => r.id === selectedId);
-    if (rec) return pickContextOption(rec.contextWindow, rec.contextLimitMax ?? rec.contextWindow);
-    return 8192;
-  }
-
   function anthropicModelCap(): number {
     const m = AVAILABLE_MODELS.find(
       (x) => x.id === $settings.selectedModel && x.provider === "anthropic"
@@ -186,18 +290,15 @@
 
   let contextBudgetOptions = $derived(() => contextOptionsUpTo(contextBudgetCeiling()));
 
-  let maxContextTokens = $derived(() => {
-    if ($settings.chatBackend === "llamacpp") {
-      const m = $settings.llamacppModels.find((x) => x.id === $settings.selectedModel);
-      return m?.contextWindow ?? 8192;
-    }
-    if ($settings.chatBackend === "ollama") {
-      return effectiveOllamaContextWindow($settings.selectedModel, $settings.ollamaModels);
-    }
-    const cap = anthropicModelCap();
-    const b = $settings.anthropicContextBudget;
-    return b != null ? Math.min(b, cap) : cap;
-  });
+  let maxContextTokens = $derived(() =>
+    resolveModelContextWindow({
+      chatBackend: $settings.chatBackend,
+      selectedModel: $settings.selectedModel,
+      ollamaModels: $settings.ollamaModels,
+      llamacppModels: $settings.llamacppModels,
+      anthropicContextBudget: $settings.anthropicContextBudget,
+    })
+  );
 
   let modelTriggerLabel = $derived(
     $settings.chatBackend === "ollama"
@@ -215,7 +316,7 @@
     const msgs = $activeSession?.messages ?? [];
     const extras: string[] = [];
     if (streamingContent) extras.push(streamingContent);
-    if (streamingThinking) extras.push(streamingThinking);
+    if (liveTurn?.thinking) extras.push(liveTurn.thinking);
     const d = inputValue.trim();
     if (d) extras.push(d);
     return estimateChatContextTokens(
@@ -514,13 +615,17 @@
     if (!streamFirstTokenAt) streamFirstTokenAt = performance.now();
   }
 
-  function buildSystemPrompt(): string {
+  function buildSystemPrompt(includeToolSummary = false): string {
     const modeConfig = MODE_CONFIG[$currentMode];
     const basePrompt = modeConfig.basePrompt;
     const userPrompt = $systemPrompt;
     const workspaceBlock = buildWorkspaceContextBlock($files.workspacePath);
 
     const parts = [basePrompt + workspaceBlock];
+    if (includeToolSummary && modeConfig.tools.length > 0) {
+      parts.push(TOOL_USE_INSTRUCTION.trim());
+      parts.push(TOOL_SUMMARY_INSTRUCTION.trim());
+    }
     if (userPrompt.trim()) {
       parts.push(`--- Custom Instructions ---\n${userPrompt}`);
     }
@@ -535,14 +640,27 @@
     limits: AgentLimits,
     runCounter: { executed: number }
   ): Promise<{
-    results: Array<{ id: string; name: string; content: string }>;
+    results: Array<{
+      id: string;
+      name: string;
+      content: string;
+      input: Record<string, unknown>;
+      success: boolean;
+      paths: string[];
+    }>;
     hitRunCap: boolean;
   }> {
-    const results: Array<{ id: string; name: string; content: string }> = [];
+    const results: Array<{
+      id: string;
+      name: string;
+      content: string;
+      input: Record<string, unknown>;
+      success: boolean;
+      paths: string[];
+    }> = [];
     let hitRunCap = false;
 
-    const perTurnCap =
-      limits.maxToolsPerTurn > 0 ? limits.maxToolsPerTurn : toolCalls.length;
+    const perTurnCap = perTurnToolCap(limits, toolCalls.length);
     const toRun = toolCalls.slice(0, perTurnCap);
     const skippedPerTurn = toolCalls.slice(perTurnCap);
 
@@ -551,20 +669,13 @@
         id: tc.id,
         name: tc.name,
         content: `Error: Not executed — per-turn tool limit (${limits.maxToolsPerTurn}) reached.`,
+        input: {},
+        success: false,
+        paths: [],
       });
     }
 
     for (const tc of toRun) {
-      if (runCounter.executed >= limits.maxToolCallsPerRun) {
-        hitRunCap = true;
-        results.push({
-          id: tc.id,
-          name: tc.name,
-          content: `Error: Not executed — maximum tool calls per run (${limits.maxToolCallsPerRun}) reached.`,
-        });
-        continue;
-      }
-
       let args: Record<string, unknown>;
       try {
         args = JSON.parse(tc.arguments);
@@ -572,11 +683,27 @@
         args = {};
       }
 
+      if (isToolRunCapReached(runCounter.executed, limits)) {
+        hitRunCap = true;
+        results.push({
+          id: tc.id,
+          name: tc.name,
+          content: `Error: Not executed — maximum tool calls per run (${limits.maxToolCallsPerRun}) reached.`,
+          input: args,
+          success: false,
+          paths: [],
+        });
+        continue;
+      }
+
       if (toolIsDenied(policy, tc.name)) {
         results.push({
           id: tc.id,
           name: tc.name,
           content: `Error: Tool "${tc.name}" is blocked by policy (deny).`,
+          input: args,
+          success: false,
+          paths: [],
         });
         continue;
       }
@@ -593,6 +720,9 @@
             id: tc.id,
             name: tc.name,
             content: `Error: Tool call "${tc.name}" was denied by user.`,
+            input: args,
+            success: false,
+            paths: [],
           });
           continue;
         }
@@ -604,6 +734,14 @@
         input: args,
         status: "running",
       });
+      patchLiveTurn((t) =>
+        upsertLiveTool(t, {
+          id: tc.id,
+          name: tc.name,
+          input: args,
+          status: "running",
+        })
+      );
 
       const result = await executeTool(tc.name, args, workspacePath, {
         webFetchAllowedHosts,
@@ -613,18 +751,44 @@
 
       await syncUiAfterFilesystemTool(workspacePath, tc.name, args, result.success);
 
-      results.push({
+      const toolResult = {
         id: tc.id,
         name: tc.name,
         content: result.success ? result.output : `Error: ${result.output}`,
-      });
+        input: args,
+        success: result.success,
+        paths: openableFilePaths(tc.name, args, workspacePath, result.success),
+      };
+      results.push(toolResult);
 
-      if (runCounter.executed >= limits.maxToolCallsPerRun) {
+      patchLiveTurn((t) =>
+        upsertLiveTool(t, {
+          id: toolResult.id,
+          name: toolResult.name,
+          input: toolResult.input,
+          status: toolResult.success ? "done" : "error",
+          content: toolResult.content,
+          success: toolResult.success,
+          paths: toolResult.paths,
+        })
+      );
+
+      if (isToolRunCapReached(runCounter.executed, limits)) {
         hitRunCap = true;
       }
     }
 
     return { results, hitRunCap };
+  }
+
+  function agentContextWindow(st: ReturnType<typeof get<typeof settings>>): number {
+    return resolveModelContextWindow({
+      chatBackend: st.chatBackend,
+      selectedModel: st.selectedModel,
+      ollamaModels: st.ollamaModels,
+      llamacppModels: st.llamacppModels,
+      anthropicContextBudget: st.anthropicContextBudget,
+    });
   }
 
   async function runAgentLoop() {
@@ -633,7 +797,7 @@
     const modeConfig = MODE_CONFIG[mode];
     const policyState = get(effectiveToolPolicy);
     const tools = getToolsForPolicy(policyState, modeConfig.tools);
-    const systemPromptText = buildSystemPrompt();
+    const systemPromptText = buildSystemPrompt(tools.length > 0);
     const workspacePath = get(files).workspacePath;
     if (!workspacePath?.trim()) {
       chat.addMessage({
@@ -650,10 +814,27 @@
     abortController = new AbortController();
     const agentLimits = st.agentLimits;
     const toolRunCounter = { executed: 0 };
+    const executedToolOutcomes: Array<{ name: string; success: boolean }> = [];
+    let deliveredSummary = false;
+    let hitRunCap = false;
+    let hitStepLimit = false;
+    let hitContextLimit = false;
+    const contextWindow = agentContextWindow(st);
+    let step = 0;
+    liveTurn = createLiveTurn();
 
     try {
-      for (let step = 0; step < agentLimits.maxAgentSteps; step++) {
+      while (shouldContinueAgentStep(step, agentLimits)) {
+        if (isAgentContextBudgetExceeded(providerMessages, contextWindow)) {
+          hitContextLimit = true;
+          break;
+        }
+
         streamingContent = "";
+        const agentToolsEnabled = tools.length > 0;
+        if (agentToolsEnabled && liveTurn) {
+          patchLiveTurn((t) => ({ ...t, planText: "" }));
+        }
 
         const turn = await streamOneTurn({
           backend: st.chatBackend,
@@ -665,9 +846,27 @@
           tools: tools.length > 0 ? tools : undefined,
           extendedThinking: st.anthropicExtendedThinking,
           signal: abortController.signal,
+          inferenceOptions: inferenceOptionsForSettings(st),
           onDelta: (content) => {
             streamingContent = content;
+            if (!agentToolsEnabled) {
+              patchLiveTurn((t) => ({ ...t, response: content }));
+            }
             markFirstStreamToken();
+          },
+          onThinking: (thinking) => {
+            patchLiveTurn((t) => ({ ...t, thinking }));
+          },
+          onToolCall: (tc) => {
+            patchLiveTurn((t) => {
+              const next = { ...t, response: "" };
+              return upsertLiveTool(next, {
+                id: tc.id,
+                name: tc.name,
+                input: parseToolInput(tc.arguments),
+                status: "pending",
+              });
+            });
           },
         });
 
@@ -686,58 +885,182 @@
           }
         }
 
-        if (turn.toolCalls.length === 0) {
-          chat.addMessage({ role: "assistant", content: turn.content });
-          deferFinalizeReplyMetrics(turn.content);
+        const allowedToolNames = new Set(tools.map((t) => t.function.name));
+        let activeToolCalls = turn.toolCalls;
+        let turnContent = turn.content;
+
+        if (activeToolCalls.length === 0 && allowedToolNames.size > 0) {
+          const recovered = recoverToolCallsFromText(turn.content, allowedToolNames);
+          if (recovered.calls.length > 0) {
+            activeToolCalls = recovered.calls;
+            turnContent = recovered.cleanedText;
+            patchLiveTurn((t) => ({ ...t, response: "" }));
+            for (const tc of activeToolCalls) {
+              patchLiveTurn((t) =>
+                upsertLiveTool(t, {
+                  id: tc.id,
+                  name: tc.name,
+                  input: parseToolInput(tc.arguments),
+                  status: "pending",
+                })
+              );
+            }
+          }
+        }
+
+        if (activeToolCalls.length === 0) {
+          const text = turn.content.trim();
+          if (text) {
+            if (toolResultsAreSelfExplanatory(executedToolOutcomes)) {
+              patchLiveTurn((t) => ({ ...t, response: "" }));
+              deliveredSummary = true;
+              break;
+            }
+            let body = turn.content;
+            if (
+              textLooksLikeFakeToolUse(text) &&
+              toolRunCounter.executed === 0 &&
+              allowedToolNames.size > 0
+            ) {
+              body = `${turn.content.trim()}
+
+---
+⚠️ No tools actually ran. The model described tools in text instead of calling them. Ensure **Agent** mode is selected and your model supports tool calling (Ollama: try llama3.1+, qwen2.5, or mistral). Then ask again.`;
+            }
+            chat.addMessage({
+              role: "assistant",
+              content: body,
+              thinking: turn.thinking || undefined,
+              activityLabel: liveTurn?.statusLabel,
+            });
+            patchLiveTurn((t) => ({ ...t, response: body }));
+            deferFinalizeReplyMetrics(turn.content);
+            deliveredSummary = true;
+          }
           break;
+        }
+
+        if (activeToolCalls.length > 0 && turnContent.trim()) {
+          patchLiveTurn((t) => ({ ...t, planText: turnContent.trim(), response: "" }));
         }
 
         chat.addMessage({
           role: "assistant",
-          content: turn.content,
-          rawToolCalls: turn.toolCalls,
+          content: turnContent,
+          thinking: turn.thinking || undefined,
+          activityLabel: liveTurn?.statusLabel,
+          rawToolCalls: activeToolCalls,
         });
 
         providerMessages = appendAssistantToolCalls(
           providerMessages,
-          turn.content,
-          turn.toolCalls
+          turnContent,
+          activeToolCalls
         );
 
-        const { results: toolResults, hitRunCap } = await executeToolCallsWithApproval(
-          turn.toolCalls,
+        const toolRound = await executeToolCallsWithApproval(
+          activeToolCalls,
           policyState,
           workspacePath,
           st.webFetchAllowedHosts,
           agentLimits,
           toolRunCounter
         );
+        hitRunCap = toolRound.hitRunCap;
 
-        for (const r of toolResults) {
+        for (const r of toolRound.results) {
+          executedToolOutcomes.push({ name: r.name, success: r.success });
           chat.addMessage({
             role: "tool",
             content: r.content,
             toolCallId: r.id,
             toolName: r.name,
+            toolInput: r.input,
+            toolSuccess: r.success,
+            toolPaths: r.paths,
           });
         }
 
-        providerMessages = appendToolResults(providerMessages, toolResults);
+        providerMessages = appendToolResults(providerMessages, toolRound.results);
 
-        if (hitRunCap) {
-          chat.addMessage({
-            role: "assistant",
-            content: `Stopped: maximum tool calls (${agentLimits.maxToolCallsPerRun}) reached for this turn.`,
-          });
-          break;
+        if (hitRunCap) break;
+
+        step++;
+        if (!shouldContinueAgentStep(step, agentLimits)) {
+          hitStepLimit = true;
+        }
+      }
+
+      if (
+        !toolResultsAreSelfExplanatory(executedToolOutcomes) &&
+        shouldRunSynthesis(deliveredSummary, toolRunCounter.executed) &&
+        !abortController.signal.aborted &&
+        !hitContextLimit &&
+        !isAgentContextBudgetExceeded(providerMessages, contextWindow)
+      ) {
+        streamingContent = "";
+        const synthTurn = await streamOneTurn({
+          backend: st.chatBackend,
+          apiKey: st.apiKeys.anthropic,
+          baseUrl: st.chatBackend === "ollama" ? st.ollamaEndpoint : st.llamacppEndpoint,
+          model: st.selectedModel,
+          systemPrompt: systemPromptText,
+          messages: [...providerMessages, { role: "user", content: SYNTHESIS_NUDGE }],
+          extendedThinking: st.anthropicExtendedThinking,
+          signal: abortController.signal,
+          inferenceOptions: inferenceOptionsForSettings(st),
+          onDelta: (content) => {
+            streamingContent = content;
+            patchLiveTurn((t) => ({ ...t, response: content }));
+            markFirstStreamToken();
+          },
+          onThinking: (thinking) => {
+            patchLiveTurn((t) => ({ ...t, thinking }));
+          },
+        });
+
+        if (synthTurn.usage) {
+          usageRecordedForStream = true;
+          const profile = chatFooterProfile(st.chatBackend);
+          if (profile.showStreamMetrics) {
+            recordLastReplyMetrics(synthTurn.usage.completion_tokens);
+          }
+          if (profile.showMonthlyUsage) {
+            providerUsage.record(
+              profile.usageProviderId,
+              synthTurn.usage.prompt_tokens,
+              synthTurn.usage.completion_tokens
+            );
+          }
         }
 
-        if (step === agentLimits.maxAgentSteps - 1) {
-          chat.addMessage({
-            role: "assistant",
-            content: "Stopped: maximum agent steps reached for this turn.",
-          });
-        }
+        const summary = synthTurn.content.trim();
+        chat.addMessage({
+          role: "assistant",
+          content:
+            summary ||
+            "I ran the tools above but couldn't produce a summary. Check the tool output for details.",
+        });
+        deferFinalizeReplyMetrics(summary);
+        deliveredSummary = Boolean(summary);
+      }
+
+      if (!deliveredSummary && hitContextLimit) {
+        const used = estimateProviderMessagesTokens(providerMessages);
+        chat.addMessage({
+          role: "assistant",
+          content: contextBudgetStopMessage(contextWindow, used),
+        });
+      } else if (!deliveredSummary && hitRunCap) {
+        chat.addMessage({
+          role: "assistant",
+          content: `Stopped: maximum tool calls (${agentLimits.maxToolCallsPerRun}) reached for this turn.`,
+        });
+      } else if (!deliveredSummary && hitStepLimit) {
+        chat.addMessage({
+          role: "assistant",
+          content: "Stopped: maximum agent steps reached for this turn.",
+        });
       }
     } catch (e) {
       const err = e as Error;
@@ -746,7 +1069,7 @@
       }
     } finally {
       streamingContent = "";
-      streamingThinking = "";
+      liveTurn = null;
       chat.setStreaming(false);
       abortController = null;
     }
@@ -832,22 +1155,62 @@
       submitToolDecision(false);
     }
     streamingContent = "";
-    streamingThinking = "";
     usageRecordedForStream = false;
     clearStreamTiming();
     chat.setStreaming(false);
   }
 
-  async function handleSubmit(e: Event) {
-    e.preventDefault();
-    if (!inputValue.trim() || $chat.isStreaming) return;
+  async function revertToUserMessage(messageId: string, composerText?: string) {
+    if ($chat.isStreaming) await cancelChatRequest();
 
+    const session = get(activeSession);
+    const workspacePath = get(files).workspacePath?.trim();
+    const userIndex = session ? indexOfUserMessage(session.messages, messageId) : -1;
+    if (userIndex < 0 || !session) return;
+
+    const userMsg = session.messages[userIndex]!;
+    const text = (composerText ?? userMessageDraft[messageId] ?? userMsg.content).trim();
+    rewindNotice = null;
+
+    if (workspacePath) {
+      try {
+        const { usedCheckpoint, pathFallbackErrors } = await applyFilesystemRewind(
+          workspacePath,
+          session.messages,
+          userIndex,
+          userMsg.checkpointOid
+        );
+        await restoreWorkspaceAfterRewind(workspacePath);
+        if (!userMsg.checkpointOid && !usedCheckpoint) {
+          rewindNotice =
+            "Chat rewound. No git checkpoint for this message — commit often or use a git repo for file rewind.";
+        } else if (pathFallbackErrors.length > 0) {
+          rewindNotice = `Chat rewound; could not restore: ${pathFallbackErrors.slice(0, 3).join(", ")}`;
+        }
+      } catch (err) {
+        rewindNotice =
+          err instanceof Error ? err.message : "Could not restore workspace files";
+      }
+    }
+
+    chat.truncateBeforeUserMessage(messageId);
+    inputValue = text;
+    userMessageExpanded = {};
+    userMessageDraft = {};
+    editingUserMessageId = null;
+  }
+
+  async function sendUserMessage(message: string) {
     chat.ensureActiveSession();
+    const sessionId = get(chat).activeSessionId;
+    const workspacePath = get(files).workspacePath?.trim();
 
-    const message = inputValue.trim();
-    inputValue = "";
+    let checkpointOid: string | undefined;
+    if (sessionId && workspacePath) {
+      checkpointOid = await createCheckpointBeforeUserMessage(workspacePath, sessionId);
+    }
 
-    chat.addMessage({ role: "user", content: message });
+    chat.addMessage({ role: "user", content: message, checkpointOid });
 
     if ($settings.chatBackend === "ollama" && !ollamaChatReady) {
       chat.addMessage({
@@ -860,13 +1223,47 @@
       return;
     }
 
-    streamingThinking = "";
     usageRecordedForStream = false;
     streamWallStartMs = performance.now();
     streamFirstTokenAt = 0;
     chat.setStreaming(true);
 
     await runAgentLoop();
+  }
+
+  async function resendFromUserMessage(messageId: string) {
+    const session = get(activeSession);
+    const userMsg = session?.messages.find((m) => m.id === messageId);
+    const draft = (userMessageDraft[messageId] ?? userMsg?.content ?? "").trim();
+    if (!draft || $chat.isStreaming) return;
+    collapseUserMessage(messageId);
+    await revertToUserMessage(messageId, draft);
+    inputValue = "";
+    await sendUserMessage(draft);
+  }
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    if ($chat.isStreaming) return;
+
+    const editingId = editingUserMessageId;
+    const message = editingId
+      ? (userMessageDraft[editingId] ?? "").trim()
+      : inputValue.trim();
+    if (!message) return;
+
+    if (editingId) {
+      inputValue = "";
+      userMessageExpanded = {};
+      userMessageDraft = {};
+      editingUserMessageId = null;
+      await revertToUserMessage(editingId, message);
+      await sendUserMessage(message);
+      return;
+    }
+
+    inputValue = "";
+    await sendUserMessage(message);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -887,17 +1284,17 @@
   $effect(() => {
     if (
       messagesContainer &&
-      ($activeSession?.messages.length || streamingContent || streamingThinking)
+      ($activeSession?.messages.length || streamingContent || liveTurn)
     ) {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
   });
 
   $effect(() => {
-    void streamingThinking;
+    void liveTurn;
     queueMicrotask(() => {
-      if (thinkingPanelEl) {
-        thinkingPanelEl.scrollTop = thinkingPanelEl.scrollHeight;
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
     });
   });
@@ -966,55 +1363,46 @@
         {/if}
       </div>
     {:else}
-      {#each $activeSession?.messages ?? [] as message (message.id)}
-        <div class="message {message.role}">
-          {#if message.role === "assistant" && message.thinking}
-            <details class="thinking-archive">
-              <summary class="thinking-archive-summary">Thinking</summary>
-              <pre class="thinking-archive-body">{message.thinking}</pre>
-            </details>
-          {/if}
-          {#if message.role === "user"}
-            {#if userMessageExpanded[message.id]}
-              <textarea
-                class="message-user-edit"
-                rows="6"
-                value={userMessageDraft[message.id] ?? message.content}
-                aria-label="Edit message"
-                oninput={(e) => {
-                  userMessageDraft = { ...userMessageDraft, [message.id]: e.currentTarget.value };
-                }}
-              ></textarea>
-            {:else}
-              <button
-                type="button"
-                class="message-content message-content--user-clamped"
-                onclick={() => expandUserMessage(message.id, message.content)}
+      {#each groupAgentTurnsForDisplay($activeSession?.messages ?? [], $chat.isStreaming, Boolean(liveTurn)) as block (block.kind === "user" ? block.message.id : block.id)}
+        {#if block.kind === "user"}
+          {@const message = block.message}
+          {@const expanded = userMessageExpanded[message.id] ?? false}
+          <div
+            class="message user user-message-slot"
+            class:user-message-slot--editing={expanded}
+          >
+            <div
+              class="message-user-composer composer-shell"
+              class:composer-shell--editing={expanded}
+              onclick={() => {
+                if (!expanded) expandUserMessage(message.id, message.content);
+              }}
+            >
+              {#if expanded}
+                <textarea
+                  class="composer-textarea"
+                  data-user-edit-id={message.id}
+                  rows="3"
+                  value={userMessageDraft[message.id] ?? message.content}
+                  aria-label="Edit message"
+                  onclick={(e) => e.stopPropagation()}
+                  oninput={(e) => {
+                    userMessageDraft = {
+                      ...userMessageDraft,
+                      [message.id]: e.currentTarget.value,
+                    };
+                  }}
+                ></textarea>
+              {:else}
+                <div class="message-user-preview">{message.content}</div>
+              {/if}
+            </div>
+            {#if expanded}
+              <div
+                class="message-user-actions"
+                onclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
               >
-                {message.content}
-              </button>
-            {/if}
-          {:else if message.role === "tool"}
-            <div class="tool-result-block">
-              <span class="tool-name">{message.toolName ?? "tool"}</span>
-              <pre class="message-content tool-result">{message.content}</pre>
-            </div>
-          {:else}
-            <div class="message-content">
-              {message.content}
-            </div>
-          {/if}
-          {#if message.toolCalls}
-            {#each message.toolCalls as toolCall}
-              <div class="tool-call {toolCall.status}">
-                <span class="tool-name">{toolCall.tool}</span>
-                <span class="tool-status">{toolCall.status}</span>
-              </div>
-            {/each}
-          {/if}
-          {#if message.role === "user"}
-            <div class="message-user-actions">
-              {#if userMessageExpanded[message.id]}
                 <button
                   type="button"
                   class="message-ghost-btn"
@@ -1023,46 +1411,66 @@
                 >
                   Done
                 </button>
-              {/if}
-              <span class="message-user-actions-spacer"></span>
-              <button type="button" class="message-ghost-btn" disabled title="Edit (coming soon)">Edit</button>
-              <button
-                type="button"
-                class="message-ghost-btn"
-                disabled
-                title="Revert all code to how it was before this message (coming soon)"
-              >
-                Revert
-              </button>
-            </div>
-          {/if}
-        </div>
+                <button
+                  type="button"
+                  class="message-ghost-btn"
+                  disabled={$chat.isStreaming || !(userMessageDraft[message.id] ?? message.content).trim()}
+                  title="Rewind chat and files to here, then send edited message"
+                  onclick={() => void resendFromUserMessage(message.id)}
+                >
+                  Resend
+                </button>
+                <span class="message-user-actions-spacer"></span>
+                <button
+                  type="button"
+                  class="message-ghost-btn"
+                  disabled={$chat.isStreaming}
+                  title="Rewind files and chat to before this message; edit in the composer below"
+                  onclick={() => void revertToUserMessage(message.id)}
+                >
+                  Revert
+                </button>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div class="message assistant agent-turn">
+            <AgentActivityFeed
+              turn={block}
+              workspacePath={$files.workspacePath ?? ""}
+              thinkingOpen={thinkingOpen[thoughtSectionKey(block.id, "thought")] ?? false}
+              planOpen={thinkingOpen[thoughtSectionKey(block.id, "plan")] ?? false}
+              responseOpen={isResponseOpen(block.id)}
+              toolsOpen={isToolsOpen(block.id)}
+              onToggleThinking={() => toggleThoughtSection(block.id, "thought")}
+              onTogglePlan={() => toggleThoughtSection(block.id, "plan")}
+              onToggleResponse={() => toggleResponseSection(block.id)}
+              onToggleTools={() => toggleToolsSection(block.id)}
+              onOpenFile={(path) => void openToolFile(path)}
+            />
+          </div>
+        {/if}
       {/each}
     {/if}
 
-    {#if $chat.isStreaming}
-      {#if streamingThinking}
-        <div class="thinking-live" aria-label="Model thinking stream">
-          <div class="thinking-live-head">Thinking</div>
-          <div class="thinking-live-body" bind:this={thinkingPanelEl}>
-            {streamingThinking}
-          </div>
-        </div>
-      {/if}
-      {#if streamingContent}
-        <div class="message assistant streaming">
-          <div class="message-content">
-            {streamingContent}
-          </div>
-        </div>
-      {/if}
-      {#if !streamingContent}
-        <div class="streaming-indicator">
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
-        </div>
-      {/if}
+
+    {#if $chat.isStreaming && liveTurn}
+      <div class="message assistant agent-turn">
+        <AgentActivityFeed
+          turn={liveTurn}
+          workspacePath={$files.workspacePath ?? ""}
+          streaming={true}
+          thinkingOpen={thinkingOpen[thoughtSectionKey(liveTurn.id, "thought")] ?? false}
+          planOpen={thinkingOpen[thoughtSectionKey(liveTurn.id, "plan")] ?? false}
+          responseOpen={true}
+          toolsOpen={isToolsOpen(liveTurn.id)}
+          onToggleThinking={() => toggleThoughtSection(liveTurn.id, "thought")}
+          onTogglePlan={() => toggleThoughtSection(liveTurn.id, "plan")}
+          onToggleResponse={() => toggleResponseSection(liveTurn.id)}
+          onToggleTools={() => toggleToolsSection(liveTurn.id)}
+          onOpenFile={(path) => void openToolFile(path)}
+        />
+      </div>
     {/if}
   </div>
 
@@ -1118,14 +1526,24 @@
       </div>
     </div>
   {/if}
+  {#if editingUserMessageId}
+    <p class="rewind-hint" role="status">
+      Editing an earlier message — Send rewinds chat and files to that point, then continues from
+      your edit.
+    </p>
+  {/if}
+  {#if rewindNotice}
+    <p class="rewind-notice" role="status">{rewindNotice}</p>
+  {/if}
   <form class="input-area composer-form" onsubmit={handleSubmit}>
-    <div class="composer-shell">
+    <div class="composer-shell" onpointerdown={collapseAllHistoryEdits}>
       <textarea
         class="composer-textarea"
         bind:value={inputValue}
         placeholder="Plan, search, build anything…"
         rows="3"
         onkeydown={handleKeydown}
+        onfocus={collapseAllHistoryEdits}
       ></textarea>
       <div class="composer-toolbar">
         <div class="composer-mode-wrap" bind:this={modeMenuAnchorEl}>
@@ -1692,81 +2110,85 @@
     box-sizing: border-box;
   }
 
-  .message.user {
+  .message.user-message-slot {
     align-self: stretch;
     width: 100%;
-    padding: 6px 10px 12px;
-    background: var(--secondary);
-    border: 1px solid var(--border);
-    box-sizing: border-box;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
   }
 
-  .message-content--user-clamped {
+  .message.user-message-slot--editing {
+    padding-bottom: 28px;
+  }
+
+  .message-user-composer {
+    width: 100%;
+    cursor: pointer;
+    border-color: transparent;
+  }
+
+  .message-user-composer.composer-shell--editing {
+    cursor: text;
+  }
+
+  .message-user-composer.composer-shell--editing:focus-within {
+    border-color: #007acc;
+  }
+
+  .message-user-composer:not(.composer-shell--editing):hover {
+    background: color-mix(in oklch, #2d2d30 92%, #ffffff);
+  }
+
+  .message-user-composer:not(.composer-shell--editing):focus,
+  .message-user-composer:not(.composer-shell--editing):focus-visible {
+    outline: none;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .message-user-preview {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     line-clamp: 3;
     overflow: hidden;
+    box-sizing: border-box;
     width: 100%;
     margin: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    font: inherit;
-    font-size: 11px;
+    padding: 10px 12px 8px;
+    font-family: inherit;
+    font-size: 12px;
     line-height: 1.45;
-    color: var(--foreground);
-    text-align: left;
+    color: #d4d4d4;
     white-space: pre-wrap;
     word-break: break-word;
-    cursor: pointer;
-    border-radius: 2px;
+    pointer-events: none;
+    user-select: none;
   }
 
-  .message-content--user-clamped:hover {
-    background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  .message-user-composer.composer-shell {
+    min-height: 4.25rem;
   }
 
-  .message-user-edit {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    margin: 0 0 2px;
-    padding: 4px 6px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--background);
-    color: var(--foreground);
-    font-family: inherit;
-    font-size: 11px;
-    line-height: 1.45;
-    resize: vertical;
-    min-height: 4.5rem;
+  .message-user-composer .composer-textarea {
+    resize: none;
   }
 
   .message-user-actions {
     position: absolute;
-    bottom: 2px;
-    left: 6px;
-    right: 6px;
+    bottom: 6px;
+    left: 10px;
+    right: 10px;
     display: flex;
     align-items: center;
     gap: 8px;
-    opacity: 0;
-    transition: opacity 0.12s ease;
-    pointer-events: none;
   }
 
   .message-user-actions-spacer {
     flex: 1;
     min-width: 0;
-  }
-
-  .message.user:hover .message-user-actions,
-  .message.user:focus-within .message-user-actions,
-  .message.user:has(.message-user-edit) .message-user-actions {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .message-ghost-btn {
@@ -1788,21 +2210,52 @@
     cursor: default;
   }
 
-  .message.assistant {
+  .message.agent-turn {
     align-self: stretch;
     padding: 8px 10px;
-    background: var(--muted);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: none;
+  }
+
+  .message.agent-turn:has(.activity-waiting) {
+    padding: 0;
+    margin-bottom: 4px;
+  }
+
+  .message.assistant.tool-only-round {
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+  }
+
+  .message.tool {
+    margin-bottom: 6px;
+    padding: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .tool-round-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 2px 0;
+  }
+
+  .tool-call-chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 10px;
+    color: #4ec9b0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, #4ec9b0 35%, var(--border));
+    background: color-mix(in srgb, #4ec9b0 8%, var(--background));
   }
 
   .message.assistant .message-content {
     font-size: 11px;
     line-height: 1.45;
     color: var(--foreground);
-  }
-
-  .message.assistant.streaming {
-    border-left: 2px solid var(--primary);
   }
 
   .message-content {
@@ -1925,37 +2378,21 @@
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
 
-  .streaming-indicator {
-    display: flex;
-    gap: 4px;
-    padding: 12px;
+  .rewind-hint,
+  .rewind-notice {
+    margin: 0;
+    padding: 6px 12px 0;
+    font-size: 11px;
+    line-height: 1.4;
+    flex-shrink: 0;
   }
 
-  .dot {
-    width: 8px;
-    height: 8px;
-    background: #007acc;
-    border-radius: 50%;
-    animation: pulse 1.4s infinite ease-in-out;
+  .rewind-hint {
+    color: var(--muted-foreground);
   }
 
-  .dot:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-
-  .dot:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-
-  @keyframes pulse {
-    0%,
-    80%,
-    100% {
-      opacity: 0.3;
-    }
-    40% {
-      opacity: 1;
-    }
+  .rewind-notice {
+    color: var(--warning, #e0a060);
   }
 
   .input-area.composer-form {
@@ -2014,7 +2451,7 @@
     outline: none;
   }
 
-  .composer-shell:focus-within {
+  .composer-form .composer-shell:focus-within {
     border-color: #007acc;
   }
 

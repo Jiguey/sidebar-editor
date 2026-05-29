@@ -4,7 +4,7 @@ A minimal, **local-first** desktop IDE with an integrated AI coding agent. Built
 
 Use **Ollama** or **llama.cpp** on your machine, or **Anthropic** with your own API key. Agent tools read and write files in your project; changes show up in the **Git** panel for review and discard.
 
-**Documentation:** [OVERVIEW.md](OVERVIEW.md) (current product snapshot) · [spec.md](spec.md) (full specification and roadmap) · [ARCHITECTURE.md](ARCHITECTURE.md) (deep reference)
+**Documentation:** [Overview](docs/overview/OVERVIEW.md) · [Specifications](docs/specs/README.md) · [Architecture](docs/architecture/ARCHITECTURE.md) · [Not implemented](NOT-IMPLEMENTED.md)
 
 ---
 
@@ -25,6 +25,7 @@ Use **Ollama** or **llama.cpp** on your machine, or **Anthropic** with your own 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
+- [pnpm](https://pnpm.io/) 9+ (`corepack enable` or `npm install -g pnpm`)
 - [Rust](https://rustup.rs/) 1.70+
 - Platform deps for [Tauri 2](https://tauri.app/start/prerequisites/)
 
@@ -38,13 +39,13 @@ pkg-config --modversion javascriptcoregtk-4.1   # should print a version
 ### Run
 
 ```bash
-npm install
-npm run tauri dev
+pnpm install
+pnpm tauri dev
 ```
 
-Unit tests: `npm test` · Optional Ollama integration: see [tests/README.md](tests/README.md)
+Unit tests: `pnpm test` · Optional Ollama integration: see [tests/README.md](tests/README.md)
 
-Dev server port defaults to **14200** (see `vite.config.ts`). Use `npm run dev` for frontend-only UI work (no tools/git/PTY without Tauri).
+Dev server port defaults to **14200** (see `vite.config.ts`). Use `pnpm dev` for frontend-only UI work (no tools/git/PTY without Tauri).
 
 ---
 
@@ -60,7 +61,7 @@ Open **Settings** (gear): providers, API keys, models, workbench theme, syntax c
 | `.tinyllama/tools.json` | Per-project tool rules and custom tool schemas |
 | `.tinyllama/state.json` | Persisted chat sessions and editor tabs (auto) |
 
-Secrets: [docs/SECRETS.md](docs/SECRETS.md) · Env hints: [.env.example](.env.example)
+Secrets: [Security](docs/specs/14-security.md) · Env hints: [.env.example](.env.example)
 
 ---
 
@@ -77,7 +78,7 @@ There is **no Node sidecar**. The agent loop runs in the webview; OS integration
 
 ## Roadmap
 
-See [spec.md § Roadmap](spec.md#roadmap). Highlights:
+See [Roadmap](docs/specs/17-roadmap.md). Highlights:
 
 - **Now:** Dogfooding — git change review, syntax, agent limits, project state
 - **Next:** Rust path sandbox, LLM in Rust + keychain, context/error handling

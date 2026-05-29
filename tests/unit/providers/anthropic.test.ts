@@ -330,12 +330,12 @@ describe("anthropic provider", () => {
 
       const events = await collect(streamChat("key", "model", "", []));
 
-      const deltas = events.filter(
-        (e): e is Extract<StreamEvent, { type: "delta" }> => e.type === "delta"
+      const thinking = events.filter(
+        (e): e is Extract<StreamEvent, { type: "thinking_delta" }> =>
+          e.type === "thinking_delta"
       );
-      expect(deltas).toHaveLength(1);
-      expect(deltas[0].content).toContain("thinking");
-      expect(deltas[0].content).toContain("Let me think...");
+      expect(thinking).toHaveLength(1);
+      expect(thinking[0].content).toContain("Let me think...");
     });
 
     it("handles error event in stream", async () => {

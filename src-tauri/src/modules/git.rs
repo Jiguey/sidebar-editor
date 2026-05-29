@@ -213,3 +213,62 @@ pub fn git_discard(repo_path: &str, path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Snapshot index + worktree as a detached commit; store under `refs/tinyllama/checkpoints/{ref_suffix}`.
+pub fn git_create_checkpoint(repo_path: &str, ref_suffix: &str) -> Result<String, String> {
+    let repo = open_repo(repo_path)?;
+    let mut index = repo.index().map_err(|e| e.to_string())?;
+    index
+        .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+        .map_err(|e| e.to_string())?;
+    index.write().map_err(|e| e.to_string())?;
+
+    let tree_id = index.write_tree().map_err(|e| e.to_string())?;
+    let tree = repo.find_tree(tree_id).map_err(|e| e.to_string())?;
+    let sig = repo
+        .signature()
+        .or_else(|_| Signature::now("Tiny Llama", "tinyllama@localhost"))
+        .map_err(|e| e.to_string())?;
+
+    let oid = repo
+        .commit(None, &sig, &sig, "tinyllama checkpoint", &tree, &[])
+        .map_err(|e| e.to_string())?;
+
+    let safe_suffix: String = ref_suffix
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let ref_name = format!("refs/tinyllama/checkpoints/{}", safe_suffix);
+    repo.reference(&ref_name, oid, true, "tinyllama checkpoint")
+        .map_err(|e| e.to_string())?;
+
+    Ok(oid.to_string())
+}
+
+/// Restore worktree + index to a checkpoint commit (does not move HEAD).
+pub fn git_restore_checkpoint(repo_path: &str, oid: &str) -> Result<(), String> {
+    let repo = open_repo(repo_path)?;
+    let obj = repo.revparse_single(oid).map_err(|e| e.to_string())?;
+    let commit = obj.peel_to_commit().map_err(|e| e.to_string())?;
+    let tree = commit.tree().map_err(|e| e.to_string())?;
+
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.force().remove_untracked(true);
+    repo.checkout_tree(tree.as_object(), Some(&mut checkout))
+        .map_err(|e| e.to_string())?;
+
+    let mut index = repo.index().map_err(|e| e.to_string())?;
+    index.read_tree(&tree).map_err(|e| e.to_string())?;
+    index.write().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn git_is_repo(repo_path: &str) -> bool {
+    Repository::open(repo_path).is_ok()
+}

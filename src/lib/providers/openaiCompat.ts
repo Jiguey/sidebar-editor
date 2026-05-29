@@ -35,6 +35,7 @@ export interface ToolCall {
 
 export type StreamEvent =
   | { type: "delta"; content: string }
+  | { type: "thinking_delta"; content: string }
   | { type: "tool_call"; id: string; name: string; arguments: string }
   | { type: "tool_call_delta"; id: string; arguments: string }
   | { type: "done"; usage?: { prompt_tokens: number; completion_tokens: number } }
@@ -45,6 +46,8 @@ interface OpenAIChoice {
   delta?: {
     role?: string;
     content?: string | null;
+    reasoning_content?: string | null;
+    reasoning?: string | null;
     tool_calls?: Array<{
       index: number;
       id?: string;
@@ -77,12 +80,20 @@ export const DEFAULT_ENDPOINTS = {
   llamacpp: "http://localhost:8080",
 };
 
+export type InferenceOptions = {
+  num_ctx?: number;
+  num_thread?: number;
+  /** Ollama: request separated reasoning trace (`think` on /api/chat, `reasoning_content` on OpenAI API). */
+  think?: boolean;
+};
+
 export async function* streamChat(
   baseUrl: string,
   model: string,
   messages: Message[],
   tools?: Tool[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  inferenceOptions?: InferenceOptions
 ): AsyncGenerator<StreamEvent> {
   const url = `${baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
@@ -94,6 +105,17 @@ export async function* streamChat(
 
   if (tools && tools.length > 0) {
     body.tools = tools;
+  }
+
+  if (inferenceOptions?.think) {
+    body.think = true;
+  }
+
+  if (inferenceOptions?.num_ctx || inferenceOptions?.num_thread) {
+    body.options = {
+      ...(inferenceOptions.num_ctx ? { num_ctx: inferenceOptions.num_ctx } : {}),
+      ...(inferenceOptions.num_thread ? { num_thread: inferenceOptions.num_thread } : {}),
+    };
   }
 
   let response: Response;
@@ -160,6 +182,11 @@ export async function* streamChat(
 
           if (delta.content) {
             yield { type: "delta", content: delta.content };
+          }
+
+          const reasoning = delta.reasoning_content ?? delta.reasoning;
+          if (reasoning) {
+            yield { type: "thinking_delta", content: reasoning };
           }
 
           if (delta.tool_calls) {

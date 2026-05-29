@@ -1,0 +1,154 @@
+import { resolveWorkspacePath } from "../tools/pathUtils";
+import { normalizeFilePath } from "../fsPath";
+
+const FILE_TOOLS = new Set([
+  "read_file",
+  "write_file",
+  "create_file",
+  "delete_file",
+  "move_file",
+]);
+
+const FILE_OPEN_TOOLS = new Set(["read_file", "write_file", "create_file", "move_file"]);
+
+export function pathsFromToolInput(
+  toolName: string,
+  args: Record<string, unknown>,
+  workspacePath: string
+): string[] {
+  const paths: string[] = [];
+  const push = (p: unknown) => {
+    if (typeof p !== "string" || !p.trim()) return;
+    try {
+      paths.push(normalizeFilePath(resolveWorkspacePath(workspacePath, p.trim())));
+    } catch {
+      /* ignore bad paths */
+    }
+  };
+
+  switch (toolName) {
+    case "write_file":
+    case "create_file":
+    case "delete_file":
+    case "read_file":
+      push(args.path);
+      break;
+    case "move_file":
+      push(args.from);
+      push(args.to);
+      break;
+    default:
+      break;
+  }
+  return paths;
+}
+
+export function openableFilePaths(
+  toolName: string,
+  args: Record<string, unknown>,
+  workspacePath: string,
+  success: boolean
+): string[] {
+  if (!success || !FILE_OPEN_TOOLS.has(toolName)) return [];
+  const paths = pathsFromToolInput(toolName, args, workspacePath);
+  if (toolName === "move_file") {
+    const to = typeof args.to === "string" ? args.to : "";
+    if (!to.trim()) return [];
+    try {
+      return [normalizeFilePath(resolveWorkspacePath(workspacePath, to.trim()))];
+    } catch {
+      return [];
+    }
+  }
+  return paths.filter((p) => !p.endsWith("/"));
+}
+
+export function workspaceRelativePath(workspacePath: string, absPath: string): string {
+  const root = normalizeFilePath(workspacePath);
+  const file = normalizeFilePath(absPath);
+  if (file === root) return file.split("/").pop() ?? file;
+  if (file.startsWith(`${root}/`)) return file.slice(root.length + 1);
+  return file.split("/").pop() ?? file;
+}
+
+export function formatToolSummary(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "write_file":
+    case "create_file":
+    case "read_file":
+    case "delete_file":
+      return typeof input.path === "string" ? input.path : "";
+    case "move_file": {
+      const from = typeof input.from === "string" ? input.from : "?";
+      const to = typeof input.to === "string" ? input.to : "?";
+      return `${from} → ${to}`;
+    }
+    case "run_shell":
+      return typeof input.command === "string" ? truncate(input.command, 72) : "";
+    case "run_script":
+      return typeof input.script === "string" ? truncate(input.script, 72) : "";
+    case "grep":
+      return typeof input.pattern === "string" ? `"${input.pattern}"` : "";
+    case "find_file":
+      return typeof input.pattern === "string" ? input.pattern : "";
+    case "list_dir":
+      return typeof input.path === "string" ? input.path || "." : ".";
+    case "web_fetch":
+      return typeof input.url === "string" ? truncate(input.url, 72) : "";
+    case "get_git_diff":
+      return typeof input.path === "string" ? input.path : "all changes";
+    default:
+      return "";
+  }
+}
+
+/** Short verb for activity chip row (e.g. `write_file` → `write`). */
+export function toolCompactLabel(toolName: string): string {
+  if (toolName.endsWith("_file")) return toolName.slice(0, -5).replace(/_/g, " ");
+  if (toolName.startsWith("get_git_")) return toolName.slice(4).replace(/_/g, " ");
+  if (toolName.startsWith("get_")) return toolName.slice(4).replace(/_/g, " ");
+  return toolName.replace(/_/g, " ");
+}
+
+/** Primary path line for expanded tool detail (`file:`), if any. */
+export function toolFileLine(
+  toolName: string,
+  input: Record<string, unknown>,
+  workspacePath: string
+): string | null {
+  const summary = formatToolSummary(toolName, input);
+  if (!summary) return null;
+  if (toolName === "move_file" || toolName === "web_fetch" || toolName === "run_shell") {
+    return summary;
+  }
+  if (!isFileTool(toolName) && toolName !== "list_dir") return null;
+  if (!workspacePath) return summary;
+  try {
+    const resolved = normalizeFilePath(resolveWorkspacePath(workspacePath, summary));
+    return workspaceRelativePath(workspacePath, resolved);
+  } catch {
+    return summary;
+  }
+}
+
+export function formatToolInput(_toolName: string, input: Record<string, unknown>): string {
+  const copy = { ...input };
+  if (typeof copy.content === "string" && copy.content.length > 4000) {
+    copy.content = `${copy.content.slice(0, 4000)}\n… (${copy.content.length.toLocaleString()} chars total)`;
+  }
+  return JSON.stringify(copy, null, 2);
+}
+
+export function isFileTool(toolName: string): boolean {
+  return FILE_TOOLS.has(toolName);
+}
+
+function truncate(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+export function toolResultIsError(content: string): boolean {
+  return content.startsWith("Error:");
+}

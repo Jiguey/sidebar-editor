@@ -4,7 +4,8 @@ mod modules;
 
 use modules::commands::{
     delete_entry, find_files, get_workspace_path, git_commit, git_current_branch, git_diff,
-    git_discard, git_file_at_head, git_log, git_stage, git_status, git_unstage, grep_workspace, list_dir, list_dir_tree,
+    git_create_checkpoint, git_discard, git_file_at_head, git_is_repo, git_log,
+    git_restore_checkpoint, git_stage, git_status, git_unstage, grep_workspace, list_dir, list_dir_tree,
     icon_pack_get_dir, icon_pack_refresh_bundled, open_settings_window, path_exists,
     pick_icon_pack_folder, pick_workspace_folder, read_file, read_project_state,
     read_system_prompt, rename_entry, run_shell, web_fetch, write_file, write_project_state,
@@ -39,6 +40,9 @@ fn main() {
             git_log,
             git_file_at_head,
             git_discard,
+            git_create_checkpoint,
+            git_restore_checkpoint,
+            git_is_repo,
             pty_create,
             pty_write,
             pty_resize,

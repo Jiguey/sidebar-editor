@@ -3,7 +3,7 @@
 export const EXPLORER_APPEARANCE_DEFAULTS = {
   selectionBg: "#2a2a2a",
   fontSizePx: 12,
-  iconSizePx: 15,
+  iconSizePx: 12,
   fileModifiedColor: "#d4a656",
   fileUntrackedColor: "#6b9bd1",
   folderOpenFileColor: "#d4a656",
@@ -35,7 +35,9 @@ export const EXPLORER_APPEARANCE_FIELDS: {
   { key: "folderErrorColor", label: "Folder (errors)", hint: "Folder with diagnostic errors", kind: "color" },
 ];
 
-const STORAGE_KEY = "tinyllama.explorerAppearance.v1";
+const STORAGE_KEY = "tinyllama.explorerAppearance.v2";
+const STORAGE_KEY_V1 = "tinyllama.explorerAppearance.v1";
+const LEGACY_ICON_SIZE_PX = 15;
 
 function normalizeHex(raw: string, fallback: string): string {
   const t = raw.trim();
@@ -74,12 +76,29 @@ export function normalizeExplorerAppearance(
   return out;
 }
 
+function migrateIconSizeFromV1(parsed: Partial<ExplorerAppearanceMap>): number {
+  if (parsed.iconSizePx === LEGACY_ICON_SIZE_PX || parsed.iconSizePx === undefined) {
+    return EXPLORER_APPEARANCE_DEFAULTS.iconSizePx;
+  }
+  return normalizeExplorerAppearance(parsed).iconSizePx as number;
+}
+
 export function loadExplorerAppearance(): ExplorerAppearanceMap {
   if (typeof localStorage === "undefined") return defaultExplorerAppearance();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultExplorerAppearance();
-    return normalizeExplorerAppearance(JSON.parse(raw) as Partial<ExplorerAppearanceMap>);
+    const rawV2 = localStorage.getItem(STORAGE_KEY);
+    if (rawV2) return normalizeExplorerAppearance(JSON.parse(rawV2) as Partial<ExplorerAppearanceMap>);
+
+    const rawV1 = localStorage.getItem(STORAGE_KEY_V1);
+    if (!rawV1) return defaultExplorerAppearance();
+
+    const parsed = JSON.parse(rawV1) as Partial<ExplorerAppearanceMap>;
+    const appearance = {
+      ...normalizeExplorerAppearance(parsed),
+      iconSizePx: migrateIconSizeFromV1(parsed),
+    };
+    saveExplorerAppearance(appearance);
+    return appearance;
   } catch {
     return defaultExplorerAppearance();
   }

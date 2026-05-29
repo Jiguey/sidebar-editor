@@ -251,7 +251,7 @@ export const TOOL_DEFINITIONS: Record<string, Tool> = {
     function: {
       name: "run_tests",
       description:
-        "Run the project's test suite (npm test, cargo test, or pytest based on project files).",
+        "Run the project's test suite (pnpm/npm test, cargo test, or pytest based on project files).",
       parameters: {
         type: "object",
         properties: {

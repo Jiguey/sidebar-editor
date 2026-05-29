@@ -8,10 +8,11 @@
     name: string;
     isDir?: boolean;
     expanded?: boolean;
+    /** Explicit px size; omit to use --explorer-icon-size from appearance settings. */
     size?: number;
   }
 
-  let { name, isDir = false, expanded = false, size = 16 }: Props = $props();
+  let { name, isDir = false, expanded = false, size }: Props = $props();
 
   let src = $state<string | null>(null);
   let useCodicon = $state(true);
@@ -130,24 +131,39 @@
 {#if useSeti}
   <span
     class="seti-file-icon"
+    class:fixed-size={size != null}
     aria-hidden="true"
-    style="color: {setiColor}; width: {size + 2}px; height: {size}px; --seti-size: {size}px;"
+    style={size != null
+      ? `color: ${setiColor}; width: ${size + 2}px; height: ${size}px; --seti-size: ${size}px;`
+      : `color: ${setiColor}`}
   >{setiChar}</span>
 {:else if useCodicon}
-  <span class="codicon {codiconClass}" aria-hidden="true" style="font-size: {size}px; width: {size + 2}px;"></span>
+  <span
+    class="codicon {codiconClass}"
+    class:fixed-size={size != null}
+    aria-hidden="true"
+    style={size != null ? `font-size: ${size}px; width: ${size + 2}px;` : undefined}
+  ></span>
 {:else if src}
   <img
     class="file-icon-img"
+    class:fixed-size={size != null}
     {src}
     alt=""
-    width={size}
-    height={size}
+    {...size != null ? { width: size, height: size } : {}}
     loading="lazy"
     onerror={onImgError}
   />
 {/if}
 
 <style>
+  .codicon:not(.fixed-size),
+  .file-icon-img:not(.fixed-size) {
+    font-size: var(--explorer-icon-size, 12px);
+    width: calc(var(--explorer-icon-size, 12px) + 2px);
+    height: var(--explorer-icon-size, 12px);
+  }
+
   .seti-file-icon {
     flex-shrink: 0;
     display: inline-flex;
@@ -157,10 +173,16 @@
     font-style: normal;
     font-weight: normal;
     /* Match VS Code Seti pack (manifest fonts.size = 150%). */
-    font-size: calc(var(--seti-size, 16px) * 1.5);
+    font-size: calc(var(--seti-size, 12px) * 1.5);
     line-height: 1;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+  }
+
+  .seti-file-icon:not(.fixed-size) {
+    width: calc(var(--explorer-icon-size, 12px) + 2px);
+    height: var(--explorer-icon-size, 12px);
+    --seti-size: var(--explorer-icon-size, 12px);
   }
 
   .file-icon-img {

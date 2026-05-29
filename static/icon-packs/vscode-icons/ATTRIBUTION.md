@@ -14,7 +14,7 @@ Icons are used under the MIT License. This directory contains `manifest.json` (f
 To refresh from upstream:
 
 ```bash
-npm run sync-icons
+pnpm run sync-icons
 ```
 
 Or use **Settings → Appearance → Refresh default icon pack** in the desktop app (downloads the latest marketplace VSIX).
