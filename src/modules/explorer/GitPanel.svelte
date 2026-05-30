@@ -293,9 +293,14 @@
 
 <style>
   .git-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
     padding: 10px 8px;
     font-size: 12px;
     color: var(--sidebar-foreground);
+    background-color: var(--explorer-panel-bg, var(--workbench-panel-bg, var(--sidebar)));
     overflow: auto;
     height: 100%;
   }

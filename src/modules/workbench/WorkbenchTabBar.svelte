@@ -1,5 +1,6 @@
 <script lang="ts">
   import { workbench } from "$lib/stores/workbench";
+  import { settings } from "$lib/stores/settings";
   import { files } from "$lib/stores/files";
   import { normalizeFilePath } from "$lib/fsPath";
   import { tabStripScroll } from "$lib/actions/scrollOverflow";
@@ -7,6 +8,9 @@
   import FileTextIcon from "phosphor-svelte/lib/FileTextIcon";
   import TerminalIcon from "phosphor-svelte/lib/TerminalIcon";
   import MonitorIcon from "phosphor-svelte/lib/MonitorIcon";
+
+  let uniformTabWidth = $derived($settings.editor.uniformTabWidth);
+  let uniformTabWidthPx = $derived($settings.editor.uniformTabWidthPx);
 </script>
 
 <div class="workbench-tab-bar-root">
@@ -25,6 +29,8 @@
               title={tab.title}
               {active}
               {dirty}
+              uniformWidth={uniformTabWidth}
+              uniformWidthPx={uniformTabWidthPx}
               allowMiddleClose
               onActivate={() => workbench.setActiveTab(tab.id)}
               onClose={() => workbench.closeTab(tab.id)}
@@ -54,7 +60,7 @@
     display: flex;
     flex: 1 1 0;
     min-width: 0;
-    max-width: calc(100% - var(--workbench-window-drag-pad, 96px));
+    max-width: 100%;
     height: 100%;
     min-height: 0;
     align-items: stretch;

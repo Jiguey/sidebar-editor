@@ -21,7 +21,36 @@
 
   /** Center tab strip, chat toolbar, explorer (etc.) top row — keeps columns visually aligned. */
   --workbench-row-header-height: 26px;
-  /** Top shell row (chat + workbench tabs) and bottom status bar. */
+  /** Window title bar (drag + minimize / maximize / close). */
+  --workbench-titlebar-height: 32px;
+  /** Chat + editor tab strip directly under the title bar. */
+  --workbench-tab-row-height: 36px;
+  /** Inset chat column: gap from window edge and rounded panel. */
+  /** Horizontal inset from window edges (chat, tabs, explorer). */
+  --workbench-edge-inset: 10px;
+  --chat-panel-inset-left: var(--workbench-edge-inset);
+  /** Vertical gap: tab bar → panels (top), panels → status bar (bottom). */
+  --workbench-panel-gap-top: 6px;
+  --workbench-panel-gap-bottom: 6px;
+  --chat-panel-inset-block-top: var(--workbench-panel-gap-top);
+  --chat-panel-inset-block-bottom: var(--workbench-panel-gap-bottom);
+  --chat-panel-radius: 10px;
+  --chat-panel-bg: var(--sidebar);
+  --chat-panel-border: color-mix(in srgb, var(--border) 45%, transparent);
+  /** Explorer / git / prompt pane (right secondary column). */
+  --explorer-panel-inset-block-top: var(--workbench-panel-gap-top);
+  --explorer-panel-inset-block-bottom: var(--workbench-panel-gap-bottom);
+  --explorer-panel-inset-inline: var(--workbench-edge-inset);
+  --explorer-panel-radius: var(--chat-panel-radius);
+  --explorer-panel-bg: var(--chat-panel-bg);
+  --explorer-panel-border: var(--chat-panel-border);
+  /** Rounded tab strip (chat + editor tabs) under the title bar. */
+  --workbench-tab-strip-radius: 8px;
+  --workbench-tab-strip-bg: var(--sidebar);
+  --workbench-tab-strip-inset-x: var(--workbench-edge-inset);
+  --workbench-tab-strip-inset-bottom: 0px;
+  --workbench-tab-strip-inner-padding-left: 8px;
+  /** Bottom status bar (matches tab row for visual rhythm). */
   --workbench-shell-header-height: 36px;
 
   /* Editor / workbench — VS Code Dark */
@@ -236,6 +265,7 @@
   /* Tab strips: native scrollbars hidden; fixed 3px custom thumb via tabStripScroll action. */
   .tab-strip-scroll-native-hidden {
     scrollbar-width: none;
+    overscroll-behavior-x: contain;
   }
 
   .tab-strip-scroll-native-hidden::-webkit-scrollbar {
@@ -251,6 +281,7 @@
     height: 100%;
     display: flex;
     align-items: stretch;
+    overflow: hidden;
   }
 
   .tab-strip-scroll-track {

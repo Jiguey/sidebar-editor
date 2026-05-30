@@ -12,6 +12,7 @@
   import StatusBar from "./StatusBar.svelte";
   import WindowControls from "./WindowControls.svelte";
   import SettingsPane from "../settings/SettingsPane.svelte";
+  import FeedbackDialog from "../feedback/FeedbackDialog.svelte";
   import BottomDock from "./BottomDock.svelte";
   import { workbench } from "$lib/stores/workbench";
   import { files } from "$lib/stores/files";
@@ -33,6 +34,7 @@
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
+  import type { ExplorerPanelTab } from "$lib/explorerPanel";
 
   const PANE_WIDTH_KEY = "tinyllama.paneWidths.v1";
   const LEFT_MIN = 200;
@@ -40,9 +42,6 @@
   const RIGHT_MIN = 200;
   const BOTTOM_MIN = 120;
   const BOTTOM_DEFAULT = 220;
-  /** Width of the right activity strip when the explorer pane is collapsed (must match RightSidebar). */
-  const RIGHT_ACTIVITY_STRIP_PX = 34;
-
   function clamp(n: number, lo: number, hi: number): number {
     return Math.min(hi, Math.max(lo, n));
   }
@@ -78,11 +77,14 @@
   }
 
   let settingsOpen = $state(false);
+  let feedbackOpen = $state(false);
   let showLeftPanel = $state(true);
   let showRightPanel = $state(true);
-  /** Right explorer tree/search pane open (activity strip stays; shell width follows this). */
-  let rightExplorerSecondaryOpen = $state(true);
+  /** Explorer / git / prompt panel visible (toggled from status bar). */
+  let rightExplorerOpen = $state(true);
+  let explorerActiveTab = $state<ExplorerPanelTab>("files");
   let showBottomPanel = $state(false);
+  let showTabStrip = $state(true);
 
   const initialPanes = loadPaneWidths();
   let leftPaneWidth = $state(initialPanes.left);
@@ -93,10 +95,25 @@
   let resizeBottomDrag: { startY: number; startH: number } | null = null;
 
   let rightAsideLayoutStyle = $derived(
-    showRightPanel && rightExplorerSecondaryOpen
+    showRightPanel && rightExplorerOpen
       ? `width:${rightPaneWidth}px;min-width:${RIGHT_MIN}px;max-width:${rightPaneMax()}px;`
-      : `width:${RIGHT_ACTIVITY_STRIP_PX}px;min-width:${RIGHT_ACTIVITY_STRIP_PX}px;max-width:${RIGHT_ACTIVITY_STRIP_PX}px;`
+      : `width:0;min-width:0;max-width:0;overflow:hidden;`
   );
+
+  function toggleRightPanel() {
+    showRightPanel = !showRightPanel;
+    if (showRightPanel) rightExplorerOpen = true;
+  }
+
+  function onExplorerTabClick(tab: ExplorerPanelTab) {
+    if (!showRightPanel) showRightPanel = true;
+    if (explorerActiveTab === tab && rightExplorerOpen) {
+      rightExplorerOpen = false;
+      return;
+    }
+    explorerActiveTab = tab;
+    rightExplorerOpen = true;
+  }
 
   function onResizeMove(e: MouseEvent) {
     const d = resizeDrag;
@@ -252,6 +269,10 @@
     settingsOpen = true;
   }
 
+  function openFeedbackModal() {
+    feedbackOpen = true;
+  }
+
   async function openSettingsPopout() {
     try {
       if (!isTauriAvailable()) {
@@ -284,40 +305,45 @@
 <Toaster richColors position="bottom-right" />
 
 <div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-  <header
-    class="workbench-header flex shrink-0 items-stretch border-b pl-0.5 pr-0 text-[10px] leading-tight"
-    style="height: var(--workbench-shell-header-height); min-height: var(--workbench-shell-header-height);"
-  >
-    <div class="flex min-h-0 min-w-0 flex-1 items-stretch gap-0">
-      <div class="flex min-h-0 min-w-0 max-w-[min(28rem,48vw)] shrink overflow-hidden">
-        <ChatTabBar />
-      </div>
-      <div class="workbench-header-divider my-1 w-px shrink-0 self-stretch" aria-hidden="true"></div>
-      <div class="workbench-header-track">
-        <WorkbenchTabBar />
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="workbench-window-drag-pad"
-          data-tauri-drag-region
-          aria-hidden="true"
-          ondblclick={() => void toggleMaximizeAppWindow()}
-        ></div>
-        <WindowControls />
-      </div>
+  <header class="workbench-titlebar">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="workbench-titlebar__drag"
+      data-tauri-drag-region
+      ondblclick={() => void toggleMaximizeAppWindow()}
+    >
+      <span class="workbench-titlebar__title">Tiny Llama</span>
     </div>
+    <WindowControls />
   </header>
 
-  <div class="flex min-h-0 flex-1 overflow-hidden">
+  {#if showTabStrip}
+    <div class="workbench-tab-strip-host">
+      <div class="workbench-tab-strip" role="toolbar" aria-label="Chat and editor tabs">
+        <div class="workbench-tab-strip__chat flex min-h-0 min-w-0 max-w-[min(28rem,48vw)] shrink overflow-hidden">
+          <ChatTabBar />
+        </div>
+        <div class="workbench-tab-strip__divider" aria-hidden="true"></div>
+        <div class="workbench-tab-strip__editor workbench-tab-row-track">
+          <WorkbenchTabBar />
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <div class="workbench-body flex min-h-0 flex-1 overflow-hidden">
     {#if showLeftPanel}
       <aside
-        class="flex min-h-0 min-w-0 shrink-0 flex-col border-r border-transparent bg-sidebar"
+        class="chat-column flex min-h-0 min-w-0 shrink-0 flex-col"
         style="width:{leftPaneWidth}px;min-width:{LEFT_MIN}px;max-width:{LEFT_MAX}px;"
       >
-        <ChatPane onOpenSettings={openSettingsModal} />
+        <div class="chat-column__panel">
+          <ChatPane onOpenSettings={openSettingsModal} />
+        </div>
       </aside>
     {/if}
 
-    <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div class="center-column relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div
         class="center-workbench-stack relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden border-0 outline-none"
       >
@@ -355,7 +381,7 @@
           onmousedown={(e) => onResizePointerDown(e, "left")}
         ></div>
       {/if}
-      {#if showRightPanel && rightExplorerSecondaryOpen}
+      {#if showRightPanel && rightExplorerOpen}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions resize handle -->
         <div
           role="separator"
@@ -368,61 +394,147 @@
       {/if}
     </div>
 
-    <aside
-      class="flex min-h-0 min-w-0 shrink-0 flex-col border-l border-transparent bg-sidebar"
-      style={rightAsideLayoutStyle}
-    >
-      <RightSidebar
-        bind:secondaryOpen={rightExplorerSecondaryOpen}
-        dockedOnly={!showRightPanel}
-        onRequestExpand={() => (showRightPanel = true)}
-        onOpenWorkspace={() => void chooseWorkspaceFolder()}
-        onOpenSettings={openSettingsModal}
-      />
-    </aside>
+    {#if showRightPanel && rightExplorerOpen}
+      <aside class="explorer-column flex min-h-0 min-w-0 shrink-0 flex-col" style={rightAsideLayoutStyle}>
+        <RightSidebar bind:activeTab={explorerActiveTab} />
+      </aside>
+    {/if}
   </div>
 
   <StatusBar
     {showLeftPanel}
     {showRightPanel}
     {showBottomPanel}
+    {showTabStrip}
+    {rightExplorerOpen}
+    explorerActiveTab={explorerActiveTab}
     onToggleLeft={() => (showLeftPanel = !showLeftPanel)}
-    onToggleRight={() => (showRightPanel = !showRightPanel)}
+    onToggleTabStrip={() => (showTabStrip = !showTabStrip)}
+    onToggleRight={toggleRightPanel}
     onToggleBottom={() => (showBottomPanel = !showBottomPanel)}
+    onExplorerTab={onExplorerTabClick}
+    onOpenWorkspace={() => void chooseWorkspaceFolder()}
+    onOpenSettings={openSettingsModal}
+    onOpenFeedback={openFeedbackModal}
   />
 </div>
 
 <SettingsPane open={settingsOpen} onClose={() => (settingsOpen = false)} />
+<FeedbackDialog open={feedbackOpen} onClose={() => (feedbackOpen = false)} />
 
 <style>
-  /**
-   * Keep the in-app top bar aligned with the selected workbench palette.
-   * This avoids a light-looking chrome strip on Linux when the rest is dark.
-   */
-  .workbench-header {
-    background: color-mix(in srgb, var(--surface, var(--card)) 88%, var(--background) 12%);
-    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  .workbench-titlebar {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    height: var(--workbench-titlebar-height);
+    min-height: var(--workbench-titlebar-height);
+    border-bottom: none;
+    background: var(--background);
   }
 
-  .workbench-header-divider {
-    background: color-mix(in srgb, var(--border) 55%, transparent);
+  .workbench-titlebar__drag {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    padding: 0 12px;
+    user-select: none;
   }
 
-  .workbench-header-track {
+  .workbench-titlebar__title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-tab-strip-host {
+    flex-shrink: 0;
+    box-sizing: border-box;
+    padding: 0 var(--workbench-edge-inset) var(--workbench-tab-strip-inset-bottom)
+      var(--workbench-edge-inset);
+    background: var(--background);
+  }
+
+  .workbench-tab-strip {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    height: var(--workbench-tab-row-height);
+    min-height: var(--workbench-tab-row-height);
+    border-radius: var(--workbench-tab-strip-radius);
+    border: 1px solid var(--chat-panel-border);
+    background: var(--workbench-tab-strip-bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+    overflow: hidden;
+  }
+
+  .workbench-tab-strip__chat {
+    flex: 0 1 auto;
+  }
+
+  .workbench-tab-strip__divider {
+    flex-shrink: 0;
+    width: 1px;
+    margin: 6px 0;
+    background: color-mix(in srgb, var(--border) 35%, transparent);
+  }
+
+  .workbench-tab-strip__editor {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .workbench-body {
+    background: var(--background);
+  }
+
+  .chat-column,
+  .center-column {
+    box-sizing: border-box;
+    padding: var(--chat-panel-inset-block-top) var(--workbench-edge-inset)
+      var(--chat-panel-inset-block-bottom) var(--workbench-edge-inset);
+    background: var(--background);
+  }
+
+  .center-column {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .chat-column__panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: var(--chat-panel-radius);
+    border: 1px solid var(--chat-panel-border);
+    background: var(--chat-panel-bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+
+  .explorer-column {
+    background: var(--background);
+  }
+
+  .workbench-tab-row-track {
     display: flex;
     flex: 1 1 0;
     min-width: 0;
     min-height: 0;
+    height: 100%;
     align-items: stretch;
-    --workbench-window-drag-pad: 96px;
   }
 
-  .workbench-window-drag-pad {
-    flex: 0 0 var(--workbench-window-drag-pad);
-    width: var(--workbench-window-drag-pad);
-    min-width: var(--workbench-window-drag-pad);
+  .workbench-tab-strip :global(.chat-tab-bar-root),
+  .workbench-tab-strip :global(.workbench-tab-bar-root) {
     height: 100%;
-    user-select: none;
   }
 
   /**

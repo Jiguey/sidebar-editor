@@ -2,6 +2,7 @@ import type { Tool } from "../providers/openaiCompat";
 import type { Message as ProviderMessage, StreamEvent, InferenceOptions } from "../providers/openaiCompat";
 import { streamChat as streamChatOpenAI } from "../providers/openaiCompat";
 import { streamChat as streamChatAnthropic } from "../providers/anthropic";
+import { streamChat as streamChatDeepseek, DEEPSEEK_API_BASE } from "../providers/deepseek";
 import type { StoredToolCall } from "../stores/chat";
 
 export type StreamTurnResult = {
@@ -11,8 +12,29 @@ export type StreamTurnResult = {
   usage?: { prompt_tokens: number; completion_tokens: number };
 };
 
+export type StreamChatBackend = "anthropic" | "deepseek" | "ollama" | "llamacpp";
+
+export function resolveStreamCredentials(input: {
+  backend: StreamChatBackend;
+  apiKeys: { anthropic: string; deepseek: string };
+  ollamaEndpoint: string;
+  llamacppEndpoint: string;
+  llamacppApiKey: string;
+}): { apiKey: string; baseUrl: string } {
+  switch (input.backend) {
+    case "anthropic":
+      return { apiKey: input.apiKeys.anthropic, baseUrl: "" };
+    case "deepseek":
+      return { apiKey: input.apiKeys.deepseek, baseUrl: DEEPSEEK_API_BASE };
+    case "ollama":
+      return { apiKey: "", baseUrl: input.ollamaEndpoint };
+    case "llamacpp":
+      return { apiKey: input.llamacppApiKey, baseUrl: input.llamacppEndpoint };
+  }
+}
+
 export async function streamOneTurn(options: {
-  backend: "anthropic" | "ollama" | "llamacpp";
+  backend: StreamChatBackend;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -70,6 +92,15 @@ export async function streamOneTurn(options: {
       options.signal
     );
     await processStream(stream);
+  } else if (options.backend === "deepseek") {
+    const stream = streamChatDeepseek(
+      options.apiKey,
+      options.model,
+      options.messages,
+      options.tools,
+      options.signal
+    );
+    await processStream(stream);
   } else {
     const stream = streamChatOpenAI(
       options.baseUrl,
@@ -77,7 +108,8 @@ export async function streamOneTurn(options: {
       options.messages,
       options.tools,
       options.signal,
-      options.inferenceOptions
+      options.inferenceOptions,
+      options.apiKey || undefined
     );
     await processStream(stream);
   }

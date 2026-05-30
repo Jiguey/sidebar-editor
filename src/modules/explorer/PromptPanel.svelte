@@ -2,8 +2,8 @@
   import { systemPrompt } from "$lib/stores/systemPrompt";
   import { files } from "$lib/stores/files";
   import { isTauriAvailable } from "$lib/ipc";
+  import AppIcon from "$lib/components/AppIcon.svelte";
   import { onMount } from "svelte";
-  import FloppyDiskIcon from "phosphor-svelte/lib/FloppyDiskIcon";
   import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 
   let draft = $state("");
@@ -86,7 +86,7 @@
         title="Save"
         aria-label="Save system prompt"
       >
-        <FloppyDiskIcon size={16} />
+        <AppIcon name="floppy-disk" size={14} />
       </button>
     </div>
   </div>
@@ -130,8 +130,10 @@ Example:
   .prompt-panel {
     display: flex;
     flex-direction: column;
+    flex: 1;
     height: 100%;
     min-height: 0;
+    background-color: var(--explorer-panel-bg, var(--workbench-panel-bg, var(--sidebar)));
   }
 
   .prompt-header {

@@ -35,6 +35,14 @@ export const EXPLORER_APPEARANCE_FIELDS: {
   { key: "folderErrorColor", label: "Folder (errors)", hint: "Folder with diagnostic errors", kind: "color" },
 ];
 
+/** Label and icon sizing — Settings → General. */
+export const EXPLORER_SIZE_FIELDS = EXPLORER_APPEARANCE_FIELDS.filter(
+  (f) => f.key === "fontSizePx" || f.key === "iconSizePx"
+);
+
+/** Git/status colors and selection — Settings → Explorer. */
+export const EXPLORER_COLOR_FIELDS = EXPLORER_APPEARANCE_FIELDS.filter((f) => f.kind === "color");
+
 const STORAGE_KEY = "tinyllama.explorerAppearance.v2";
 const STORAGE_KEY_V1 = "tinyllama.explorerAppearance.v1";
 const LEGACY_ICON_SIZE_PX = 15;

@@ -2,11 +2,19 @@
   import { get } from "svelte/store";
   import {
     settings,
-    AVAILABLE_MODELS,
     type ModelConfig,
     type ChatBackend,
     AGENT_LIMIT_BOUNDS,
+    AGENT_COMPACTION_BOUNDS,
+    compactionThresholdPercent,
+    compactionThresholdFromPercent,
+    AUTOCOMPLETE_BOUNDS,
   } from "$lib/stores/settings";
+  import {
+    fetchAnthropicModelCatalog,
+    fetchDeepseekModelCatalog,
+  } from "$lib/cloudModelCatalog";
+  import { chunkIntoRows, mergeCloudModelCatalog, modelsVisibleInPicker } from "$lib/modelPicker";
   import {
     fetchOllamaModelList,
     RECOMMENDED_OLLAMA_MODELS,
@@ -59,10 +67,17 @@
   import { editorChrome } from "$lib/stores/editorChrome";
   import { SYNTAX_COLOR_FIELDS, type SyntaxColorMap } from "$lib/editor/syntaxColors";
   import { EDITOR_CHROME_FIELDS, type EditorChromeMap } from "$lib/editor/editorChrome";
+  import {
+    DEFAULT_TAB_UNIFORM_WIDTH_PX,
+    TAB_UNIFORM_WIDTH_MAX,
+    TAB_UNIFORM_WIDTH_MIN,
+    normalizeUniformTabWidthPx,
+  } from "$lib/editor/tabWidth";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
   import {
-    EXPLORER_APPEARANCE_FIELDS,
+    EXPLORER_COLOR_FIELDS,
+    EXPLORER_SIZE_FIELDS,
     type ExplorerAppearanceMap,
   } from "$lib/explorer/explorerAppearance";
   import {
@@ -90,13 +105,15 @@
   let visible = $derived(open || variant === "page");
 
   type Section =
+    | "general"
     | "providers-ollama"
     | "providers-llamacpp"
     | "providers-anthropic"
+    | "providers-deepseek"
     | "tools"
-    | "appearance-theme"
+    | "experimental-compaction"
+    | "experimental-autocomplete"
     | "appearance-editor"
-    | "appearance-icons"
     | "appearance-syntax"
     | "appearance-explorer"
     | "appearance-chat"
@@ -106,11 +123,35 @@
     ollama: "providers-ollama",
     llamacpp: "providers-llamacpp",
     anthropic: "providers-anthropic",
+    deepseek: "providers-deepseek",
   };
 
   let activeSection = $state<Section>("providers-ollama");
 
+  type ProviderSubview = "ollama-server" | "llamacpp-server";
+  let providerSubview = $state<ProviderSubview | null>(null);
+
+  function openProviderSubview(view: ProviderSubview) {
+    providerSubview = view;
+  }
+
+  function closeProviderSubview() {
+    providerSubview = null;
+  }
+
+  function selectSettingsSection(id: Section) {
+    providerSubview = null;
+    activeSection = id;
+  }
+
   let anthropicKey = $state("");
+  let deepseekKey = $state("");
+  let anthropicModels = $state<ModelConfig[]>([]);
+  let deepseekModels = $state<ModelConfig[]>([]);
+  let loadingAnthropicCatalog = $state(false);
+  let loadingDeepseekCatalog = $state(false);
+  let anthropicCatalogError = $state("");
+  let deepseekCatalogError = $state("");
   let openaiKey = $state("");
   let ollamaEndpoint = $state("");
   let selectedModel = $state("");
@@ -169,8 +210,15 @@
   let editorColors = $state<EditorChromeMap>(editorChrome.get());
   let editorWordWrap = $state(false);
   let editorFormatOnSave = $state(false);
+  let editorUniformTabWidth = $state(false);
+  let editorUniformTabWidthPx = $state(96);
   let explorerColors = $state<ExplorerAppearanceMap>(explorerAppearance.get());
   let chatColors = $state<ChatAppearanceMap>(chatAppearance.get());
+  let autoCompact = $state(false);
+  let compactThresholdPct = $state(85);
+  let compactKeepRecent = $state(6);
+  let autocompleteEnabled = $state(false);
+  let autocompleteDebounceMs = $state(300);
 
   let modelSearchQuery = $state("");
   let modelSearchResults = $state<OllamaLibraryModel[]>([]);
@@ -198,19 +246,45 @@
     modelSearchResults = searchModels(modelSearchQuery);
   });
 
-  const sections: { id: Section; label: string; group?: string }[] = [
+  const sections: {
+    id: Section;
+    label: string;
+    group?: string;
+    experimental?: boolean;
+  }[] = [
+    { id: "general", label: "General" },
     { id: "providers-ollama", label: "Ollama", group: "Providers" },
     { id: "providers-llamacpp", label: "llama.cpp", group: "Providers" },
     { id: "providers-anthropic", label: "Anthropic", group: "Providers" },
+    { id: "providers-deepseek", label: "DeepSeek", group: "Providers" },
     { id: "tools", label: "Tools" },
-    { id: "appearance-theme", label: "Theme", group: "Appearance" },
+    { id: "experimental-compaction", label: "Compaction", group: "Experimental", experimental: true },
+    { id: "experimental-autocomplete", label: "Autocomplete", group: "Experimental", experimental: true },
     { id: "appearance-editor", label: "Editor", group: "Appearance" },
-    { id: "appearance-icons", label: "Icons", group: "Appearance" },
     { id: "appearance-syntax", label: "Syntax", group: "Appearance" },
     { id: "appearance-explorer", label: "Explorer", group: "Appearance" },
     { id: "appearance-chat", label: "Chat activity", group: "Appearance" },
     { id: "keybindings", label: "Keybindings" },
   ];
+
+  const MODEL_PICKER_GRID_COLS = 3;
+
+  let activeChatModelLabel = $derived.by(() => {
+    const st = $settings;
+    if (st.chatBackend === "ollama") {
+      return st.ollamaModels.find((m) => m.id === st.selectedModel)?.name ?? st.selectedModel;
+    }
+    if (st.chatBackend === "llamacpp") {
+      return st.llamacppModels.find((m) => m.id === st.selectedModel)?.name ?? st.selectedModel;
+    }
+    if (st.chatBackend === "deepseek") {
+      return st.deepseekModels.find((m) => m.id === st.selectedModel)?.name ?? "DeepSeek";
+    }
+    if (st.chatBackend === "anthropic") {
+      return st.anthropicModels.find((m) => m.id === st.selectedModel)?.name ?? "Anthropic";
+    }
+    return st.selectedModel;
+  });
 
   let settingsModalWasOpen = $state(false);
 
@@ -226,12 +300,17 @@
     }
 
     anthropicKey = $settings.apiKeys.anthropic;
+    deepseekKey = $settings.apiKeys.deepseek;
     openaiKey = $settings.apiKeys.openai;
     ollamaEndpoint = $settings.ollamaEndpoint;
     llamacppEndpoint = $settings.llamacppEndpoint;
     llamacppApiKey = $settings.llamacppApiKey;
     selectedModel = $settings.selectedModel;
     ollamaModels = $settings.ollamaModels;
+    anthropicModels = $settings.anthropicModels;
+    deepseekModels = $settings.deepseekModels;
+    anthropicCatalogError = "";
+    deepseekCatalogError = "";
     toolPolicyDefaultRule = $toolPolicyStore.defaultRule;
     chatBackend = $settings.chatBackend;
     anthropicExtendedThinking = $settings.anthropicExtendedThinking;
@@ -246,8 +325,15 @@
     editorColors = { ...editorChrome.get() };
     editorWordWrap = $settings.editor.wordWrap;
     editorFormatOnSave = $settings.editor.formatOnSave;
+    editorUniformTabWidth = $settings.editor.uniformTabWidth;
+    editorUniformTabWidthPx = $settings.editor.uniformTabWidthPx;
     explorerColors = { ...explorerAppearance.get() };
     chatColors = { ...chatAppearance.get() };
+    autoCompact = $settings.agentCompaction.autoCompact;
+    compactThresholdPct = compactionThresholdPercent($settings.agentCompaction.compactThreshold);
+    compactKeepRecent = $settings.agentCompaction.compactKeepRecentTurns;
+    autocompleteEnabled = $settings.autocomplete.enabled;
+    autocompleteDebounceMs = $settings.autocomplete.debounceMs;
     llamacppModels = $settings.llamacppModels;
     ollamaServerTemplate = structuredClone($settings.ollamaServerTemplate);
     llamacppServerTemplate = structuredClone($settings.llamacppServerTemplate);
@@ -266,6 +352,34 @@
     maxAgentSteps = saved.maxAgentSteps;
     maxToolCallsPerRun = saved.maxToolCallsPerRun;
     maxToolsPerTurn = saved.maxToolsPerTurn;
+  }
+
+  function persistAgentCompaction() {
+    settings.setAgentCompaction({
+      autoCompact,
+      compactThreshold: compactionThresholdFromPercent(compactThresholdPct),
+      compactKeepRecentTurns: compactKeepRecent,
+    });
+    const saved = get(settings).agentCompaction;
+    autoCompact = saved.autoCompact;
+    compactThresholdPct = compactionThresholdPercent(saved.compactThreshold);
+    compactKeepRecent = saved.compactKeepRecentTurns;
+  }
+
+  function persistAutocompleteSettings() {
+    settings.setAutocompleteSettings({
+      enabled: autocompleteEnabled,
+      debounceMs: autocompleteDebounceMs,
+    });
+    const saved = get(settings).autocomplete;
+    autocompleteEnabled = saved.enabled;
+    autocompleteDebounceMs = saved.debounceMs;
+  }
+
+  function persistHeaderTabWidthPx() {
+    const px = normalizeUniformTabWidthPx(editorUniformTabWidthPx);
+    editorUniformTabWidthPx = px;
+    settings.setEditorSettings({ uniformTabWidthPx: px });
   }
 
   function setAsChatProvider(backend: ChatBackend) {
@@ -339,6 +453,71 @@
     if (health.dot === "green" || health.dot === "yellow") {
       await fetchOllamaModels();
     }
+  }
+
+  async function connectAnthropicCatalog(force = false) {
+    const key = anthropicKey.trim();
+    if (key.length < 20) {
+      anthropicCatalogError = "Add a valid API key first.";
+      return;
+    }
+    const st = get(settings);
+    if (st.anthropicCatalogFetched && !force) return;
+
+    loadingAnthropicCatalog = true;
+    anthropicCatalogError = "";
+    try {
+      const rows = await fetchAnthropicModelCatalog(key);
+      const merged = mergeCloudModelCatalog(st.anthropicModels, rows);
+      anthropicModels = merged;
+      settings.setAnthropicModels(merged);
+    } catch (e) {
+      anthropicCatalogError = e instanceof Error ? e.message : String(e);
+      anthropicModels = [];
+      settings.setAnthropicModels([]);
+    } finally {
+      loadingAnthropicCatalog = false;
+    }
+  }
+
+  async function connectDeepseekCatalog(force = false) {
+    const key = deepseekKey.trim();
+    if (key.length < 20) {
+      deepseekCatalogError = "Add a valid API key first.";
+      return;
+    }
+    const st = get(settings);
+    if (st.deepseekCatalogFetched && !force) return;
+
+    loadingDeepseekCatalog = true;
+    deepseekCatalogError = "";
+    try {
+      const rows = await fetchDeepseekModelCatalog(key);
+      const merged = mergeCloudModelCatalog(st.deepseekModels, rows);
+      deepseekModels = merged;
+      settings.setDeepseekModels(merged);
+    } catch (e) {
+      deepseekCatalogError = e instanceof Error ? e.message : String(e);
+      deepseekModels = [];
+      settings.setDeepseekModels([]);
+    } finally {
+      loadingDeepseekCatalog = false;
+    }
+  }
+
+  function toggleOllamaPicker(modelId: string, show: boolean) {
+    settings.setModelShowInPicker("ollama", modelId, show);
+    ollamaModels = get(settings).ollamaModels;
+  }
+
+  function toggleAnthropicPicker(modelId: string, show: boolean) {
+    settings.setModelShowInPicker("anthropic", modelId, show);
+    anthropicModels = get(settings).anthropicModels;
+  }
+
+  function toggleDeepseekPicker(modelId: string, show: boolean) {
+    settings.setModelShowInPicker("deepseek", modelId, show);
+    deepseekModels = get(settings).deepseekModels;
   }
 
   async function connectLlamacpp() {
@@ -522,6 +701,7 @@
 
   function handleSave() {
     settings.setApiKey("anthropic", anthropicKey);
+    settings.setApiKey("deepseek", deepseekKey);
     settings.setApiKey("openai", openaiKey);
     settings.setOllamaEndpoint(ollamaEndpoint);
     settings.setLlamacppEndpoint(llamacppEndpoint);
@@ -546,6 +726,8 @@
     settings.setEditorSettings({
       wordWrap: editorWordWrap,
       formatOnSave: editorFormatOnSave,
+      uniformTabWidth: editorUniformTabWidth,
+      uniformTabWidthPx: normalizeUniformTabWidthPx(editorUniformTabWidthPx),
     });
     explorerAppearance.persist(explorerColors);
     chatAppearance.persist(chatColors);
@@ -594,6 +776,41 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
+{#snippet modelPickerGrid(
+  models: ModelConfig[],
+  onToggle: (modelId: string, show: boolean) => void,
+  plain = false
+)}
+  <div class="model-picker-grid-wrap" class:model-picker-grid-wrap--plain={plain}>
+    <table class="model-picker-grid">
+      <tbody>
+        {#each chunkIntoRows(models, MODEL_PICKER_GRID_COLS) as row, rowIdx (rowIdx)}
+          <tr>
+            {#each row as model (model.id)}
+              <td class="model-picker-cell">
+                <label class="model-picker-cell-label">
+                  <input
+                    type="checkbox"
+                    class="checkbox"
+                    checked={model.showInPicker !== false}
+                    aria-label="Show {model.name} in chat model menu"
+                    onchange={(e) =>
+                      onToggle(model.id, (e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span class="model-picker-name" title={model.name}>{model.name}</span>
+                </label>
+              </td>
+            {/each}
+            {#each { length: MODEL_PICKER_GRID_COLS - row.length } as _, padIdx (padIdx)}
+              <td class="model-picker-cell model-picker-cell--empty" aria-hidden="true"></td>
+            {/each}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+{/snippet}
+
 {#snippet settingsShell()}
       <header class="modal-header">
         <h2 id="settings-title" class="title">Settings</h2>
@@ -611,10 +828,13 @@
               class="nav-item"
               class:nav-item--nested={!!s.group}
               class:active={activeSection === s.id}
-              onclick={() => (activeSection = s.id)}
+              onclick={() => selectSettingsSection(s.id)}
             >
-              {s.label}
-              {#if (s.id === "providers-ollama" && chatBackend === "ollama") || (s.id === "providers-llamacpp" && chatBackend === "llamacpp") || (s.id === "providers-anthropic" && chatBackend === "anthropic")}
+              <span class="nav-item-label">{s.label}</span>
+              {#if s.experimental}
+                <span class="nav-experimental-pill">Experimental</span>
+              {/if}
+              {#if (s.id === "providers-ollama" && chatBackend === "ollama") || (s.id === "providers-llamacpp" && chatBackend === "llamacpp") || (s.id === "providers-anthropic" && chatBackend === "anthropic") || (s.id === "providers-deepseek" && chatBackend === "deepseek")}
                 <span class="nav-active-dot" title="Active chat provider"></span>
               {/if}
             </button>
@@ -622,8 +842,245 @@
         </nav>
 
         <div class="modal-body">
-        {#if activeSection === "providers-ollama"}
+        {#if activeSection === "general"}
           <div class="stack">
+            <h3 class="provider-page-title">General</h3>
+            <p class="note">
+              Editor, chat, explorer, theme, and icon options. Changes preview live where noted.
+            </p>
+
+            <p class="group-label">Editor</p>
+            <label class="field checkbox-field">
+              <input
+                type="checkbox"
+                bind:checked={editorWordWrap}
+                onchange={() => settings.setEditorSettings({ wordWrap: editorWordWrap })}
+              />
+              <span class="name">Wrap lines</span>
+            </label>
+            <label class="field checkbox-field">
+              <input
+                type="checkbox"
+                bind:checked={editorFormatOnSave}
+                onchange={() => settings.setEditorSettings({ formatOnSave: editorFormatOnSave })}
+              />
+              <span class="name">Format on save (Prettier)</span>
+            </label>
+            <label class="field">
+              <span class="name">Header tab width</span>
+              <span class="syntax-color-hint">{TAB_UNIFORM_WIDTH_MIN}–{TAB_UNIFORM_WIDTH_MAX} px</span>
+              <input
+                type="number"
+                class="input tab-width-input"
+                min={TAB_UNIFORM_WIDTH_MIN}
+                max={TAB_UNIFORM_WIDTH_MAX}
+                step="4"
+                bind:value={editorUniformTabWidthPx}
+                onchange={persistHeaderTabWidthPx}
+              />
+            </label>
+            <label class="field checkbox-field">
+              <input
+                type="checkbox"
+                bind:checked={editorUniformTabWidth}
+                onchange={() =>
+                  settings.setEditorSettings({
+                    uniformTabWidth: editorUniformTabWidth,
+                    uniformTabWidthPx: normalizeUniformTabWidthPx(editorUniformTabWidthPx),
+                  })}
+              />
+              <span class="name">Uniform tab width in header</span>
+            </label>
+            <p class="note muted">
+              Default {DEFAULT_TAB_UNIFORM_WIDTH_PX} px. With uniform on, chat and workbench tabs use this
+              width; off, tabs size to their titles. Scroll the tab row with the mouse wheel.
+            </p>
+            <p class="note muted">
+              Manual format:
+              <kbd class="inline-code">Shift</kbd>+<kbd class="inline-code">Alt</kbd>+<kbd class="inline-code">F</kbd>
+              or the Prettier icon in the status bar.
+            </p>
+
+            <p class="group-label">Chat</p>
+            <label class="field">
+              <span class="name">While waiting for the model</span>
+              <span class="syntax-color-hint">Before tools or reasoning appear</span>
+              <select
+                class="input"
+                value={chatColors.waitingStyle}
+                onchange={(e) => {
+                  chatColors = {
+                    ...chatColors,
+                    waitingStyle: (e.currentTarget as HTMLSelectElement)
+                      .value as ChatWaitingStyle,
+                  };
+                  chatAppearance.apply(chatColors);
+                }}
+              >
+                {#each CHAT_WAITING_STYLE_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+            </label>
+
+            <p class="group-label">Explorer</p>
+            {#each EXPLORER_SIZE_FIELDS as field}
+              <label class="field">
+                <span class="name">{field.label}</span>
+                <span class="syntax-color-hint">{field.hint}</span>
+                <input
+                  type="number"
+                  class="input"
+                  min={field.min}
+                  max={field.max}
+                  value={explorerColors[field.key] as number}
+                  oninput={(e) => {
+                    const v = Number((e.currentTarget as HTMLInputElement).value);
+                    explorerColors = { ...explorerColors, [field.key]: v };
+                    explorerAppearance.apply(explorerColors);
+                  }}
+                />
+              </label>
+            {/each}
+
+            <p class="group-label">Theme</p>
+            <p class="note muted">
+              Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
+            </p>
+            <label class="field">
+              <span class="name">Color theme</span>
+              <select
+                class="input"
+                bind:value={workbenchTheme}
+                onchange={() => {
+                  applyWorkbenchTheme(workbenchTheme);
+                  editorColors = editorChrome.syncFromActiveTheme();
+                }}
+              >
+                {#each WORKBENCH_THEME_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+            </label>
+
+            <p class="group-label">Icons</p>
+            <p class="note muted">
+              File and folder icons in the explorer. Default pack:
+              <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
+                {VSCODE_ICONS_ATTRIBUTION.name}
+              </a>
+              ({VSCODE_ICONS_ATTRIBUTION.license}).
+            </p>
+            <label class="field">
+              <span class="name">Icon theme</span>
+              <select
+                class="input"
+                bind:value={iconThemeId}
+                onchange={() => {
+                  iconTheme.setThemeId(iconThemeId);
+                  void iconTheme.reloadManifest();
+                }}
+              >
+                <option value="seti">Seti (Cursor default)</option>
+                <option value="vscode-icons">VS Code Icons (SVG)</option>
+                <option value="codicons">Built-in codicons (simple)</option>
+                <option value="custom">Custom folder…</option>
+              </select>
+            </label>
+            {#if iconThemeId === "custom"}
+              <label class="field">
+                <span class="name">Custom pack folder</span>
+                <div class="icon-pack-path-row">
+                  <input class="input" readonly value={iconPackCustomPath} placeholder="Select folder with manifest.json + icons/" />
+                  {#if isTauriAvailable()}
+                    <button
+                      type="button"
+                      class="btn secondary"
+                      onclick={async () => {
+                        const picked = await pickIconPackFolder();
+                        if (picked) {
+                          iconPackCustomPath = picked;
+                          iconTheme.setCustomPackPath(picked);
+                          await iconTheme.reloadManifest();
+                          iconTheme.bumpRevision();
+                        }
+                      }}
+                    >
+                      Browse…
+                    </button>
+                  {/if}
+                </div>
+              </label>
+            {/if}
+            <div class="icon-pack-actions">
+              <button
+                type="button"
+                class="btn secondary"
+                disabled={iconRefreshing}
+                onclick={async () => {
+                  iconRefreshing = true;
+                  iconRefreshStatus = "";
+                  const result = await iconTheme.refreshBundledPack();
+                  iconRefreshing = false;
+                  iconRefreshStatus = result.ok
+                    ? `Refreshed pack (${result.path})`
+                    : `Refresh failed: ${result.error}`;
+                  void iconTheme.reloadManifest();
+                  iconTheme.bumpRevision();
+                }}
+              >
+                {iconRefreshing ? "Refreshing…" : "Refresh default icon pack"}
+              </button>
+              <button
+                type="button"
+                class="btn ghost"
+                onclick={async () => {
+                  iconTheme.invalidateManifest();
+                  await iconTheme.reloadManifest();
+                  iconTheme.bumpRevision();
+                }}
+              >
+                Reload icons
+              </button>
+            </div>
+            {#if iconRefreshStatus}
+              <p class="note muted">{iconRefreshStatus}</p>
+            {/if}
+            <details class="attribution-details">
+              <summary>Icon pack attribution</summary>
+              <p class="note muted">
+                {VSCODE_ICONS_ATTRIBUTION.copyright}. See
+                <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
+                  {VSCODE_ICONS_ATTRIBUTION.repository}
+                </a>.
+              </p>
+            </details>
+          </div>
+
+        {:else if activeSection === "providers-ollama"}
+          <div class="stack ollama-settings provider-page-shell">
+            {#if providerSubview === "ollama-server"}
+              <div class="provider-advanced-page">
+              <button
+                type="button"
+                class="provider-drillback"
+                onclick={() => closeProviderSubview()}
+              >
+                <span class="provider-drillback-arrow" aria-hidden="true">←</span>
+                Ollama
+              </button>
+              <h3 class="provider-page-title">Server config (terminal)</h3>
+              <ProviderServerGuide
+                kind="ollama"
+                compact
+                bind:ollamaTemplate={ollamaServerTemplate}
+                {ollamaEndpoint}
+                {selectedModel}
+                ollamaContext={ollamaContextChoice}
+              />
+              </div>
+            {:else}
+            <div class="provider-page-body">
             <div class="provider-page-head">
               <h3 class="provider-page-title">Ollama</h3>
               {#if chatBackend === "ollama"}
@@ -640,183 +1097,207 @@
               <code class="inline-code">ollama serve</code> (default port 11434).
             </p>
 
-            <div class="provider-card">
+            <div class="ollama-connection">
               <div class="provider-head">
-                <span class="provider-title">
-                  <span
-                    class="status-dot"
-                    class:green={!ollamaStatus.checking && ollamaStatus.dot === "green"}
-                    class:red={!ollamaStatus.checking && ollamaStatus.dot === "red"}
-                    class:yellow={!ollamaStatus.checking && ollamaStatus.dot === "yellow"}
-                    class:idle={ollamaStatus.checking || ollamaStatus.dot === "idle"}
-                    title={ollamaStatus.detail}
-                  ></span>
-                  Ollama
-                </span>
+                <span
+                  class="status-dot"
+                  class:green={!ollamaStatus.checking && ollamaStatus.dot === "green"}
+                  class:red={!ollamaStatus.checking && ollamaStatus.dot === "red"}
+                  class:yellow={!ollamaStatus.checking && ollamaStatus.dot === "yellow"}
+                  class:idle={ollamaStatus.checking || ollamaStatus.dot === "idle"}
+                  title={ollamaStatus.detail}
+                ></span>
                 <span class="provider-detail">
                   {ollamaStatus.checking ? "Checking…" : ollamaStatus.detail}
                 </span>
               </div>
-              <div class="row provider-toolbar">
+              <div class="row ollama-endpoint-row">
                 <input
                   type="text"
                   bind:value={ollamaEndpoint}
                   placeholder="http://127.0.0.1:11434"
-                  class="input grow"
+                  class="input grow ollama-endpoint-input"
                 />
-                {#if ollamaStatus.checking}
-                  <button type="button" class="btn secondary" disabled>…</button>
-                {:else if ollamaStatus.dot === "red"}
-                  <button type="button" class="btn secondary" onclick={() => connectOllama()}>
-                    Connect
-                  </button>
-                  {#if canRunShell}
-                    <button type="button" class="btn ghost" onclick={() => startOllamaServer()}>
-                      Start
+                <div class="ollama-connection-actions">
+                  {#if ollamaStatus.dot === "red"}
+                    <button
+                      type="button"
+                      class="btn secondary ollama-action-btn"
+                      onclick={() => connectOllama()}
+                      disabled={ollamaStatus.checking}
+                    >
+                      {ollamaStatus.checking ? "…" : "Connect"}
                     </button>
-                  {/if}
-                {:else}
-                  <button
-                    type="button"
-                    class="btn secondary"
-                    onclick={() => connectOllama()}
-                    disabled={loadingOllama}
-                  >
-                    {loadingOllama ? "…" : "Refresh"}
-                  </button>
-                  {#if canRunShell}
-                    <button type="button" class="btn ghost" onclick={() => stopOllamaServer()}>
-                      Stop
-                    </button>
-                  {/if}
-                {/if}
-              </div>
-
-              <p class="group-label">Installed Models</p>
-              {#if ollamaModels.length > 0}
-                <div class="model-list">
-                  {#each ollamaModels as model}
-                    <div class="model-list-item">
-                      <span class="model-list-name">{model.name}</span>
+                    {#if canRunShell}
                       <button
                         type="button"
-                        class="model-list-delete"
-                        onclick={() => deleteOllamaModel(model.id)}
-                        title="Delete model"
+                        class="btn ghost ollama-action-btn"
+                        onclick={() => startOllamaServer()}
+                        disabled={ollamaStatus.checking}
                       >
-                        ×
+                        Start
                       </button>
-                    </div>
-                  {/each}
-                </div>
-              {:else}
-                <p class="note muted">No models installed yet.</p>
-              {/if}
-
-              <div class="model-library-toggle">
-                <button
-                  type="button"
-                  class="btn secondary"
-                  onclick={() => (showModelLibrary = !showModelLibrary)}
-                >
-                  {showModelLibrary ? "Hide Model Library" : "Browse Model Library"}
-                </button>
-              </div>
-
-              {#if showModelLibrary}
-                <div class="model-library">
-                  <input
-                    type="text"
-                    bind:value={modelSearchQuery}
-                    placeholder="Search models (e.g., llama, code, phi)..."
-                    class="input"
-                  />
-
-                  {#if pullingModel}
-                    <div class="pull-progress">
-                      <span class="pull-model">{pullingModel}</span>
-                      <span class="pull-status">{pullProgress}</span>
-                    </div>
+                    {/if}
+                  {:else}
+                    <button
+                      type="button"
+                      class="btn secondary ollama-action-btn"
+                      onclick={() => connectOllama()}
+                      disabled={loadingOllama || ollamaStatus.checking}
+                    >
+                      {loadingOllama || ollamaStatus.checking ? "…" : "Refresh"}
+                    </button>
+                    {#if canRunShell}
+                      <button
+                        type="button"
+                        class="btn ghost ollama-action-btn"
+                        onclick={() => stopOllamaServer()}
+                        disabled={loadingOllama || ollamaStatus.checking}
+                      >
+                        Stop
+                      </button>
+                    {/if}
                   {/if}
-
-                  <div class="model-library-grid">
-                    {#each modelSearchResults as model}
-                      <div class="library-model-card">
-                        <div class="library-model-header">
-                          <span class="library-model-name">{model.name}</span>
-                          {#if model.size}
-                            <span class="library-model-size">{model.size}</span>
-                          {/if}
-                        </div>
-                        <p class="library-model-desc">{model.description}</p>
-                        <div class="library-model-tags">
-                          {#each model.tags.slice(0, 5) as tag}
-                            {@const fullName = formatModelWithTag(model.name, tag)}
-                            {@const isInstalled = ollamaModels.some((m) => m.id === fullName)}
-                            <button
-                              type="button"
-                              class="library-tag-btn"
-                              class:installed={isInstalled}
-                              disabled={pullingModel !== null}
-                              onclick={() => {
-                                if (!isInstalled) pullOllamaModel(fullName);
-                              }}
-                              title={isInstalled ? "Already installed" : `Download ${fullName}`}
-                            >
-                              {tag}
-                              {#if isInstalled}
-                                ✓
-                              {/if}
-                            </button>
-                          {/each}
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
                 </div>
+              </div>
+            </div>
+
+            <p class="group-label">Default for new chats</p>
+            <div class="chat-model-context-row">
+              <label class="chat-model-context-field">
+                <span class="name">Chat model</span>
+                {#if modelsVisibleInPicker(ollamaModels).length > 0}
+                  <select bind:value={selectedModel} class="input input-compact chat-model-select">
+                    {#each modelsVisibleInPicker(ollamaModels) as model}
+                      <option value={model.id}>{model.name}</option>
+                    {/each}
+                  </select>
+                {:else}
+                  <p class="note muted chat-model-empty">
+                    No local models yet. Run <code class="inline-code">ollama pull llama3.2:1b</code>
+                    then <strong>Refresh</strong>.
+                  </p>
+                {/if}
+              </label>
+
+              {#if ollamaModels.length > 0}
+                {@const ctxMax = maxCtxForSelectedOllama(selectedModel)}
+                {@const ctxOpts = contextOptionsUpTo(ctxMax)}
+                <label class="chat-model-context-field">
+                  <span class="name" title="API num_ctx on next message · max {fmtCtx(ctxMax)}">Context</span>
+                  <select class="input input-compact context-select" bind:value={ollamaContextChoice}>
+                    {#each ctxOpts as n}
+                      <option value={n}>{fmtCtx(n)}</option>
+                    {/each}
+                  </select>
+                </label>
               {/if}
             </div>
 
-            <label class="field">
-              <span class="name">Chat model</span>
-              {#if ollamaModels.length > 0}
-                <select bind:value={selectedModel} class="input">
-                  {#each ollamaModels as model}
-                    <option value={model.id}>{model.name}</option>
-                  {/each}
-                </select>
-              {:else}
-                <p class="note muted">
-                  No local models yet. Run <code class="inline-code">ollama pull llama3.2:1b</code>
-                  then <strong>Refresh</strong>.
-                </p>
-              {/if}
-            </label>
-
+            <p class="group-label">Installed models</p>
+            <p class="note muted">Choose which models appear in the chat model menu.</p>
             {#if ollamaModels.length > 0}
-              {@const ctxMax = maxCtxForSelectedOllama(selectedModel)}
-              {@const ctxOpts = contextOptionsUpTo(ctxMax)}
-              <label class="field">
-                <span class="name">Context window (API — next chat message)</span>
-                <select class="input" bind:value={ollamaContextChoice}>
-                  {#each ctxOpts as n}
-                    <option value={n}>{fmtCtx(n)} tokens (max {fmtCtx(ctxMax)})</option>
-                  {/each}
-                </select>
-              </label>
+              {@render modelPickerGrid(ollamaModels, toggleOllamaPicker, true)}
+            {:else}
+              <p class="note muted">No models installed yet.</p>
             {/if}
 
-            <ProviderServerGuide
-              kind="ollama"
-              bind:ollamaTemplate={ollamaServerTemplate}
-              {ollamaEndpoint}
-              {selectedModel}
-              ollamaContext={ollamaContextChoice}
-            />
+            <button
+              type="button"
+              class="btn secondary model-library-toggle"
+              onclick={() => (showModelLibrary = !showModelLibrary)}
+            >
+              {showModelLibrary ? "Hide Model Library" : "Browse Model Library"}
+            </button>
+
+            {#if showModelLibrary}
+              <div class="model-library-panel">
+                <input
+                  type="text"
+                  bind:value={modelSearchQuery}
+                  placeholder="Search models (e.g., llama, code, phi)..."
+                  class="input"
+                />
+
+                {#if pullingModel}
+                  <div class="pull-progress">
+                    <span class="pull-model">{pullingModel}</span>
+                    <span class="pull-status">{pullProgress}</span>
+                  </div>
+                {/if}
+
+                <div class="model-library-grid">
+                  {#each modelSearchResults as model}
+                    <div class="library-model-card">
+                      <div class="library-model-header">
+                        <span class="library-model-name">{model.name}</span>
+                        {#if model.size}
+                          <span class="library-model-size">{model.size}</span>
+                        {/if}
+                      </div>
+                      <p class="library-model-desc">{model.description}</p>
+                      <div class="library-model-tags">
+                        {#each model.tags.slice(0, 5) as tag}
+                          {@const fullName = formatModelWithTag(model.name, tag)}
+                          {@const isInstalled = ollamaModels.some((m) => m.id === fullName)}
+                          <button
+                            type="button"
+                            class="library-tag-btn"
+                            class:installed={isInstalled}
+                            disabled={pullingModel !== null}
+                            onclick={() => {
+                              if (!isInstalled) pullOllamaModel(fullName);
+                            }}
+                            title={isInstalled ? "Already installed" : `Download ${fullName}`}
+                          >
+                            {tag}
+                            {#if isInstalled}
+                              ✓
+                            {/if}
+                          </button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            </div>
+
+            <footer class="provider-page-footer">
+              <button
+                type="button"
+                class="btn secondary"
+                onclick={() => openProviderSubview("ollama-server")}
+              >
+                Advanced settings…
+              </button>
+            </footer>
+            {/if}
           </div>
 
         {:else if activeSection === "providers-llamacpp"}
-          <div class="stack">
+          <div class="stack provider-page-shell">
+            {#if providerSubview === "llamacpp-server"}
+              <div class="provider-advanced-page">
+              <button
+                type="button"
+                class="provider-drillback"
+                onclick={() => closeProviderSubview()}
+              >
+                <span class="provider-drillback-arrow" aria-hidden="true">←</span>
+                llama.cpp
+              </button>
+              <h3 class="provider-page-title">Server config (terminal)</h3>
+              <ProviderServerGuide
+                kind="llamacpp"
+                compact
+                bind:llamacppTemplate={llamacppServerTemplate}
+                llamacppContext={llamacppContextChoice}
+              />
+              </div>
+            {:else}
+            <div class="provider-page-body">
             <div class="provider-page-head">
               <h3 class="provider-page-title">llama.cpp</h3>
               {#if chatBackend === "llamacpp"}
@@ -1041,12 +1522,18 @@
                 {/if}
               </span>
             </label>
+            </div>
 
-            <ProviderServerGuide
-              kind="llamacpp"
-              bind:llamacppTemplate={llamacppServerTemplate}
-              llamacppContext={llamacppContextChoice}
-            />
+            <footer class="provider-page-footer">
+              <button
+                type="button"
+                class="btn secondary"
+                onclick={() => openProviderSubview("llamacpp-server")}
+              >
+                Advanced settings…
+              </button>
+            </footer>
+            {/if}
           </div>
 
         {:else if activeSection === "providers-anthropic"}
@@ -1078,14 +1565,40 @@
               />
             </label>
 
-            <label class="field">
-              <span class="name">Chat model</span>
-              <select bind:value={selectedModel} class="input">
-                {#each AVAILABLE_MODELS.filter((m) => m.provider === "anthropic") as model}
-                  <option value={model.id}>{model.name}</option>
-                {/each}
-              </select>
-            </label>
+            <div class="provider-connect-row">
+              <button
+                type="button"
+                class="btn secondary"
+                disabled={loadingAnthropicCatalog || anthropicKey.trim().length < 20}
+                onclick={() => connectAnthropicCatalog(true)}
+              >
+                {loadingAnthropicCatalog
+                  ? "…"
+                  : $settings.anthropicCatalogFetched
+                    ? "Refresh models"
+                    : "Connect"}
+              </button>
+            </div>
+            {#if anthropicCatalogError}
+              <p class="note catalog-error">{anthropicCatalogError}</p>
+            {/if}
+
+            {#if anthropicModels.length > 0}
+              <p class="group-label">Models in chat picker</p>
+              <p class="note muted">Fetched from your API key. Toggle which appear in the chat menu.</p>
+              {@render modelPickerGrid(anthropicModels, toggleAnthropicPicker)}
+
+              <label class="field">
+                <span class="name">Chat model</span>
+                <select bind:value={selectedModel} class="input">
+                  {#each modelsVisibleInPicker(anthropicModels) as model}
+                    <option value={model.id}>{model.name}</option>
+                  {/each}
+                </select>
+              </label>
+            {:else if !loadingAnthropicCatalog}
+              <p class="note muted">Connect to load models available to your API key.</p>
+            {/if}
 
             <label class="field field-row">
               <input type="checkbox" bind:checked={anthropicExtendedThinking} class="checkbox" />
@@ -1096,6 +1609,71 @@
             </label>
           </div>
 
+        {:else if activeSection === "providers-deepseek"}
+          <div class="stack">
+            <div class="provider-page-head">
+              <h3 class="provider-page-title">DeepSeek</h3>
+              {#if chatBackend === "deepseek"}
+                <span class="active-provider-pill">Active chat provider</span>
+              {:else}
+                <button type="button" class="btn secondary" onclick={() => setAsChatProvider("deepseek")}>
+                  Use for chat
+                </button>
+              {/if}
+            </div>
+            <p class="note">
+              Cloud DeepSeek models via the OpenAI-compatible API. Requires an API key from
+              <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">platform.deepseek.com</a>.
+            </p>
+
+            <label class="field">
+              <span class="name">API Key</span>
+              <span class="hint">Required for DeepSeek Chat and Reasoner</span>
+              <input
+                type="password"
+                bind:value={deepseekKey}
+                placeholder="sk-…"
+                class="input"
+                autocomplete="off"
+              />
+            </label>
+
+            <div class="provider-connect-row">
+              <button
+                type="button"
+                class="btn secondary"
+                disabled={loadingDeepseekCatalog || deepseekKey.trim().length < 20}
+                onclick={() => connectDeepseekCatalog(true)}
+              >
+                {loadingDeepseekCatalog
+                  ? "…"
+                  : $settings.deepseekCatalogFetched
+                    ? "Refresh models"
+                    : "Connect"}
+              </button>
+            </div>
+            {#if deepseekCatalogError}
+              <p class="note catalog-error">{deepseekCatalogError}</p>
+            {/if}
+
+            {#if deepseekModels.length > 0}
+              <p class="group-label">Models in chat picker</p>
+              <p class="note muted">Fetched from your API key. Toggle which appear in the chat menu.</p>
+              {@render modelPickerGrid(deepseekModels, toggleDeepseekPicker)}
+
+              <label class="field">
+                <span class="name">Chat model</span>
+                <select bind:value={selectedModel} class="input">
+                  {#each modelsVisibleInPicker(deepseekModels) as model}
+                    <option value={model.id}>{model.name}</option>
+                  {/each}
+                </select>
+              </label>
+            {:else if !loadingDeepseekCatalog}
+              <p class="note muted">Connect to load models available to your API key.</p>
+            {/if}
+          </div>
+
         {:else if activeSection === "tools"}
           <div class="stack">
             <p class="group-label">Agent limits</p>
@@ -1103,7 +1681,10 @@
               Optional caps for Plan and Agent modes on a single user message.
               <strong>0 = unlimited</strong> (default). The agent loop otherwise stops when the
               model finishes or the <strong>context budget</strong> for the active model is full
-              (see context meter in chat). Conversation compaction is not implemented yet.
+              (see context meter in chat). Compaction options are under
+              <button type="button" class="linkish" onclick={() => (activeSection = "experimental-compaction")}>
+                Experimental → Compaction
+              </button>.
             </p>
             <label class="field">
               <span class="name">Max agent steps</span>
@@ -1265,28 +1846,112 @@
             </div>
           </div>
 
-        {:else if activeSection === "appearance-theme"}
+        {:else if activeSection === "experimental-compaction"}
           <div class="stack">
-            <h3 class="provider-page-title">Theme</h3>
+            <div class="provider-page-head">
+              <h3 class="provider-page-title">Compaction</h3>
+              <span class="experimental-pill">Experimental</span>
+            </div>
             <p class="note">
-              Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
-              <strong>VS Code Dark</strong> is the classic look (#1e1e1e, blue accents).
-              <strong>Cursor Dark</strong> matches the Linux Cursor IDE (darker #181818, cyan accents).
+              Summarize-and-rehydrate long chat sessions when context fills up (spec 21). Settings
+              are saved now; automatic compaction and the chat <strong>Compact</strong> button are not
+              wired yet.
             </p>
+
+            <label class="field checkbox-field">
+              <input
+                type="checkbox"
+                bind:checked={autoCompact}
+                onchange={persistAgentCompaction}
+              />
+              <span class="name">Enable automatic compaction</span>
+            </label>
+            <p class="note muted">When off, only manual compacting will apply once implemented.</p>
+
             <label class="field">
-              <span class="name">Color theme</span>
-              <select
+              <span class="name">Auto-compact when context reaches</span>
+              <div class="threshold-row">
+                <input
+                  type="number"
+                  class="input threshold-input"
+                  min={compactionThresholdPercent(AGENT_COMPACTION_BOUNDS.compactThreshold.min)}
+                  max={compactionThresholdPercent(AGENT_COMPACTION_BOUNDS.compactThreshold.max)}
+                  bind:value={compactThresholdPct}
+                  onchange={persistAgentCompaction}
+                />
+                <span class="threshold-suffix">% of model window</span>
+              </div>
+              <span class="hint">Range 50–95. Default 85 leaves headroom for the summary call.</span>
+            </label>
+
+            <label class="field">
+              <span class="name">Keep last messages after compacting</span>
+              <input
+                type="number"
                 class="input"
-                bind:value={workbenchTheme}
-                onchange={() => {
-                  applyWorkbenchTheme(workbenchTheme);
-                  editorColors = editorChrome.syncFromActiveTheme();
-                }}
-              >
-                {#each WORKBENCH_THEME_OPTIONS as opt}
-                  <option value={opt.id}>{opt.label}</option>
-                {/each}
+                min={AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.min}
+                max={AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.max}
+                bind:value={compactKeepRecent}
+                onchange={persistAgentCompaction}
+              />
+              <span class="hint">
+                Raw messages preserved after the summary (default 6, max {AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.max}).
+              </span>
+            </label>
+
+            <p class="group-label">Model for compaction</p>
+            <label class="field">
+              <span class="name">Compaction model</span>
+              <select class="input" disabled title="Not wired yet — uses active chat model">
+                <option value="">{activeChatModelLabel} (active chat model)</option>
               </select>
+              <span class="hint">Per-role model overrides will apply in a future release.</span>
+            </label>
+          </div>
+
+        {:else if activeSection === "experimental-autocomplete"}
+          <div class="stack">
+            <div class="provider-page-head">
+              <h3 class="provider-page-title">Autocomplete</h3>
+              <span class="experimental-pill">Experimental</span>
+            </div>
+            <p class="note">
+              Inline code completions while you type. Not implemented yet — options are saved for when
+              the feature lands.
+            </p>
+
+            <label class="field checkbox-field">
+              <input
+                type="checkbox"
+                bind:checked={autocompleteEnabled}
+                disabled
+                onchange={persistAutocompleteSettings}
+              />
+              <span class="name">Enable inline autocomplete</span>
+            </label>
+            <p class="note muted">Coming soon — checkbox is disabled until the feature exists.</p>
+
+            <label class="field">
+              <span class="name">Debounce before requesting</span>
+              <input
+                type="number"
+                class="input"
+                min={AUTOCOMPLETE_BOUNDS.debounceMs.min}
+                max={AUTOCOMPLETE_BOUNDS.debounceMs.max}
+                bind:value={autocompleteDebounceMs}
+                disabled
+                onchange={persistAutocompleteSettings}
+              />
+              <span class="hint">Milliseconds to wait after you stop typing (100–2000).</span>
+            </label>
+
+            <p class="group-label">Model for autocomplete</p>
+            <label class="field">
+              <span class="name">Autocomplete model</span>
+              <select class="input" disabled title="Not wired yet — uses active chat model">
+                <option value="">{activeChatModelLabel} (active chat model)</option>
+              </select>
+              <span class="hint">A fast local model may be recommended when this ships.</span>
             </label>
           </div>
 
@@ -1294,32 +1959,21 @@
           <div class="stack">
             <h3 class="provider-page-title">Editor</h3>
             <p class="note">
-              Code editor behavior and chrome colors. Changing the workbench theme updates editor
-              color pickers below to match that theme (save to keep). Syntax token colors are under
+              Editor chrome colors. Theme, icons, wrap, tab width, and Prettier are under
+              <button type="button" class="linkish" onclick={() => selectSettingsSection("general")}>
+                General
+              </button>.
+              Syntax token colors are under
               <button type="button" class="linkish" onclick={() => (activeSection = "appearance-syntax")}>
                 Syntax
               </button>.
+              Changing the workbench theme in General updates color pickers below (save to keep).
             </p>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={editorWordWrap}
-                onchange={() => settings.setEditorSettings({ wordWrap: editorWordWrap })}
-              />
-              <span class="name">Wrap lines</span>
-            </label>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={editorFormatOnSave}
-                onchange={() =>
-                  settings.setEditorSettings({ formatOnSave: editorFormatOnSave })}
-              />
-              <span class="name">Format on save (Prettier)</span>
-            </label>
             <p class="note muted">
-              Manual format: <kbd class="inline-code">Shift</kbd>+<kbd class="inline-code">Alt</kbd>+<kbd class="inline-code">F</kbd>
-              or the Prettier icon in the status bar.
+              Wrap, tab width, Prettier, and related options are under
+              <button type="button" class="linkish" onclick={() => selectSettingsSection("general")}>
+                General
+              </button>.
             </p>
             <h4 class="settings-subheading">Editor colors</h4>
             {#each EDITOR_CHROME_FIELDS as field}
@@ -1387,151 +2041,43 @@
             </button>
           </div>
 
-        {:else if activeSection === "appearance-icons"}
-          <div class="stack">
-            <h3 class="provider-page-title">Icons</h3>
-            <p class="note">
-              File and folder icons in the explorer. Default pack:
-              <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-                {VSCODE_ICONS_ATTRIBUTION.name}
-              </a>
-              ({VSCODE_ICONS_ATTRIBUTION.license}).
-            </p>
-            <label class="field">
-              <span class="name">Icon theme</span>
-              <select
-                class="input"
-                bind:value={iconThemeId}
-                onchange={() => {
-                  iconTheme.setThemeId(iconThemeId);
-                  void iconTheme.reloadManifest();
-                }}
-              >
-                <option value="seti">Seti (Cursor default)</option>
-                <option value="vscode-icons">VS Code Icons (SVG)</option>
-                <option value="codicons">Built-in codicons (simple)</option>
-                <option value="custom">Custom folder…</option>
-              </select>
-            </label>
-            {#if iconThemeId === "custom"}
-              <label class="field">
-                <span class="name">Custom pack folder</span>
-                <div class="icon-pack-path-row">
-                  <input class="input" readonly value={iconPackCustomPath} placeholder="Select folder with manifest.json + icons/" />
-                  {#if isTauriAvailable()}
-                    <button
-                      type="button"
-                      class="btn secondary"
-                      onclick={async () => {
-                        const picked = await pickIconPackFolder();
-                        if (picked) {
-                          iconPackCustomPath = picked;
-                          iconTheme.setCustomPackPath(picked);
-                          await iconTheme.reloadManifest();
-                          iconTheme.bumpRevision();
-                        }
-                      }}
-                    >
-                      Browse…
-                    </button>
-                  {/if}
-                </div>
-              </label>
-            {/if}
-            <div class="icon-pack-actions">
-              <button
-                type="button"
-                class="btn secondary"
-                disabled={iconRefreshing}
-                onclick={async () => {
-                  iconRefreshing = true;
-                  iconRefreshStatus = "";
-                  const result = await iconTheme.refreshBundledPack();
-                  iconRefreshing = false;
-                  iconRefreshStatus = result.ok
-                    ? `Refreshed pack (${result.path})`
-                    : `Refresh failed: ${result.error}`;
-                  void iconTheme.reloadManifest();
-                  iconTheme.bumpRevision();
-                }}
-              >
-                {iconRefreshing ? "Refreshing…" : "Refresh default icon pack"}
-              </button>
-              <button
-                type="button"
-                class="btn ghost"
-                onclick={async () => {
-                  iconTheme.invalidateManifest();
-                  await iconTheme.reloadManifest();
-                  iconTheme.bumpRevision();
-                }}
-              >
-                Reload icons
-              </button>
-            </div>
-            {#if iconRefreshStatus}
-              <p class="note muted">{iconRefreshStatus}</p>
-            {/if}
-            <details class="attribution-details">
-              <summary>Icon pack attribution</summary>
-              <p class="note muted">
-                {VSCODE_ICONS_ATTRIBUTION.copyright}. See
-                <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-                  {VSCODE_ICONS_ATTRIBUTION.repository}
-                </a>.
-              </p>
-            </details>
-          </div>
-
         {:else if activeSection === "appearance-explorer"}
           <div class="stack">
             <h3 class="provider-page-title">Explorer</h3>
             <p class="note">
-              File tree selection, label and icon sizes, and git status colors. Changes preview live;
-              click Save to keep them.
+              File tree selection and git status colors. Label and icon sizes are under
+              <button type="button" class="linkish" onclick={() => (activeSection = "general")}>
+                General
+              </button>.
+              Changes preview live; click Save to keep them.
             </p>
-            {#each EXPLORER_APPEARANCE_FIELDS as field}
+            {#each EXPLORER_COLOR_FIELDS as field}
               <label class="field syntax-color-field">
                 <span class="name">{field.label}</span>
                 <span class="syntax-color-hint">{field.hint}</span>
-                {#if field.kind === "color"}
-                  <div class="syntax-color-row">
-                    <input
-                      type="color"
-                      class="syntax-color-swatch"
-                      value={explorerColors[field.key] as string}
-                      oninput={(e) => {
-                        const v = (e.currentTarget as HTMLInputElement).value;
-                        explorerColors = { ...explorerColors, [field.key]: v };
-                        explorerAppearance.apply(explorerColors);
-                      }}
-                    />
-                    <input
-                      type="text"
-                      class="input syntax-color-hex"
-                      value={explorerColors[field.key] as string}
-                      spellcheck={false}
-                      oninput={(e) => {
-                        const v = (e.currentTarget as HTMLInputElement).value;
-                        explorerColors = { ...explorerColors, [field.key]: v };
-                        explorerAppearance.apply(explorerColors);
-                      }}
-                    />
-                  </div>
-                {:else}
+                <div class="syntax-color-row">
                   <input
-                    type="number"
-                    class="input"
-                    min={field.min}
-                    max={field.max}
-                    value={explorerColors[field.key] as number}
+                    type="color"
+                    class="syntax-color-swatch"
+                    value={explorerColors[field.key] as string}
                     oninput={(e) => {
-                      const v = Number((e.currentTarget as HTMLInputElement).value);
+                      const v = (e.currentTarget as HTMLInputElement).value;
                       explorerColors = { ...explorerColors, [field.key]: v };
                       explorerAppearance.apply(explorerColors);
                     }}
                   />
-                {/if}
+                  <input
+                    type="text"
+                    class="input syntax-color-hex"
+                    value={explorerColors[field.key] as string}
+                    spellcheck={false}
+                    oninput={(e) => {
+                      const v = (e.currentTarget as HTMLInputElement).value;
+                      explorerColors = { ...explorerColors, [field.key]: v };
+                      explorerAppearance.apply(explorerColors);
+                    }}
+                  />
+                </div>
               </label>
             {/each}
             <button
@@ -1549,29 +2095,12 @@
           <div class="stack">
             <h3 class="provider-page-title">Chat activity</h3>
             <p class="note">
-              Agent feed in the chat pane — waiting indicator style and colors for thoughts,
-              tools, and badges. Changes preview live; click Save to keep them.
+              Agent feed colors for thoughts, tools, and badges. The waiting indicator style is under
+              <button type="button" class="linkish" onclick={() => (activeSection = "general")}>
+                General
+              </button>.
+              Changes preview live; click Save to keep them.
             </p>
-            <label class="field">
-              <span class="name">While waiting for the model</span>
-              <span class="syntax-color-hint">Before tools or reasoning appear</span>
-              <select
-                class="input"
-                value={chatColors.waitingStyle}
-                onchange={(e) => {
-                  chatColors = {
-                    ...chatColors,
-                    waitingStyle: (e.currentTarget as HTMLSelectElement)
-                      .value as ChatWaitingStyle,
-                  };
-                  chatAppearance.apply(chatColors);
-                }}
-              >
-                {#each CHAT_WAITING_STYLE_OPTIONS as opt}
-                  <option value={opt.id}>{opt.label}</option>
-                {/each}
-              </select>
-            </label>
             {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
               <label class="field syntax-color-field">
                 <span class="name">{field.label}</span>
@@ -1971,6 +2500,56 @@
     gap: 6px;
   }
 
+  .nav-item-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-experimental-pill {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #c9a227;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(201, 162, 39, 0.12);
+  }
+
+  .experimental-pill {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #c9a227;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(201, 162, 39, 0.12);
+  }
+
+  .threshold-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .threshold-input {
+    width: 4.5rem;
+  }
+
+  .tab-width-input {
+    width: 4.5rem;
+  }
+
+  .threshold-suffix {
+    font-size: 12px;
+    color: #a3a3a3;
+  }
+
   .nav-active-dot {
     width: 6px;
     height: 6px;
@@ -1993,6 +2572,64 @@
     font-size: 16px;
     font-weight: 600;
     color: #e8e8e8;
+  }
+
+  .provider-page-shell {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .provider-page-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .provider-page-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid #333;
+    flex-shrink: 0;
+  }
+
+  .provider-drillback {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    color: #a8d4ff;
+    cursor: pointer;
+  }
+
+  .provider-drillback:hover {
+    color: #cce4ff;
+    text-decoration: underline;
+  }
+
+  .provider-drillback-arrow {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .provider-advanced-page {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .provider-advanced-page .provider-page-title {
+    margin-top: -4px;
   }
 
   .active-provider-pill {
@@ -2032,6 +2669,52 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .chat-model-context-row {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 10px 16px;
+    align-items: start;
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .chat-model-context-field {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .chat-model-context-field .name {
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .chat-model-context-row .input-compact {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+
+  .chat-model-context-row .chat-model-select {
+    width: 180px;
+  }
+
+  .chat-model-context-row .context-select {
+    width: 72px;
+  }
+
+  .chat-model-context-row .chat-model-empty {
+    margin: 0;
+    max-width: 280px;
   }
 
   .field-row {
@@ -2285,43 +2968,139 @@
     border-radius: 6px;
   }
 
+  .model-picker-grid-wrap {
+    overflow-x: auto;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #1a1a1a;
+  }
+
+  .model-picker-grid-wrap--plain {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .model-picker-grid-wrap--plain .model-picker-cell {
+    border-color: #2a2a2a;
+  }
+
+  .model-picker-grid-wrap--plain .model-picker-cell--empty {
+    background: transparent;
+  }
+
+  .ollama-settings {
+    gap: 14px;
+  }
+
+  .ollama-connection {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ollama-endpoint-row {
+    align-items: center;
+    flex-wrap: nowrap;
+    width: min(100%, 520px);
+  }
+
+  .ollama-connection-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+  }
+
+  .ollama-connection-actions .ollama-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.5rem;
+  }
+
+  .ollama-connection-actions .btn.ghost.ollama-action-btn {
+    min-width: 3.25rem;
+  }
+
+  .ollama-endpoint-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 0;
+  }
+
+  .model-picker-grid {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 11px;
+  }
+
+  .model-picker-cell {
+    padding: 2px 6px;
+    border: 1px solid #2a2a2a;
+    vertical-align: middle;
+    width: 33.33%;
+  }
+
+  .model-picker-cell--empty {
+    padding: 0;
+    background: #181818;
+  }
+
+  .model-picker-cell-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 2px 0;
+    cursor: pointer;
+  }
+
+  .model-picker-cell-label .checkbox {
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  .model-picker-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.3;
+    color: #86c9b7;
+  }
+
+  .model-picker-cell-label:hover .model-picker-name {
+    color: #a8e0cf;
+  }
+
+  .provider-connect-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .catalog-error {
+    color: #f48771;
+  }
+
   .model-list-name {
     font-size: 11px;
     font-family: ui-monospace, monospace;
     color: #86c9b7;
   }
 
-  .model-list-delete {
-    width: 18px;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: #555;
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .model-list-delete:hover {
-    background: #3a2020;
-    color: #e57373;
-  }
-
   .model-library-toggle {
-    margin-top: 4px;
+    align-self: flex-start;
   }
 
-  .model-library {
+  .model-library-panel {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 12px;
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 8px;
   }
 
   .pull-progress {

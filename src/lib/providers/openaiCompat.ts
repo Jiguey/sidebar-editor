@@ -93,7 +93,8 @@ export async function* streamChat(
   messages: Message[],
   tools?: Tool[],
   signal?: AbortSignal,
-  inferenceOptions?: InferenceOptions
+  inferenceOptions?: InferenceOptions,
+  apiKey?: string
 ): AsyncGenerator<StreamEvent> {
   const url = `${baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
@@ -118,13 +119,17 @@ export async function* streamChat(
     };
   }
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const key = apiKey?.trim();
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(body),
       signal,
     });

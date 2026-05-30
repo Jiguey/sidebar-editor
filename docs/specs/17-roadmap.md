@@ -43,6 +43,7 @@
 | Workspace lock | ❌ Not started | Prevent two windows corrupting `state.json` |
 | File watcher → UI | ❌ Not started | Wire `watcher.rs` to `filesystemSync` |
 | Agent turn undo | ❌ Not started | Snapshot or git-based batch discard |
+| **Context compaction** | ❌ Spec ready | [21-context-compaction.md](21-context-compaction.md) — auto + manual, editable threshold % |
 
 ---
 
@@ -62,9 +63,10 @@
 |------|--------|-------|
 | LSP | ❌ Not started | Spawn language servers from Rust |
 | Cmd+K inline edit | ❌ Not started | CodeMirror decorations |
-| DeepSeek, Mistral, Perplexity | ❌ Not started | OpenAI-compat + provider registry |
+| DeepSeek | ✅ | `deepseek` chat backend; Settings → DeepSeek |
+| Mistral, Perplexity | ❌ Not started | OpenAI-compat + provider registry |
 | Custom tool shell executor | ❌ Not started | Optional `.tinyllama` command templates |
-| Context compaction | ❌ Not started | Summarize / sliding window |
+| Context compaction | ❌ Spec ready | [21-context-compaction.md](21-context-compaction.md) — not sliding window |
 | Full provider billing APIs | ❌ Not started | Beyond local monthly estimates |
 
 ---

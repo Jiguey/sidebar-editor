@@ -17,17 +17,20 @@ describe("chatFooterProfile", () => {
     expect(p.contextHint).toBe("server");
   });
 
-  it("anthropic shows monthly usage not stream metrics", () => {
-    const p = chatFooterProfile("anthropic");
-    expect(p.showMonthlyUsage).toBe(true);
-    expect(p.showStreamMetrics).toBe(false);
-    expect(p.contextBudgetEditable).toBe(false);
+  it("anthropic and deepseek show monthly usage and last-reply metrics", () => {
+    for (const backend of ["anthropic", "deepseek"] as const) {
+      const p = chatFooterProfile(backend);
+      expect(p.showMonthlyUsage).toBe(true);
+      expect(p.showStreamMetrics).toBe(true);
+      expect(p.contextBudgetEditable).toBe(false);
+    }
   });
 });
 
 describe("formatMonthlyUsageLabel", () => {
-  it("formats token totals", () => {
-    expect(formatMonthlyUsageLabel(12400, 3200)).toBe("12.4k in · 3.2k out this month");
+  it("formats token totals with month prefix", () => {
+    const label = formatMonthlyUsageLabel(12400, 3200);
+    expect(label).toMatch(/^\w{3}: 12\.4k in · 3\.2k out$/);
   });
 });
 

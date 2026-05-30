@@ -54,6 +54,24 @@ export function tabStripScroll(node: HTMLElement) {
   wrap.addEventListener("mouseleave", onLeave);
   node.addEventListener("scroll", sync, { passive: true });
 
+  const onWheel = (e: WheelEvent) => {
+    if (node.scrollWidth <= node.clientWidth + 1) return;
+    let delta =
+      Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (delta === 0) return;
+    if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+    else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+      delta *= node.clientWidth;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    node.scrollLeft += delta;
+  };
+
+  /** Capture on wrap so wheel works over tab buttons, not only the scroll gutter. */
+  wrap.addEventListener("wheel", onWheel, { passive: false, capture: true });
+  node.addEventListener("wheel", onWheel, { passive: false });
+
   const ro = new ResizeObserver(sync);
   ro.observe(node);
 
@@ -68,6 +86,8 @@ export function tabStripScroll(node: HTMLElement) {
       wrap.removeEventListener("mouseenter", onEnter);
       wrap.removeEventListener("mouseleave", onLeave);
       node.removeEventListener("scroll", sync);
+      wrap.removeEventListener("wheel", onWheel, { capture: true });
+      node.removeEventListener("wheel", onWheel);
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener("resize", sync);

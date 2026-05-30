@@ -1,9 +1,21 @@
 import { writable } from "svelte/store";
 import {
+  DEFAULT_AGENT_COMPACTION,
+  normalizeAgentCompaction,
+  type AgentCompactionSettings,
+} from "../agentCompaction";
+import {
   DEFAULT_AGENT_LIMITS,
   normalizeAgentLimits,
   type AgentLimits,
 } from "../agentLimits";
+import {
+  DEFAULT_AUTOCOMPLETE,
+  normalizeAutocompleteSettings,
+  type AutocompleteSettings,
+} from "../autocompleteSettings";
+import { DEFAULT_MODEL_ROLES, normalizeModelRoles, type ModelRoleOverrides } from "../modelRoles";
+import { mergeApiKeysFromEnv } from "../envApiKeys";
 import { DEFAULT_LLAMACPP_ENDPOINT } from "../llamaCppClient";
 import {
   DEFAULT_LLAMACPP_SERVER_TEMPLATE,
@@ -13,43 +25,71 @@ import {
   type LlamacppServerTemplate,
   type OllamaServerTemplate,
 } from "../providerServerConfig";
+import { normalizeUniformTabWidthPx } from "../editor/tabWidth";
 import { normalizeWorkbenchTheme, type WorkbenchThemeId } from "../workbench-theme";
+import {
+  ANTHROPIC_MODEL_FALLBACKS,
+  DEEPSEEK_MODEL_FALLBACKS,
+  seedAnthropicModels,
+  seedDeepseekModels,
+} from "../cloudModelCatalog";
+import { modelsVisibleInPicker } from "../modelPicker";
 
 export type { AgentLimits };
+export type { AgentCompactionSettings };
+export type { AutocompleteSettings };
+export type { ModelRoleOverrides };
 export { DEFAULT_AGENT_LIMITS, AGENT_LIMIT_BOUNDS } from "../agentLimits";
+export {
+  DEFAULT_AGENT_COMPACTION,
+  AGENT_COMPACTION_BOUNDS,
+  compactionThresholdPercent,
+  compactionThresholdFromPercent,
+} from "../agentCompaction";
+export { DEFAULT_AUTOCOMPLETE, AUTOCOMPLETE_BOUNDS } from "../autocompleteSettings";
+export { DEFAULT_MODEL_ROLES } from "../modelRoles";
 
-export type ChatBackend = "anthropic" | "ollama" | "llamacpp";
+export type ChatBackend = "anthropic" | "deepseek" | "ollama" | "llamacpp";
 
 export type EditorSettings = {
   wordWrap: boolean;
   formatOnSave: boolean;
+  /** When true, chat and workbench header tabs share a fixed width. */
+  uniformTabWidth: boolean;
+  /** Pixel width when `uniformTabWidth` is true. */
+  uniformTabWidthPx: number;
 };
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   wordWrap: false,
   formatOnSave: false,
+  uniformTabWidth: false,
+  uniformTabWidthPx: normalizeUniformTabWidthPx(undefined),
 };
 
 function normalizeEditorSettings(parsed: Partial<EditorSettings> | undefined): EditorSettings {
   return {
     wordWrap: parsed?.wordWrap === true,
     formatOnSave: parsed?.formatOnSave === true,
+    uniformTabWidth: parsed?.uniformTabWidth === true,
+    uniformTabWidthPx: normalizeUniformTabWidthPx(parsed?.uniformTabWidthPx),
   };
 }
 
 export interface ModelConfig {
   id: string;
   name: string;
-  provider: "anthropic" | "openai" | "ollama" | "llamacpp";
+  provider: "anthropic" | "deepseek" | "openai" | "ollama" | "llamacpp";
   contextWindow: number;
   contextLimitMax?: number;
+  /** When false, hidden from the chat model picker (default: shown). */
+  showInPicker?: boolean;
 }
 
+/** @deprecated Use `anthropicModels` / `deepseekModels` from settings; kept for tests and fallbacks. */
 export const AVAILABLE_MODELS: ModelConfig[] = [
-  { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", provider: "anthropic", contextWindow: 200000 },
-  { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", provider: "anthropic", contextWindow: 200000 },
-  { id: "claude-3-opus-20240229", name: "Claude 3 Opus", provider: "anthropic", contextWindow: 200000 },
-  { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", provider: "anthropic", contextWindow: 200000 },
+  ...ANTHROPIC_MODEL_FALLBACKS,
+  ...DEEPSEEK_MODEL_FALLBACKS,
 ];
 
 const SETTINGS_STORAGE_KEY = "tinyllama.settings.v3";
@@ -59,6 +99,7 @@ function createSettingsStore() {
     schemaVersion: 3;
     apiKeys: {
       anthropic: string;
+      deepseek: string;
       openai: string;
     };
     chatBackend: ChatBackend;
@@ -69,11 +110,18 @@ function createSettingsStore() {
     lastOllamaModelId: string;
     ollamaModels: ModelConfig[];
     llamacppModels: ModelConfig[];
+    anthropicModels: ModelConfig[];
+    deepseekModels: ModelConfig[];
+    anthropicCatalogFetched: boolean;
+    deepseekCatalogFetched: boolean;
     anthropicExtendedThinking: boolean;
     workbenchTheme: WorkbenchThemeId;
     anthropicContextBudget: number | null;
     webFetchAllowedHosts: string[];
     agentLimits: AgentLimits;
+    agentCompaction: AgentCompactionSettings;
+    autocomplete: AutocompleteSettings;
+    modelRoles: ModelRoleOverrides;
     ollamaServerTemplate: OllamaServerTemplate;
     llamacppServerTemplate: LlamacppServerTemplate;
     editor: EditorSettings;
@@ -90,6 +138,7 @@ function createSettingsStore() {
     schemaVersion: 3,
     apiKeys: {
       anthropic: "",
+      deepseek: "",
       openai: "",
     },
     chatBackend: "ollama",
@@ -100,18 +149,28 @@ function createSettingsStore() {
     lastOllamaModelId: "",
     ollamaModels: [],
     llamacppModels: [],
+    anthropicModels: [],
+    deepseekModels: [],
+    anthropicCatalogFetched: false,
+    deepseekCatalogFetched: false,
     anthropicExtendedThinking: true,
     workbenchTheme: "vscode-dark",
     anthropicContextBudget: null,
     webFetchAllowedHosts: DEFAULT_WEB_FETCH_HOSTS,
     agentLimits: { ...DEFAULT_AGENT_LIMITS },
+    agentCompaction: { ...DEFAULT_AGENT_COMPACTION },
+    autocomplete: { ...DEFAULT_AUTOCOMPLETE },
+    modelRoles: { ...DEFAULT_MODEL_ROLES },
     ollamaServerTemplate: { ...DEFAULT_OLLAMA_SERVER_TEMPLATE },
     llamacppServerTemplate: { ...DEFAULT_LLAMACPP_SERVER_TEMPLATE },
     editor: { ...DEFAULT_EDITOR_SETTINGS },
   };
 
   function normalizeLoaded(parsed: Partial<SettingsState>): SettingsState {
-    const api = { ...defaultState.apiKeys, ...(parsed.apiKeys ?? {}) };
+    const api = mergeApiKeysFromEnv({
+      ...defaultState.apiKeys,
+      ...(parsed.apiKeys ?? {}),
+    });
     return {
       ...defaultState,
       ...parsed,
@@ -122,8 +181,15 @@ function createSettingsStore() {
       llamacppApiKey: parsed.llamacppApiKey ?? defaultState.llamacppApiKey,
       lastOllamaModelId: parsed.lastOllamaModelId ?? defaultState.lastOllamaModelId,
       selectedModel: parsed.selectedModel ?? defaultState.selectedModel,
-      ollamaModels: parsed.ollamaModels ?? defaultState.ollamaModels,
+      ollamaModels: (parsed.ollamaModels ?? defaultState.ollamaModels).map((m) => ({
+        ...m,
+        showInPicker: m.showInPicker !== false,
+      })),
       llamacppModels: parsed.llamacppModels ?? defaultState.llamacppModels,
+      anthropicModels: seedAnthropicModels(parsed.anthropicModels),
+      deepseekModels: seedDeepseekModels(parsed.deepseekModels),
+      anthropicCatalogFetched: parsed.anthropicCatalogFetched === true,
+      deepseekCatalogFetched: parsed.deepseekCatalogFetched === true,
       workbenchTheme: normalizeWorkbenchTheme(parsed.workbenchTheme),
       anthropicContextBudget:
         parsed.anthropicContextBudget === null || parsed.anthropicContextBudget === undefined
@@ -132,6 +198,9 @@ function createSettingsStore() {
             ? parsed.anthropicContextBudget
             : defaultState.anthropicContextBudget,
       agentLimits: normalizeAgentLimits(parsed.agentLimits),
+      agentCompaction: normalizeAgentCompaction(parsed.agentCompaction),
+      autocomplete: normalizeAutocompleteSettings(parsed.autocomplete),
+      modelRoles: normalizeModelRoles(parsed.modelRoles),
       ollamaServerTemplate: normalizeOllamaServerTemplate(parsed.ollamaServerTemplate),
       llamacppServerTemplate: normalizeLlamacppServerTemplate(parsed.llamacppServerTemplate),
       editor: normalizeEditorSettings(parsed.editor),
@@ -176,11 +245,31 @@ function createSettingsStore() {
 
   return {
     subscribe,
-    setApiKey: (provider: "anthropic" | "openai", key: string) => {
-      update((state) => ({
-        ...state,
-        apiKeys: { ...state.apiKeys, [provider]: key },
-      }));
+    setApiKey: (provider: "anthropic" | "deepseek" | "openai", key: string) => {
+      update((state) => {
+        const prevKey = state.apiKeys[provider];
+        const nextKeys = { ...state.apiKeys, [provider]: key };
+        if (prevKey === key) {
+          return { ...state, apiKeys: nextKeys };
+        }
+        if (provider === "anthropic") {
+          return {
+            ...state,
+            apiKeys: nextKeys,
+            anthropicModels: [],
+            anthropicCatalogFetched: false,
+          };
+        }
+        if (provider === "deepseek") {
+          return {
+            ...state,
+            apiKeys: nextKeys,
+            deepseekModels: [],
+            deepseekCatalogFetched: false,
+          };
+        }
+        return { ...state, apiKeys: nextKeys };
+      });
     },
     setOllamaEndpoint: (endpoint: string) => {
       update((state) => ({
@@ -203,7 +292,7 @@ function createSettingsStore() {
     setSelectedModel: (modelId: string) => {
       update((state) => {
         const ollamaIds = new Set(state.ollamaModels.map((m) => m.id));
-        const cloud = AVAILABLE_MODELS.find((m) => m.id === modelId && m.provider === "anthropic");
+        const cloud = state.anthropicModels.find((m) => m.id === modelId && m.provider === "anthropic");
         let anthropicContextBudget = state.anthropicContextBudget;
         if (
           cloud &&
@@ -223,11 +312,11 @@ function createSettingsStore() {
     setChatBackend: (chatBackend: ChatBackend) => {
       update((state) => {
         if (chatBackend === "anthropic") {
-          const cloud = AVAILABLE_MODELS.filter((m) => m.provider === "anthropic");
+          const cloud = modelsVisibleInPicker(state.anthropicModels);
           const selected = cloud.some((m) => m.id === state.selectedModel)
             ? state.selectedModel
             : (cloud[0]?.id ?? state.selectedModel);
-          const m = cloud.find((x) => x.id === selected);
+          const m = state.anthropicModels.find((x) => x.id === selected);
           let anthropicContextBudget = state.anthropicContextBudget;
           if (
             m &&
@@ -238,8 +327,15 @@ function createSettingsStore() {
           }
           return { ...state, chatBackend, selectedModel: selected, anthropicContextBudget };
         }
+        if (chatBackend === "deepseek") {
+          const cloud = modelsVisibleInPicker(state.deepseekModels);
+          const selected = cloud.some((m) => m.id === state.selectedModel)
+            ? state.selectedModel
+            : (cloud[0]?.id ?? state.selectedModel);
+          return { ...state, chatBackend, selectedModel: selected };
+        }
         if (chatBackend === "ollama") {
-          const ids = new Set(state.ollamaModels.map((m) => m.id));
+          const ids = new Set(modelsVisibleInPicker(state.ollamaModels).map((m) => m.id));
           let selected = state.selectedModel;
           if (ids.has(selected)) {
             /* keep */
@@ -259,15 +355,16 @@ function createSettingsStore() {
     },
     setOllamaModels: (models: ModelConfig[]) => {
       update((state) => {
-        const ids = new Set(models.map((m) => m.id));
+        const visible = modelsVisibleInPicker(models);
+        const ids = new Set(visible.map((m) => m.id));
         let selectedModel = state.selectedModel;
         if (state.chatBackend === "ollama") {
           if (ids.has(selectedModel)) {
             /* keep */
           } else if (state.lastOllamaModelId && ids.has(state.lastOllamaModelId)) {
             selectedModel = state.lastOllamaModelId;
-          } else if (models[0]) {
-            selectedModel = models[0].id;
+          } else if (visible[0]) {
+            selectedModel = visible[0].id;
           }
         }
         return { ...state, ollamaModels: models, selectedModel };
@@ -275,6 +372,57 @@ function createSettingsStore() {
     },
     setLlamacppModels: (models: ModelConfig[]) => {
       update((state) => ({ ...state, llamacppModels: models }));
+    },
+    setAnthropicModels: (models: ModelConfig[]) => {
+      update((state) => {
+        const visible = modelsVisibleInPicker(models);
+        let selectedModel = state.selectedModel;
+        if (state.chatBackend === "anthropic") {
+          if (!visible.some((m) => m.id === selectedModel)) {
+            selectedModel = visible[0]?.id ?? selectedModel;
+          }
+        }
+        return {
+          ...state,
+          anthropicModels: models,
+          anthropicCatalogFetched: models.length > 0,
+          selectedModel,
+        };
+      });
+    },
+    setDeepseekModels: (models: ModelConfig[]) => {
+      update((state) => {
+        const visible = modelsVisibleInPicker(models);
+        let selectedModel = state.selectedModel;
+        if (state.chatBackend === "deepseek") {
+          if (!visible.some((m) => m.id === selectedModel)) {
+            selectedModel = visible[0]?.id ?? selectedModel;
+          }
+        }
+        return {
+          ...state,
+          deepseekModels: models,
+          deepseekCatalogFetched: models.length > 0,
+          selectedModel,
+        };
+      });
+    },
+    setModelShowInPicker: (
+      provider: "anthropic" | "deepseek" | "ollama",
+      modelId: string,
+      showInPicker: boolean
+    ) => {
+      update((state) => {
+        const patch = (list: ModelConfig[]) =>
+          list.map((m) => (m.id === modelId ? { ...m, showInPicker } : m));
+        if (provider === "anthropic") {
+          return { ...state, anthropicModels: patch(state.anthropicModels) };
+        }
+        if (provider === "deepseek") {
+          return { ...state, deepseekModels: patch(state.deepseekModels) };
+        }
+        return { ...state, ollamaModels: patch(state.ollamaModels) };
+      });
     },
     setAnthropicExtendedThinking: (anthropicExtendedThinking: boolean) => {
       update((state) => ({ ...state, anthropicExtendedThinking }));
@@ -284,7 +432,7 @@ function createSettingsStore() {
     },
     setAnthropicContextBudget: (anthropicContextBudget: number | null) => {
       update((state) => {
-        const cloud = AVAILABLE_MODELS.find(
+        const cloud = state.anthropicModels.find(
           (m) => m.id === state.selectedModel && m.provider === "anthropic"
         );
         const cap = cloud?.contextWindow ?? 200_000;
@@ -307,6 +455,24 @@ function createSettingsStore() {
       update((state) => ({
         ...state,
         agentLimits: normalizeAgentLimits({ ...state.agentLimits, ...agentLimits }),
+      }));
+    },
+    setAgentCompaction: (agentCompaction: Partial<AgentCompactionSettings>) => {
+      update((state) => ({
+        ...state,
+        agentCompaction: normalizeAgentCompaction({ ...state.agentCompaction, ...agentCompaction }),
+      }));
+    },
+    setAutocompleteSettings: (autocomplete: Partial<AutocompleteSettings>) => {
+      update((state) => ({
+        ...state,
+        autocomplete: normalizeAutocompleteSettings({ ...state.autocomplete, ...autocomplete }),
+      }));
+    },
+    setModelRoles: (modelRoles: Partial<ModelRoleOverrides>) => {
+      update((state) => ({
+        ...state,
+        modelRoles: normalizeModelRoles({ ...state.modelRoles, ...modelRoles }),
       }));
     },
     setOllamaServerTemplate: (template: Partial<OllamaServerTemplate>) => {

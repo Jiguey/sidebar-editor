@@ -30,11 +30,18 @@ const FOOTER_PROFILES: Record<ChatBackend, ChatFooterProfile> = {
     usageProviderId: "llamacpp",
   },
   anthropic: {
-    showStreamMetrics: false,
+    showStreamMetrics: true,
     showContextBar: true,
     contextBudgetEditable: false,
     showMonthlyUsage: true,
     usageProviderId: "anthropic",
+  },
+  deepseek: {
+    showStreamMetrics: true,
+    showContextBar: true,
+    contextBudgetEditable: false,
+    showMonthlyUsage: true,
+    usageProviderId: "deepseek",
   },
 };
 
@@ -48,7 +55,15 @@ export function formatMonthlyUsageLabel(inputTokens: number, outputTokens: numbe
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return String(Math.round(n));
   };
-  return `${fmt(inputTokens)} in · ${fmt(outputTokens)} out this month`;
+  const month = new Date().toLocaleString(undefined, { month: "short" });
+  return `${month}: ${fmt(inputTokens)} in · ${fmt(outputTokens)} out`;
+}
+
+export function cloudContextBudgetTitle(contextMax: number): string {
+  return (
+    `Estimated tokens in this chat vs the model limit (~${contextMax.toLocaleString()}). ` +
+    `Providers do not expose remaining account balance in the API — check your dashboard for billing.`
+  );
 }
 
 export function contextBudgetTitle(profile: ChatFooterProfile, backend: ChatBackend): string {
@@ -58,7 +73,7 @@ export function contextBudgetTitle(profile: ChatFooterProfile, backend: ChatBack
   if (backend === "llamacpp") {
     return "Context size is fixed in llama.cpp server config — change it there and restart";
   }
-  if (backend === "anthropic") {
+  if (backend === "anthropic" || backend === "deepseek") {
     return "Estimated chat size vs model context limit";
   }
   return "Estimated context for this chat";

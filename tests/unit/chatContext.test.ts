@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { countTokens, estimateChatContextTokens } from "../../src/lib/chatContext";
+import {
+  countTokens,
+  estimateChatContextTokens,
+  estimateInflightContextTokens,
+} from "../../src/lib/chatContext";
 
 describe("chatContext", () => {
   it("countTokens returns a positive number for non-empty text", () => {
@@ -14,5 +18,30 @@ describe("chatContext", () => {
     const a = estimateChatContextTokens(msgs, "");
     const b = estimateChatContextTokens(msgs, "draft");
     expect(b).toBeGreaterThanOrEqual(a);
+  });
+
+  it("counts thinking and tool calls on stored messages", () => {
+    const base = estimateChatContextTokens([{ role: "assistant", content: "ok" }], "");
+    const rich = estimateChatContextTokens(
+      [
+        {
+          role: "assistant",
+          content: "ok",
+          thinking: "long reasoning ".repeat(20),
+          rawToolCalls: [{ name: "read_file", arguments: '{"path":"x"}' }],
+        },
+      ],
+      ""
+    );
+    expect(rich).toBeGreaterThan(base);
+  });
+
+  it("estimateInflightContextTokens avoids double-counting stream vs response", () => {
+    const once = estimateInflightContextTokens({
+      streamingContent: "hello",
+      response: "hello",
+    });
+    const streamOnly = estimateInflightContextTokens({ streamingContent: "hello" });
+    expect(once).toBe(streamOnly);
   });
 });

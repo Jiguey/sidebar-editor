@@ -6,28 +6,72 @@
     title,
     icon,
     dirty = false,
+    renaming = false,
+    renameValue = $bindable(""),
     onActivate,
     onClose,
     allowMiddleClose = false,
+    uniformWidth = false,
+    uniformWidthPx = 96,
+    onContextMenu,
+    onRenameCommit,
+    onRenameCancel,
   }: {
     active?: boolean;
     title: string;
     icon: Snippet;
     dirty?: boolean;
+    renaming?: boolean;
+    renameValue?: string;
     onActivate: () => void;
     onClose: (e: MouseEvent) => void;
     allowMiddleClose?: boolean;
+    /** Fixed width tab (header nav); off = size to title. */
+    uniformWidth?: boolean;
+    /** Width in px when `uniformWidth` is true. */
+    uniformWidthPx?: number;
+    onContextMenu?: (e: MouseEvent) => void;
+    onRenameCommit?: () => void;
+    onRenameCancel?: () => void;
   } = $props();
+
+  let renameInput: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (renaming && renameInput) {
+      renameInput.focus();
+      renameInput.select();
+    }
+  });
+
+  function commitRename() {
+    onRenameCommit?.();
+  }
+
+  function cancelRename() {
+    onRenameCancel?.();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="hdr-tab"
   class:hdr-tab--active={active}
+  class:hdr-tab--renaming={renaming}
+  class:hdr-tab--uniform={uniformWidth && !renaming}
+  style={uniformWidth && !renaming
+    ? `--hdr-tab-uniform-width: ${uniformWidthPx}px`
+    : undefined}
   onmousedown={(e) => {
     if (allowMiddleClose && e.button === 1) {
       e.preventDefault();
       onClose(e);
+    }
+  }}
+  oncontextmenu={(e) => {
+    if (onContextMenu) {
+      e.preventDefault();
+      onContextMenu(e);
     }
   }}
 >
@@ -38,10 +82,34 @@
     aria-selected={active}
     tabindex={active ? 0 : -1}
     onclick={onActivate}
-    {title}
+    title={renaming ? undefined : title}
+    disabled={renaming}
   >
     <span class="hdr-tab__icon">{@render icon()}</span>
-    <span class="hdr-tab__label">{title}</span>
+    {#if renaming}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        bind:this={renameInput}
+        type="text"
+        class="hdr-tab__rename"
+        bind:value={renameValue}
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commitRename();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            cancelRename();
+          }
+        }}
+        onblur={() => commitRename()}
+      />
+    {:else}
+      <span class="hdr-tab__label">{title}</span>
+    {/if}
     {#if dirty}<span class="hdr-tab__dirty" aria-hidden="true">●</span>{/if}
   </button>
   <button
@@ -74,6 +142,17 @@
     overflow: hidden;
   }
 
+  .hdr-tab--renaming {
+    max-width: min(220px, 40vw);
+  }
+
+  .hdr-tab--uniform {
+    width: var(--hdr-tab-uniform-width, 96px);
+    min-width: var(--hdr-tab-uniform-width, 96px);
+    max-width: var(--hdr-tab-uniform-width, 96px);
+    flex: 0 0 var(--hdr-tab-uniform-width, 96px);
+  }
+
   .hdr-tab--active {
     background: var(--muted);
     border-color: transparent;
@@ -99,6 +178,10 @@
     line-height: 1.2;
     cursor: pointer;
     text-align: left;
+  }
+
+  .hdr-tab__main:disabled {
+    cursor: default;
   }
 
   .hdr-tab--active .hdr-tab__main {
@@ -127,6 +210,22 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .hdr-tab__rename {
+    min-width: 4rem;
+    max-width: 12rem;
+    flex: 1 1 auto;
+    padding: 0 2px;
+    margin: 0;
+    border: none;
+    border-radius: 2px;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 11px;
+    line-height: 1.2;
+    font-family: inherit;
+    outline: 1px solid var(--ring);
   }
 
   .hdr-tab__dirty {

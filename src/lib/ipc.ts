@@ -61,6 +61,19 @@ export function isTauriAvailable(): boolean {
   return isTauri;
 }
 
+/** Open http(s), mailto, etc. in the system handler (Tauri shell or browser). */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri) {
+    await ensureTauriApi();
+    const { open } = await import("@tauri-apps/plugin-shell");
+    await open(url);
+    return;
+  }
+  if (typeof window !== "undefined") {
+    window.location.href = url;
+  }
+}
+
 export async function ptyCreate(cwd?: string | null): Promise<string> {
   await ensureTauriApi();
   return invoke<string>("pty_create", { cwd: cwd ?? null });

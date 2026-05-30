@@ -14,7 +14,7 @@ describe("providerServerConfig", () => {
   it("builds ollama override without HSA by default", () => {
     const text = buildOllamaOverrideConf(DEFAULT_OLLAMA_SERVER_TEMPLATE);
     expect(text).toContain("OLLAMA_NEW_ENGINE=0");
-    expect(text).toContain("OLLAMA_CONTEXT_LENGTH=8192");
+    expect(text).not.toContain("OLLAMA_CONTEXT_LENGTH");
     expect(text).not.toContain("HSA_OVERRIDE");
   });
 

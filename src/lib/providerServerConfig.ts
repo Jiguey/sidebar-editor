@@ -150,12 +150,85 @@ export function normalizeLlamacppServerTemplate(
   };
 }
 
+export type OllamaOverrideFieldKind = "string" | "number" | "boolean";
+
+export type OllamaOverrideField = {
+  label: string;
+  envVar: string;
+  kind: OllamaOverrideFieldKind;
+  templateKey: keyof OllamaServerTemplate;
+  hint?: string;
+  min?: number;
+  /** Row visible only when this returns true. */
+  visible?: (t: OllamaServerTemplate) => boolean;
+};
+
+/** Editable rows for systemd override.conf (context is API-only, not in override). */
+export const OLLAMA_OVERRIDE_FIELDS: OllamaOverrideField[] = [
+  { label: "Models path", envVar: "OLLAMA_MODELS", kind: "string", templateKey: "modelsPath" },
+  {
+    label: "New engine",
+    envVar: "OLLAMA_NEW_ENGINE",
+    kind: "boolean",
+    templateKey: "newEngine",
+    hint: "Off for Vega",
+  },
+  {
+    label: "Keep alive",
+    envVar: "OLLAMA_KEEP_ALIVE",
+    kind: "number",
+    templateKey: "keepAlive",
+    hint: "-1 = forever",
+  },
+  {
+    label: "Max loaded models",
+    envVar: "OLLAMA_MAX_LOADED_MODELS",
+    kind: "number",
+    templateKey: "maxLoadedModels",
+    min: 1,
+  },
+  {
+    label: "Threads",
+    envVar: "OLLAMA_NUM_THREADS",
+    kind: "number",
+    templateKey: "numThreads",
+    min: 1,
+  },
+  {
+    label: "Flash attention",
+    envVar: "OLLAMA_FLASH_ATTENTION",
+    kind: "boolean",
+    templateKey: "flashAttention",
+    hint: "Off for Vega",
+  },
+  {
+    label: "Num parallel",
+    envVar: "OLLAMA_NUM_PARALLEL",
+    kind: "number",
+    templateKey: "numParallel",
+    min: 1,
+  },
+  {
+    label: "HSA override",
+    envVar: "(enable line)",
+    kind: "boolean",
+    templateKey: "useHsaOverride",
+    hint: "Usually off on Vega",
+  },
+  {
+    label: "HSA version",
+    envVar: "HSA_OVERRIDE_GFX_VERSION",
+    kind: "string",
+    templateKey: "hsaOverrideVersion",
+    visible: (t) => t.useHsaOverride,
+  },
+];
+
 export function buildOllamaOverrideConf(t: OllamaServerTemplate): string {
   const lines = [
     "[Service]",
     `Environment="OLLAMA_MODELS=${t.modelsPath}"`,
     `Environment="OLLAMA_NEW_ENGINE=${t.newEngine ? 1 : 0}"`,
-    `Environment="OLLAMA_CONTEXT_LENGTH=${t.contextLength}"`,
     `Environment="OLLAMA_KEEP_ALIVE=${t.keepAlive}"`,
     `Environment="OLLAMA_MAX_LOADED_MODELS=${t.maxLoadedModels}"`,
     `Environment="OLLAMA_NUM_THREADS=${t.numThreads}"`,

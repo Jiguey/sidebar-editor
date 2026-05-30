@@ -109,7 +109,8 @@ There is **no Node sidecar**. The agent loop runs in the webview; OS integration
 | Cloud sync | ❌ Not planned |
 | OS keychain for secrets | ❌ Not started |
 | LLM calls in Rust | ❌ Not started |
-| Additional providers (DeepSeek, Mistral) | ❌ Not started |
+| DeepSeek (cloud API) | ✅ Chat + tools via OpenAI-compatible API |
+| Additional providers (Mistral, Perplexity) | ❌ Not started |
 | Node sidecar / Pi harness | ❌ **Removed** — not part of current architecture |
 
 ---

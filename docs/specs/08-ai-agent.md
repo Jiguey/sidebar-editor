@@ -123,4 +123,4 @@ This is **not** a project plan document. See [19-planning-system.md](19-planning
 | Parallel read-only tools | ❌ Not started | Planned optimization |
 | Context overflow warnings | ❌ Not started | Warn when approaching limit |
 | Agent error recovery | ❌ Not started | Retry, cancel cleanup, continue after max |
-| Context compaction | ❌ Not started | Summarize / sliding window |
+| Context compaction | ❌ Spec ready | [21-context-compaction.md](21-context-compaction.md) — summarize-and-rehydrate; auto threshold % in Settings |

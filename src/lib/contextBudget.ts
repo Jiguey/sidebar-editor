@@ -1,6 +1,6 @@
 import { countTokens } from "./chatContext";
 import type { Message as ProviderMessage } from "./providers/openaiCompat";
-import { AVAILABLE_MODELS, type ChatBackend, type ModelConfig } from "./stores/settings";
+import type { ChatBackend, ModelConfig } from "./stores/settings";
 import { RECOMMENDED_OLLAMA_MODELS, pickContextOption } from "./ollamaClient";
 
 /** Pi-style reserve for the model reply; scaled down for small local contexts. */
@@ -11,6 +11,8 @@ export type ContextWindowSource = {
   selectedModel: string;
   ollamaModels: ModelConfig[];
   llamacppModels: ModelConfig[];
+  anthropicModels: ModelConfig[];
+  deepseekModels: ModelConfig[];
   anthropicContextBudget: number | null;
 };
 
@@ -30,8 +32,14 @@ export function resolveModelContextWindow(source: ContextWindowSource): number {
       source.llamacppModels.find((m) => m.id === source.selectedModel)?.contextWindow ?? 8192
     );
   }
+  if (source.chatBackend === "deepseek") {
+    return (
+      source.deepseekModels.find((m) => m.id === source.selectedModel && m.provider === "deepseek")
+        ?.contextWindow ?? 65_536
+    );
+  }
   const cap =
-    AVAILABLE_MODELS.find((m) => m.id === source.selectedModel && m.provider === "anthropic")
+    source.anthropicModels.find((m) => m.id === source.selectedModel && m.provider === "anthropic")
       ?.contextWindow ?? 128_000;
   const budget = source.anthropicContextBudget;
   return budget != null ? Math.min(budget, cap) : cap;

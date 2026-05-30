@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ollama": "RUN_OLLAMA_TESTS=1 vitest run tests/integration/ollama.test.ts",
+    "test:deepseek": "RUN_DEEPSEEK_TESTS=1 vitest run tests/integration/deepseek.test.ts",
     "test:coverage": "vitest run --coverage",
     "sync-icons": "node scripts/sync-vscode-icons.mjs"
   },

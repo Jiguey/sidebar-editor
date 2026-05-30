@@ -165,7 +165,7 @@ function createWorkbenchStore() {
       return id;
     },
     addPreviewTab(url: string, title = "Preview") {
-      const id = `preview:${encodeURIComponent(url)}`;
+      const id = url.trim() ? `preview:${encodeURIComponent(url)}` : "preview:new";
       stateWritable.update((s) => {
         const withoutDup = s.tabs.filter((t) => t.id !== id);
         return {
@@ -174,6 +174,22 @@ function createWorkbenchStore() {
         };
       });
       return id;
+    },
+    renameEditorTabPath(oldPath: string, newPath: string, title: string) {
+      const canonOld = normalizeFilePath(oldPath);
+      const canonNew = normalizeFilePath(newPath);
+      const oldId = editorTabId(canonOld);
+      const newId = editorTabId(canonNew);
+      stateWritable.update((s) => {
+        const tabs = s.tabs.map((t) => {
+          if (t.kind !== "editor" || normalizeFilePath(t.path) !== canonOld) return t;
+          return { ...t, id: newId, path: canonNew, title };
+        });
+        let activeTabId = s.activeTabId;
+        if (activeTabId === oldId) activeTabId = newId;
+        return { tabs, activeTabId };
+      });
+      files.setActiveFile(canonNew);
     },
     setActiveTab(id: string | null) {
       stateWritable.update((s) => ({ ...s, activeTabId: id }));

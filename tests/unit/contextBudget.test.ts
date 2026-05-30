@@ -21,6 +21,8 @@ describe("contextBudget", () => {
         selectedModel: "tinyllama",
         ollamaModels: [{ id: "tinyllama", name: "Tiny", provider: "ollama", contextWindow: 4096 }],
         llamacppModels: [],
+        anthropicModels: [],
+        deepseekModels: [],
         anthropicContextBudget: null,
       })
     ).toBe(4096);
@@ -34,6 +36,22 @@ describe("contextBudget", () => {
     ];
     expect(estimateProviderMessagesTokens(messages)).toBeGreaterThan(contextBudgetLimit(window));
     expect(isAgentContextBudgetExceeded(messages, window)).toBe(true);
+  });
+
+  it("resolveModelContextWindow for DeepSeek uses catalog context", () => {
+    expect(
+      resolveModelContextWindow({
+        chatBackend: "deepseek",
+        selectedModel: "deepseek-chat",
+        ollamaModels: [],
+        llamacppModels: [],
+        anthropicModels: [],
+        deepseekModels: [
+          { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek", contextWindow: 65536 },
+        ],
+        anthropicContextBudget: null,
+      })
+    ).toBe(65536);
   });
 
   it("allows messages under budget", () => {

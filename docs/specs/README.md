@@ -18,7 +18,8 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | **Security Hardening** | 🔶 Partial | TS sandbox; keychain/CSP not started |
 | **Planning System** | 🔶 Spec ready | `plans/` files, picker UI, `plans/**` writes in Plan mode — [19](19-planning-system.md) |
 | **Editor UX** | ❌ Not Started | Prettier, wrap, full syntax/chrome settings — [20](specs/20-editor-formatting-and-theming.md) |
-| **Advanced Features** | ❌ Not Started | LSP, inline edit, context compaction |
+| **Context compaction** | ❌ Not Started | Summarize-and-rehydrate — [21-context-compaction.md](21-context-compaction.md) |
+| **Advanced Features** | ❌ Not Started | LSP, inline edit |
 
 ---
 
@@ -48,6 +49,7 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | [08-ai-agent.md](08-ai-agent.md) | ✅ Complete | Agent loop, providers, chat footer, tool approval |
 | [09-tool-system.md](09-tool-system.md) | ✅ Complete | Built-in tools, custom tools, policy |
 | [19-planning-system.md](19-planning-system.md) | 🔶 Not Started | `plans/` markdown plans, picker, phased implementation |
+| [21-context-compaction.md](21-context-compaction.md) | ❌ Not Started | Auto/manual compaction, threshold %, model roles (UI) |
 
 ### Editor & Git
 
@@ -99,4 +101,4 @@ When changing behavior, update in order:
 
 **Authoritative source:** the repository at `HEAD`, not legacy documentation.
 
-**Implementation backlog (root):** [NOT-IMPLEMENTED.md](../../NOT-IMPLEMENTED.md) — consolidated list of spec’d work not yet built.
+**Backlog:** see [17-roadmap.md](17-roadmap.md) and per-spec ❌ sections (e.g. [21-context-compaction.md](21-context-compaction.md)).

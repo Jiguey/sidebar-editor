@@ -13,8 +13,8 @@
     if (tab?.kind !== "editor" || !isTauriAvailable()) return;
 
     const key = normalizeFilePath(tab.path);
-    const hasBuffer = $files.openFiles.some((f) => normalizeFilePath(f.path) === key);
-    if (hasBuffer) return;
+    const open = $files.openFiles.find((f) => normalizeFilePath(f.path) === key);
+    if (open) return;
 
     let cancelled = false;
     void readFile(key)
@@ -44,6 +44,10 @@
   let previewUrl = $derived(
     $activeWorkbenchTab?.kind === "preview" ? $activeWorkbenchTab.url : ""
   );
+
+  let previewPaneKey = $derived(
+    $activeWorkbenchTab?.kind === "preview" ? $activeWorkbenchTab.id : "none"
+  );
 </script>
 
 <div class="center-workbench flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -67,8 +71,8 @@
 
     {#if $activeWorkbenchTab?.kind === "preview"}
       <div class="absolute inset-0 z-10 bg-background">
-        {#key previewUrl}
-          <PreviewPane initialUrl={previewUrl || "http://127.0.0.1:5173"} />
+        {#key previewPaneKey}
+          <PreviewPane initialUrl={previewUrl} />
         {/key}
       </div>
     {/if}

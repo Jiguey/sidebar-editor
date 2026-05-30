@@ -3,10 +3,12 @@
     label,
     text,
     mono = true,
+    compact = false,
   }: {
     label: string;
     text: string;
     mono?: boolean;
+    compact?: boolean;
   } = $props();
 
   let copied = $state(false);
@@ -26,7 +28,7 @@
   }
 </script>
 
-<div class="copyable-snippet">
+<div class="copyable-snippet" class:copyable-snippet--compact={compact}>
   <div class="copyable-head">
     <span class="copyable-label">{label}</span>
     <button type="button" class="btn ghost copy-btn" onclick={() => void copy()}>
@@ -81,5 +83,36 @@
 
   .copyable-body.mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .copyable-snippet--compact {
+    background: #141414;
+    border-color: #404040;
+  }
+
+  .copyable-snippet--compact .copyable-head {
+    padding: 8px 12px;
+    background: #222;
+  }
+
+  .copyable-snippet--compact .copyable-label {
+    font-size: 12px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    color: #c8c8c8;
+  }
+
+  .copyable-snippet--compact .copyable-body {
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 200px;
+    color: #e0e0e0;
+  }
+
+  .copyable-snippet--compact .copy-btn {
+    font-size: 12px;
+    padding: 4px 10px;
   }
 </style>

@@ -11,9 +11,18 @@
     isContentPrettierFormatted,
   } from "$lib/editor/formatDocument";
   import PrettierIcon from "$lib/components/PrettierIcon.svelte";
-  import WordWrapIcon from "$lib/components/WordWrapIcon.svelte";
+  import AppIcon from "$lib/components/AppIcon.svelte";
   import SidebarIcon from "phosphor-svelte/lib/SidebarIcon";
   import RowsIcon from "phosphor-svelte/lib/RowsIcon";
+  import AppWindowIcon from "phosphor-svelte/lib/AppWindowIcon";
+  import { EXPLORER_PANEL_TABS, type ExplorerPanelTab } from "$lib/explorerPanel";
+  import type { AppIconName } from "$lib/icons/appIcons";
+
+  const EXPLORER_TAB_ICONS: Record<ExplorerPanelTab, AppIconName> = {
+    files: "page-search",
+    git: "git",
+    prompt: "paste-clipboard",
+  };
 
   const POLL_MS = 10_000;
   const PRETTIER_CHECK_MS = 500;
@@ -22,17 +31,37 @@
     showLeftPanel = true,
     showRightPanel = true,
     showBottomPanel = false,
+    showTabStrip = true,
     onToggleLeft,
+    onToggleTabStrip,
     onToggleRight,
     onToggleBottom,
+    rightExplorerOpen = false,
+    explorerActiveTab = "files",
+    onExplorerTab,
+    onOpenWorkspace,
+    onOpenSettings,
+    onOpenFeedback,
   }: {
     showLeftPanel?: boolean;
     showRightPanel?: boolean;
     showBottomPanel?: boolean;
+    showTabStrip?: boolean;
+    rightExplorerOpen?: boolean;
+    explorerActiveTab?: ExplorerPanelTab;
     onToggleLeft?: () => void;
+    onToggleTabStrip?: () => void;
     onToggleRight?: () => void;
     onToggleBottom?: () => void;
+    onExplorerTab?: (tab: ExplorerPanelTab) => void;
+    onOpenWorkspace?: () => void;
+    onOpenSettings?: () => void;
+    onOpenFeedback?: () => void;
   } = $props();
+
+  function explorerTabPressed(tab: ExplorerPanelTab): boolean {
+    return Boolean(showRightPanel && rightExplorerOpen && explorerActiveTab === tab);
+  }
 
   let timer: ReturnType<typeof setInterval> | null = null;
   let gitBranch = $state<string | null>(null);
@@ -80,6 +109,7 @@
       llamacppEndpoint: $settings.llamacppEndpoint,
       llamacppApiKey: $settings.llamacppApiKey,
       anthropicApiKey: $settings.apiKeys.anthropic,
+      deepseekApiKey: $settings.apiKeys.deepseek,
     });
     backendStatus.set(line);
   }
@@ -131,6 +161,7 @@
       $settings.llamacppEndpoint,
       $settings.llamacppApiKey,
       $settings.apiKeys.anthropic,
+      $settings.apiKeys.deepseek,
       $files.workspacePath,
     ];
     void tick();
@@ -161,6 +192,17 @@
     <button
       type="button"
       class="status-toggle workbench-icon-btn"
+      class:active={showTabStrip}
+      aria-pressed={showTabStrip}
+      title="Toggle tab bar"
+      aria-label="Toggle tab bar"
+      onclick={() => onToggleTabStrip?.()}
+    >
+      <AppWindowIcon size={18} aria-hidden="true" />
+    </button>
+    <button
+      type="button"
+      class="status-toggle workbench-icon-btn"
       class:active={showBottomPanel}
       aria-pressed={showBottomPanel}
       title="Toggle bottom panel"
@@ -171,9 +213,9 @@
     <button
       type="button"
       class="status-toggle workbench-icon-btn"
-      class:active={showRightPanel}
-      aria-pressed={showRightPanel}
-      title="Toggle explorer"
+      class:active={showRightPanel && rightExplorerOpen}
+      aria-pressed={showRightPanel && rightExplorerOpen}
+      title="Toggle explorer panel"
       onclick={() => onToggleRight?.()}
     >
       <SidebarIcon size={18} mirrored aria-hidden="true" />
@@ -201,37 +243,85 @@
     ></span>
     <span class="status-detail">{$backendStatus.detail}</span>
   </div>
-  <div class="status-bar__right" role="toolbar" aria-label="Editor">
+  <div class="status-bar__right">
     {#if editorTabActive}
+      <div class="status-bar__group" role="toolbar" aria-label="Editor">
+          <button
+            type="button"
+            class="status-editor-btn"
+            aria-pressed={wordWrapOn}
+            title={wordWrapOn ? "Disable line wrap" : "Enable line wrap"}
+            aria-label="Toggle line wrap"
+            onclick={() => toggleWordWrap()}
+          >
+            <AppIcon name="wrap-text" size={15} dimmed={!wordWrapOn} />
+          </button>
+        {#if showPrettier}
+          <button
+            type="button"
+            class="status-editor-btn"
+            title={prettierState === "formatted"
+              ? "Formatted with Prettier (click to re-format)"
+              : prettierState === "checking"
+                ? "Checking Prettier…"
+                : "Not Prettier-formatted (click to format)"}
+            aria-label="Format with Prettier"
+            onclick={formatDocument}
+          >
+            <PrettierIcon size={15} dimmed={prettierState !== "formatted"} />
+          </button>
+        {/if}
+      </div>
+      <span class="status-sep" aria-hidden="true"></span>
+    {/if}
+
+    <div class="status-bar__group" role="toolbar" aria-label="Explorer panels">
+      {#each EXPLORER_PANEL_TABS as tab (tab.id)}
+        <button
+          type="button"
+          class="status-toggle workbench-icon-btn"
+          class:active={explorerTabPressed(tab.id)}
+          aria-pressed={explorerTabPressed(tab.id)}
+          title={tab.title}
+          aria-label={tab.title}
+          onclick={() => onExplorerTab?.(tab.id)}
+        >
+          <AppIcon name={EXPLORER_TAB_ICONS[tab.id]} size={16} />
+        </button>
+      {/each}
+    </div>
+
+    <span class="status-sep" aria-hidden="true"></span>
+
+    <div class="status-bar__group" role="toolbar" aria-label="Workspace and settings">
       <button
         type="button"
-        class="status-editor-btn"
-        aria-pressed={wordWrapOn}
-        title={wordWrapOn ? "Disable line wrap" : "Enable line wrap"}
-        aria-label="Toggle line wrap"
-        onclick={() => toggleWordWrap()}
+        class="status-toggle workbench-icon-btn"
+        title="Open workspace folder"
+        aria-label="Open workspace folder"
+        onclick={() => onOpenWorkspace?.()}
       >
-        <WordWrapIcon size={15} dimmed={!wordWrapOn} />
+        <AppIcon name="open-new-window" size={16} />
       </button>
-    {/if}
-    {#if showPrettier}
       <button
         type="button"
-        class="status-editor-btn"
-        title={prettierState === "formatted"
-          ? "Formatted with Prettier (click to re-format)"
-          : prettierState === "checking"
-            ? "Checking Prettier…"
-            : "Not Prettier-formatted (click to format)"}
-        aria-label="Format with Prettier"
-        onclick={formatDocument}
+        class="status-toggle workbench-icon-btn"
+        title="Send feedback"
+        aria-label="Send feedback"
+        onclick={() => onOpenFeedback?.()}
       >
-        <PrettierIcon
-          size={15}
-          dimmed={prettierState !== "formatted"}
-        />
+        <AppIcon name="mail-open" size={16} />
       </button>
-    {/if}
+      <button
+        type="button"
+        class="status-toggle workbench-icon-btn"
+        title="Settings"
+        aria-label="Settings"
+        onclick={() => onOpenSettings?.()}
+      >
+        <AppIcon name="settings" size={16} />
+      </button>
+    </div>
   </div>
 </div>
 
@@ -264,11 +354,17 @@
   .status-bar__right {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
     margin-left: auto;
     position: relative;
     z-index: 2;
+  }
+
+  .status-bar__group {
+    display: flex;
+    align-items: center;
+    gap: 0;
   }
 
   .status-bar__actions {

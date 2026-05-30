@@ -17,6 +17,8 @@ export interface OpenFile {
   language: string;
   /** When set, editor highlights lines changed vs this base (e.g. git HEAD). */
   diffBase?: string;
+  /** Buffer only — not written to disk until save (New file). */
+  pendingOnDisk?: boolean;
 }
 
 function createFilesStore() {
@@ -145,9 +147,27 @@ function createFilesStore() {
       update((state) => ({
         ...state,
         openFiles: state.openFiles.map((f) =>
-          normalizeFilePath(f.path) === canon ? { ...f, isDirty: false } : f
+          normalizeFilePath(f.path) === canon
+            ? { ...f, isDirty: false, pendingOnDisk: false }
+            : f
         ),
       }));
+    },
+    renameOpenFilePath(oldPath: string, newPath: string, newName: string) {
+      const canonOld = normalizeFilePath(oldPath);
+      const canonNew = normalizeFilePath(newPath);
+      update((state) => {
+        const openFiles = state.openFiles.map((f) =>
+          normalizeFilePath(f.path) === canonOld
+            ? { ...f, path: canonNew, name: newName }
+            : f
+        );
+        let activeFilePath = state.activeFilePath;
+        if (activeFilePath != null && normalizeFilePath(activeFilePath) === canonOld) {
+          activeFilePath = canonNew;
+        }
+        return { ...state, openFiles, activeFilePath };
+      });
     },
     clearOpenFiles() {
       update((state) => ({ ...state, openFiles: [], activeFilePath: null }));

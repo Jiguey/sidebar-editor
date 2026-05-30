@@ -1,7 +1,16 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { chat, activeSession } from "$lib/stores/chat";
-  import { settings, AVAILABLE_MODELS, type ModelConfig } from "$lib/stores/settings";
+  import { settings, type ModelConfig } from "$lib/stores/settings";
+  import {
+    fetchAnthropicModelCatalog,
+    fetchDeepseekModelCatalog,
+  } from "$lib/cloudModelCatalog";
+  import { mergeCloudModelCatalog, modelsVisibleInPicker } from "$lib/modelPicker";
+  import {
+    cloudProviderMenuReady,
+    ollamaProviderMenuReady,
+  } from "$lib/chatModelMenu";
   import {
     toolPolicy as toolPolicyStore,
     effectiveToolPolicy,
@@ -10,7 +19,15 @@
   import { currentMode, MODE_CONFIG, type ChatMode } from "$lib/stores/mode";
   import { systemPrompt } from "$lib/stores/systemPrompt";
   import { files } from "$lib/stores/files";
-  import { countTokens, estimateChatContextTokens } from "$lib/chatContext";
+  import {
+    countTokens,
+    estimateChatContextTokens,
+    estimateInflightContextTokens,
+  } from "$lib/chatContext";
+  import {
+    resolveComposerChromeState,
+    type ComposerChromeState,
+  } from "$lib/chat/composerChrome";
   import {
     fetchOllamaModelList,
     RECOMMENDED_OLLAMA_MODELS,
@@ -18,13 +35,14 @@
     contextOptionsUpTo,
   } from "$lib/ollamaClient";
   import { onMount, onDestroy } from "svelte";
+  import { floatingPanel, portal } from "$lib/actions/floatingPanel";
   import { isTauriAvailable } from "$lib/ipc";
   import {
     buildProviderMessages,
     appendAssistantToolCalls,
     appendToolResults,
   } from "$lib/agent/conversation";
-  import { streamOneTurn } from "$lib/agent/streamTurn";
+  import { streamOneTurn, resolveStreamCredentials } from "$lib/agent/streamTurn";
   import { inferenceOptionsForSettings } from "$lib/inferenceOptions";
   import { buildWorkspaceContextBlock } from "$lib/agent/workspaceContext";
   import { TOOL_SUMMARY_INSTRUCTION, shouldRunSynthesis, toolResultsAreSelfExplanatory } from "$lib/agent/synthesis";
@@ -72,21 +90,25 @@ import {
     resolveModelContextWindow,
   } from "$lib/contextBudget";
   import {
+    chatHasMessagesForCompaction,
+    MANUAL_COMPACTION_BUTTON_TITLE,
+    MANUAL_COMPACTION_UNAVAILABLE,
+  } from "$lib/agentCompaction";
+  import {
     chatFooterProfile,
     formatMonthlyUsageLabel,
     contextBudgetTitle,
+    cloudContextBudgetTitle,
   } from "$lib/chatFooterProfile";
   import { providerUsage } from "$lib/stores/providerUsage";
+  import AppIcon from "$lib/components/AppIcon.svelte";
 
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import History from "@lucide/svelte/icons/history";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
   import MessageCircle from "@lucide/svelte/icons/message-circle";
-  import Mic from "@lucide/svelte/icons/mic";
+  import ListChecks from "@lucide/svelte/icons/list-checks";
+  import Bot from "@lucide/svelte/icons/bot";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings from "@lucide/svelte/icons/settings";
-  import Square from "@lucide/svelte/icons/square";
 
   interface Props {
     onOpenSettings?: () => void;
@@ -119,6 +141,8 @@ import {
   /** User message being edited in history; main Send rewinds here first. */
   let editingUserMessageId = $state<string | null>(null);
   let rewindNotice = $state<string | null>(null);
+  let compactionNotice = $state<string | null>(null);
+  let compactionNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let messagesContainer: HTMLDivElement;
 
   function expandUserMessage(id: string, content: string) {
@@ -207,6 +231,17 @@ import {
     await openWorkspaceFile(path);
   }
 
+  let composerFocused = $state(false);
+  let userMessageFocusId = $state<string | null>(null);
+  let composerChromeState = $derived(
+    resolveComposerChromeState($chat.isStreaming, composerFocused)
+  );
+
+  function userMessageChromeState(expanded: boolean, messageId: string): ComposerChromeState {
+    if (!expanded) return "idle";
+    return resolveComposerChromeState($chat.isStreaming, userMessageFocusId === messageId);
+  }
+
   let streamingContent = $state("");
   let streamWallStartMs = 0;
   let streamFirstTokenAt = 0;
@@ -229,6 +264,7 @@ import {
 
   let modelMenuOpen = $state(false);
   let modelMenuAnchorEl: HTMLDivElement | undefined = $state();
+  let modelMenuPopupEl: HTMLDivElement | undefined = $state();
   let modeMenuOpen = $state(false);
   let modeMenuAnchorEl: HTMLDivElement | undefined = $state();
   let contextBudgetMenuOpen = $state(false);
@@ -240,34 +276,61 @@ import {
 
   type OllamaMenuRow = { id: string; name: string };
 
-  function buildOllamaMenuRows(installed: ModelConfig[]): OllamaMenuRow[] {
+  function buildMenuRows(installed: ModelConfig[]): OllamaMenuRow[] {
     return [...installed]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((m) => ({ id: m.id, name: m.name }));
   }
 
   let ollamaMenuRows = $derived.by(() => {
-    return buildOllamaMenuRows($settings.ollamaModels);
+    return buildMenuRows(modelsVisibleInPicker($settings.ollamaModels));
   });
 
   let anthropicMenuRows = $derived(
-    AVAILABLE_MODELS.filter((m) => m.provider === "anthropic").map((m) => ({
-      id: m.id,
-      name: m.name,
-    }))
+    buildMenuRows(modelsVisibleInPicker($settings.anthropicModels))
+  );
+
+  let deepseekMenuRows = $derived(
+    buildMenuRows(modelsVisibleInPicker($settings.deepseekModels))
+  );
+
+  let showOllamaInModelMenu = $derived(
+    ollamaProviderMenuReady(ollamaCatalogStatus === "ok", $settings.ollamaModels)
+  );
+
+  let showAnthropicInModelMenu = $derived(
+    cloudProviderMenuReady(
+      $settings.apiKeys.anthropic,
+      $settings.anthropicModels,
+      $settings.anthropicCatalogFetched
+    )
+  );
+
+  let showDeepseekInModelMenu = $derived(
+    cloudProviderMenuReady(
+      $settings.apiKeys.deepseek,
+      $settings.deepseekModels,
+      $settings.deepseekCatalogFetched
+    )
   );
 
   let ollamaChatReady = $derived(
     $settings.chatBackend !== "ollama" ||
-      (ollamaCatalogStatus === "ok" &&
-        $settings.ollamaModels.some((m) => m.id === $settings.selectedModel))
+      (showOllamaInModelMenu && $settings.ollamaModels.some((m) => m.id === $settings.selectedModel))
   );
 
   function anthropicModelCap(): number {
-    const m = AVAILABLE_MODELS.find(
+    const m = $settings.anthropicModels.find(
       (x) => x.id === $settings.selectedModel && x.provider === "anthropic"
     );
     return m?.contextWindow ?? 128000;
+  }
+
+  function deepseekModelCap(): number {
+    const m = $settings.deepseekModels.find(
+      (x) => x.id === $settings.selectedModel && x.provider === "deepseek"
+    );
+    return m?.contextWindow ?? 65536;
   }
 
   function contextBudgetCeiling(): number {
@@ -285,6 +348,9 @@ import {
     if ($settings.chatBackend === "llamacpp") {
       return $settings.llamacppModels.find((x) => x.id === $settings.selectedModel)?.contextWindow ?? 8192;
     }
+    if ($settings.chatBackend === "deepseek") {
+      return deepseekModelCap();
+    }
     return anthropicModelCap();
   }
 
@@ -296,6 +362,8 @@ import {
       selectedModel: $settings.selectedModel,
       ollamaModels: $settings.ollamaModels,
       llamacppModels: $settings.llamacppModels,
+      anthropicModels: $settings.anthropicModels,
+      deepseekModels: $settings.deepseekModels,
       anthropicContextBudget: $settings.anthropicContextBudget,
     })
   );
@@ -309,20 +377,37 @@ import {
       : $settings.chatBackend === "llamacpp"
         ? ($settings.llamacppModels.find((x) => x.id === $settings.selectedModel)?.name ??
             $settings.selectedModel)
-        : (AVAILABLE_MODELS.find((x) => x.id === $settings.selectedModel)?.name ?? "Anthropic")
+        : $settings.chatBackend === "deepseek"
+          ? ($settings.deepseekModels.find((x) => x.id === $settings.selectedModel)?.name ??
+              "DeepSeek")
+          : ($settings.anthropicModels.find((x) => x.id === $settings.selectedModel)?.name ??
+              "Anthropic")
   );
 
   let contextUsed = $derived(() => {
     const msgs = $activeSession?.messages ?? [];
-    const extras: string[] = [];
-    if (streamingContent) extras.push(streamingContent);
-    if (liveTurn?.thinking) extras.push(liveTurn.thinking);
-    const d = inputValue.trim();
-    if (d) extras.push(d);
-    return estimateChatContextTokens(
-      msgs.map((m) => ({ role: m.role, content: m.content })),
-      extras.join("\n\n")
+    const persisted = estimateChatContextTokens(
+      msgs.map((m) => ({
+        role: m.role,
+        content: m.content,
+        thinking: m.thinking,
+        rawToolCalls: m.rawToolCalls,
+      }))
     );
+    const inflight =
+      $chat.isStreaming && liveTurn
+        ? estimateInflightContextTokens({
+            streamingContent,
+            thinking: liveTurn.thinking,
+            planText: liveTurn.planText,
+            response: liveTurn.response,
+          })
+        : $chat.isStreaming && streamingContent
+          ? estimateInflightContextTokens({ streamingContent })
+          : 0;
+    const draft = inputValue.trim();
+    const draftTokens = draft ? 4 + countTokens(draft) : 0;
+    return persisted + inflight + draftTokens;
   });
 
   let contextPct = $derived(() => {
@@ -365,6 +450,25 @@ import {
     if (sec < 1) return `${Math.max(1, Math.round(sec * 1000))}ms`;
     if (sec < 10) return `${sec.toFixed(1)}s`;
     return `${Math.round(sec)}s`;
+  }
+
+  let compactButtonInactive = $derived(
+    !chatHasMessagesForCompaction($activeSession?.messages.length ?? 0)
+  );
+
+  function showCompactionNotice(message: string) {
+    compactionNotice = message;
+    if (compactionNoticeTimer) clearTimeout(compactionNoticeTimer);
+    compactionNoticeTimer = setTimeout(() => {
+      compactionNotice = null;
+      compactionNoticeTimer = null;
+    }, 8000);
+  }
+
+  function requestManualCompaction() {
+    if (compactButtonInactive) return;
+    // TODO(spec 21): compactHistory() — replace placeholder when runtime ships.
+    showCompactionNotice(MANUAL_COMPACTION_UNAVAILABLE);
   }
 
   function clearStreamTiming() {
@@ -417,8 +521,33 @@ import {
     }
   }
 
+  async function syncCloudCatalogOnce() {
+    const st = get(settings);
+    if (
+      st.apiKeys.anthropic.trim().length >= 20 &&
+      !st.anthropicCatalogFetched
+    ) {
+      try {
+        const rows = await fetchAnthropicModelCatalog(st.apiKeys.anthropic);
+        settings.setAnthropicModels(mergeCloudModelCatalog(st.anthropicModels, rows));
+      } catch (e) {
+        console.warn("Anthropic model catalog:", e);
+      }
+    }
+    const st2 = get(settings);
+    if (st2.apiKeys.deepseek.trim().length >= 20 && !st2.deepseekCatalogFetched) {
+      try {
+        const rows = await fetchDeepseekModelCatalog(st2.apiKeys.deepseek);
+        settings.setDeepseekModels(mergeCloudModelCatalog(st2.deepseekModels, rows));
+      } catch (e) {
+        console.warn("DeepSeek model catalog:", e);
+      }
+    }
+  }
+
   onMount(async () => {
     void refreshOllamaModelsFromHost();
+    void syncCloudCatalogOnce();
     if (isTauriAvailable() && $files.workspacePath) {
       await systemPrompt.load($files.workspacePath);
       await reloadProjectTools($files.workspacePath);
@@ -435,6 +564,7 @@ import {
   onDestroy(() => {
     stopDictation();
     abortController?.abort();
+    if (compactionNoticeTimer) clearTimeout(compactionNoticeTimer);
   });
 
   $effect(() => {
@@ -482,7 +612,7 @@ import {
       );
     } else {
       const cap =
-        AVAILABLE_MODELS.find((m) => m.id === st.selectedModel && m.provider === "anthropic")
+        st.anthropicModels.find((m) => m.id === st.selectedModel && m.provider === "anthropic")
           ?.contextWindow ?? 128_000;
       if (opt >= cap) settings.setAnthropicContextBudget(null);
       else settings.setAnthropicContextBudget(opt);
@@ -492,7 +622,12 @@ import {
 
   function onDocPointerDown(e: PointerEvent) {
     const t = e.target as Node;
-    if (modelMenuOpen && modelMenuAnchorEl && !modelMenuAnchorEl.contains(t)) {
+    if (
+      modelMenuOpen &&
+      modelMenuAnchorEl &&
+      !modelMenuAnchorEl.contains(t) &&
+      (!modelMenuPopupEl || !modelMenuPopupEl.contains(t))
+    ) {
       modelMenuOpen = false;
     }
     if (modeMenuOpen && modeMenuAnchorEl && !modeMenuAnchorEl.contains(t)) {
@@ -787,6 +922,8 @@ import {
       selectedModel: st.selectedModel,
       ollamaModels: st.ollamaModels,
       llamacppModels: st.llamacppModels,
+      anthropicModels: st.anthropicModels,
+      deepseekModels: st.deepseekModels,
       anthropicContextBudget: st.anthropicContextBudget,
     });
   }
@@ -836,10 +973,17 @@ import {
           patchLiveTurn((t) => ({ ...t, planText: "" }));
         }
 
+        const creds = resolveStreamCredentials({
+          backend: st.chatBackend,
+          apiKeys: st.apiKeys,
+          ollamaEndpoint: st.ollamaEndpoint,
+          llamacppEndpoint: st.llamacppEndpoint,
+          llamacppApiKey: st.llamacppApiKey,
+        });
         const turn = await streamOneTurn({
           backend: st.chatBackend,
-          apiKey: st.apiKeys.anthropic,
-          baseUrl: st.chatBackend === "ollama" ? st.ollamaEndpoint : st.llamacppEndpoint,
+          apiKey: creds.apiKey,
+          baseUrl: creds.baseUrl,
           model: st.selectedModel,
           systemPrompt: systemPromptText,
           messages: providerMessages,
@@ -999,10 +1143,17 @@ import {
         !isAgentContextBudgetExceeded(providerMessages, contextWindow)
       ) {
         streamingContent = "";
+        const synthCreds = resolveStreamCredentials({
+          backend: st.chatBackend,
+          apiKeys: st.apiKeys,
+          ollamaEndpoint: st.ollamaEndpoint,
+          llamacppEndpoint: st.llamacppEndpoint,
+          llamacppApiKey: st.llamacppApiKey,
+        });
         const synthTurn = await streamOneTurn({
           backend: st.chatBackend,
-          apiKey: st.apiKeys.anthropic,
-          baseUrl: st.chatBackend === "ollama" ? st.ollamaEndpoint : st.llamacppEndpoint,
+          apiKey: synthCreds.apiKey,
+          baseUrl: synthCreds.baseUrl,
           model: st.selectedModel,
           systemPrompt: systemPromptText,
           messages: [...providerMessages, { role: "user", content: SYNTHESIS_NUDGE }],
@@ -1137,6 +1288,12 @@ import {
     modelMenuOpen = false;
   }
 
+  function pickDeepseekModelRow(modelId: string) {
+    settings.setChatBackend("deepseek");
+    settings.setSelectedModel(modelId);
+    modelMenuOpen = false;
+  }
+
   function pickLlamacppModelRow(modelId: string) {
     settings.setChatBackend("llamacpp");
     settings.setSelectedModel(modelId);
@@ -1243,6 +1400,7 @@ import {
   }
 
   async function handleSubmit(e: Event) {
+    stopDictation();
     e.preventDefault();
     if ($chat.isStreaming) return;
 
@@ -1321,7 +1479,7 @@ import {
       {#if $chat.historyPickerOpen}
         <MessageCircle size={18} strokeWidth={1.75} />
       {:else}
-        <History size={18} strokeWidth={1.75} />
+        <AppIcon name="long-arrow-left-down" size={18} />
       {/if}
     </button>
     {#if $chat.historyPickerOpen}
@@ -1372,10 +1530,19 @@ import {
             class:user-message-slot--editing={expanded}
           >
             <div
-              class="message-user-composer composer-shell"
+              class="message-user-composer composer-shell composer-shell--chromed"
               class:composer-shell--editing={expanded}
+              data-chrome-state={userMessageChromeState(expanded, message.id)}
               onclick={() => {
                 if (!expanded) expandUserMessage(message.id, message.content);
+              }}
+              onfocusin={() => {
+                if (expanded) userMessageFocusId = message.id;
+              }}
+              onfocusout={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  userMessageFocusId = null;
+                }
               }}
             >
               {#if expanded}
@@ -1532,11 +1699,24 @@ import {
       your edit.
     </p>
   {/if}
-  {#if rewindNotice}
-    <p class="rewind-notice" role="status">{rewindNotice}</p>
+  {#if rewindNotice || compactionNotice}
+    <p class="rewind-notice" role="status">{rewindNotice ?? compactionNotice}</p>
   {/if}
-  <form class="input-area composer-form" onsubmit={handleSubmit}>
-    <div class="composer-shell" onpointerdown={collapseAllHistoryEdits}>
+  <form
+    class="input-area composer-form"
+    onsubmit={handleSubmit}
+    onfocusin={() => (composerFocused = true)}
+    onfocusout={(e) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+        composerFocused = false;
+      }
+    }}
+  >
+    <div
+      class="composer-shell composer-shell--chromed"
+      data-chrome-state={composerChromeState}
+      onpointerdown={collapseAllHistoryEdits}
+    >
       <textarea
         class="composer-textarea"
         bind:value={inputValue}
@@ -1550,13 +1730,27 @@ import {
           <button
             type="button"
             class="composer-mode-btn"
+            class:composer-mode-btn--chat={$currentMode === "chat"}
+            class:composer-mode-btn--plan={$currentMode === "plan"}
+            class:composer-mode-btn--agent={$currentMode === "agent"}
             onclick={toggleModeMenu}
             aria-expanded={modeMenuOpen}
             aria-haspopup="listbox"
             title="Choose mode"
           >
+            <span class="composer-mode-icon" aria-hidden="true">
+              {#if $currentMode === "chat"}
+                <MessageCircle size={13} strokeWidth={1.75} />
+              {:else if $currentMode === "plan"}
+                <ListChecks size={13} strokeWidth={1.75} />
+              {:else}
+                <Bot size={13} strokeWidth={1.75} />
+              {/if}
+            </span>
             <span class="composer-mode-label">{MODE_CONFIG[$currentMode].label}</span>
-            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+            <span class="composer-mode-chevron" aria-hidden="true">
+              <ChevronDown size={12} strokeWidth={1.75} />
+            </span>
           </button>
           {#if modeMenuOpen}
             <div class="mode-popup" role="listbox" aria-label="Choose mode">
@@ -1566,11 +1760,25 @@ import {
                   role="option"
                   class="mode-popup-option"
                   class:mode-popup-option--current={$currentMode === mode}
+                  class:mode-popup-option--chat={mode === "chat"}
+                  class:mode-popup-option--plan={mode === "plan"}
+                  class:mode-popup-option--agent={mode === "agent"}
                   aria-selected={$currentMode === mode}
                   onclick={() => pickMode(mode)}
                 >
-                  <span class="mode-option-label">{MODE_CONFIG[mode].label}</span>
-                  <span class="mode-option-desc">{MODE_CONFIG[mode].description}</span>
+                  <span class="mode-option-icon" aria-hidden="true">
+                    {#if mode === "chat"}
+                      <MessageCircle size={14} strokeWidth={1.75} />
+                    {:else if mode === "plan"}
+                      <ListChecks size={14} strokeWidth={1.75} />
+                    {:else}
+                      <Bot size={14} strokeWidth={1.75} />
+                    {/if}
+                  </span>
+                  <span class="mode-option-text">
+                    <span class="mode-option-label">{MODE_CONFIG[mode].label}</span>
+                    <span class="mode-option-desc">{MODE_CONFIG[mode].description}</span>
+                  </span>
                 </button>
               {/each}
             </div>
@@ -1586,59 +1794,61 @@ import {
             title="Choose model"
           >
             <span class="composer-model-label">{modelTriggerLabel}</span>
-            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+            <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
           </button>
           {#if modelMenuOpen}
-            <div class="model-popup" role="listbox" aria-label="Choose model">
-              <div class="model-popup-section">
-                <div class="model-popup-section-head">
-                  <span>Ollama</span>
-                  <div class="model-popup-actions">
-                    <button
-                      type="button"
-                      class="model-popup-action-btn"
-                      onclick={() => refreshOllamaModelsFromHost()}
-                      title="Refresh Ollama models"
-                      aria-label="Refresh Ollama models"
-                    >
-                      <RefreshCw size={14} strokeWidth={1.75} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      class="model-popup-action-btn"
-                      onclick={() => {
-                        modelMenuOpen = false;
-                        onOpenSettings?.();
-                      }}
-                      title="Provider settings"
-                      aria-label="Provider settings"
-                    >
-                      <Settings size={14} strokeWidth={1.75} aria-hidden="true" />
-                    </button>
+            <div
+              class="model-popup"
+              role="listbox"
+              aria-label="Choose model"
+              bind:this={modelMenuPopupEl}
+              use:portal
+              use:floatingPanel={{ getAnchor: () => modelMenuAnchorEl }}
+            >
+              {#if showOllamaInModelMenu}
+                <div class="model-popup-section">
+                  <div class="model-popup-section-head">
+                    <span>Ollama</span>
+                    <div class="model-popup-actions">
+                      <button
+                        type="button"
+                        class="model-popup-action-btn"
+                        onclick={() => refreshOllamaModelsFromHost()}
+                        title="Refresh Ollama models"
+                        aria-label="Refresh Ollama models"
+                      >
+                        <RefreshCw size={14} strokeWidth={1.75} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        class="model-popup-action-btn"
+                        onclick={() => {
+                          modelMenuOpen = false;
+                          onOpenSettings?.();
+                        }}
+                        title="Provider settings"
+                        aria-label="Provider settings"
+                      >
+                        <Settings size={14} strokeWidth={1.75} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
+                  {#each ollamaMenuRows as row (row.id)}
+                    <button
+                      type="button"
+                      role="option"
+                      class="model-popup-option"
+                      class:model-popup-option--current={$settings.chatBackend === "ollama" &&
+                        $settings.selectedModel === row.id}
+                      aria-selected={$settings.chatBackend === "ollama" && $settings.selectedModel === row.id}
+                      onclick={() => pickOllamaModel(row.id)}
+                    >
+                      {row.name}
+                    </button>
+                  {/each}
                 </div>
-                {#each ollamaMenuRows as row (row.id)}
-                  <button
-                    type="button"
-                    role="option"
-                    class="model-popup-option"
-                    class:model-popup-option--current={$settings.chatBackend === "ollama" &&
-                      $settings.selectedModel === row.id}
-                    aria-selected={$settings.chatBackend === "ollama" && $settings.selectedModel === row.id}
-                    onclick={() => pickOllamaModel(row.id)}
-                  >
-                    {row.name}
-                  </button>
-                {:else}
-                  <p class="model-popup-empty">
-                    {#if ollamaCatalogStatus === "fail"}
-                      Unreachable — check <code class="inline-code">ollama serve</code> and Settings → Ollama URL.
-                    {:else}
-                      No models. Try <code class="inline-code">ollama pull llama3.2:1b</code>
-                    {/if}
-                  </p>
-                {/each}
-              </div>
+              {/if}
+              {#if showAnthropicInModelMenu}
               <div class="model-popup-section">
                 <div class="model-popup-section-head">
                   <span>Anthropic</span>
@@ -1657,6 +1867,27 @@ import {
                   </button>
                 {/each}
               </div>
+              {/if}
+              {#if showDeepseekInModelMenu}
+              <div class="model-popup-section">
+                <div class="model-popup-section-head">
+                  <span>DeepSeek</span>
+                </div>
+                {#each deepseekMenuRows as row (row.id)}
+                  <button
+                    type="button"
+                    role="option"
+                    class="model-popup-option"
+                    class:model-popup-option--current={$settings.chatBackend === "deepseek" &&
+                      $settings.selectedModel === row.id}
+                    aria-selected={$settings.chatBackend === "deepseek" && $settings.selectedModel === row.id}
+                    onclick={() => pickDeepseekModelRow(row.id)}
+                  >
+                    {row.name}
+                  </button>
+                {/each}
+              </div>
+              {/if}
               {#if $settings.llamacppModels.length > 0}
                 <div class="model-popup-section">
                   <div class="model-popup-section-head">
@@ -1690,54 +1921,57 @@ import {
           {/if}
         </div>
         <span class="composer-toolbar-spacer"></span>
-        {#if $chat.isStreaming}
-          <button
-            type="button"
-            class="composer-stop-btn"
-            onclick={() => void cancelChatRequest()}
-            title="Stop generating"
-            aria-label="Stop generating"
-          >
-            <Square size={18} strokeWidth={1.75} aria-hidden="true" />
-          </button>
-        {:else}
-          <input
-            bind:this={attachInputEl}
-            type="file"
-            class="composer-file-input"
-            onchange={onAttachChange}
-          />
-          <button
-            type="button"
-            class="composer-tool-btn workbench-icon-btn"
-            onclick={() => attachInputEl?.click()}
-            title="Attach file"
-            aria-label="Attach file"
-          >
-            <Paperclip size={18} strokeWidth={2} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="composer-tool-btn workbench-icon-btn"
-            onclick={toggleDictation}
-            title={speechListening ? "Stop dictation" : "Speech to text"}
-            aria-label={speechListening ? "Stop dictation" : "Speech to text"}
-            aria-pressed={speechListening}
-          >
-            <Mic size={18} strokeWidth={2} aria-hidden="true" />
-          </button>
-          {#if inputValue.trim()}
+        <div class="composer-tool-cluster">
+          {#if $chat.isStreaming}
             <button
-              type="submit"
-              class="composer-send-minimal"
-              disabled={!ollamaChatReady}
-              title="Send"
-              aria-label="Send message"
+              type="button"
+              class="composer-tool-btn workbench-icon-btn"
+              onclick={() => void cancelChatRequest()}
+              title="Stop generating"
+              aria-label="Stop generating"
             >
-              <ArrowUp size={18} strokeWidth={1.75} aria-hidden="true" />
+              <AppIcon name="pause" size={17} />
             </button>
+          {:else}
+            <input
+              bind:this={attachInputEl}
+              type="file"
+              class="composer-file-input"
+              onchange={onAttachChange}
+            />
+            <button
+              type="button"
+              class="composer-tool-btn workbench-icon-btn"
+              onclick={() => attachInputEl?.click()}
+              title="Attach file"
+              aria-label="Attach file"
+            >
+              <AppIcon name="attachment" size={17} />
+            </button>
+            {#if inputValue.trim()}
+              <button
+                type="submit"
+                class="composer-tool-btn workbench-icon-btn"
+                disabled={!ollamaChatReady}
+                title="Send"
+                aria-label="Send message"
+              >
+                <AppIcon name="arrow-up-circle" size={17} />
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="composer-tool-btn workbench-icon-btn"
+                onclick={toggleDictation}
+                title={speechListening ? "Stop dictation" : "Speech to text"}
+                aria-label={speechListening ? "Stop dictation" : "Speech to text"}
+                aria-pressed={speechListening}
+              >
+                <AppIcon name="microphone" size={17} />
+              </button>
+            {/if}
           {/if}
-        {/if}
+        </div>
       </div>
     </div>
   </form>
@@ -1749,63 +1983,83 @@ import {
       </div>
     {/if}
     <div class="context-meta">
-      {#if footerProfile().showStreamMetrics}
-        <span
-          class="context-chat-tok"
-          title="Output speed, token count, and duration for the last completed reply"
-          aria-label="Last reply: tokens per second, output tokens, and completion time"
-        >
-          {lastReplyFooterLabel()}
-        </span>
-      {:else if footerProfile().showMonthlyUsage}
-        <span
-          class="context-chat-tok"
-          title="Input and output tokens from API responses this calendar month (stored locally)"
-        >
-          {monthlyUsageLabel()}
-        </span>
-      {/if}
-      <div class="context-budget-wrap" bind:this={contextBudgetMenuEl}>
-        {#if footerProfile().contextBudgetEditable}
-          <button
-            type="button"
-            class="context-numbers"
-            onclick={toggleContextBudgetMenu}
-            aria-expanded={contextBudgetMenuOpen}
-            aria-haspopup="listbox"
-            title={contextBudgetTitle(footerProfile(), $settings.chatBackend)}
+      <div class="context-meta-start">
+        {#if footerProfile().showMonthlyUsage}
+          <span
+            class="context-monthly-usage"
+            title="Input and output tokens from API responses this calendar month (stored locally on this device)"
+          >
+            {monthlyUsageLabel()}
+          </span>
+        {/if}
+        {#if footerProfile().showStreamMetrics}
+          <span
+            class="context-chat-tok"
+            title="Output speed, token count, and duration for the last completed reply"
+            aria-label="Last reply: tokens per second, output tokens, and completion time"
+          >
+            {lastReplyFooterLabel()}
+          </span>
+        {/if}
+      </div>
+      <div class="context-budget-row">
+        <div class="context-budget-wrap" bind:this={contextBudgetMenuEl}>
+          {#if footerProfile().contextBudgetEditable}
+            <button
+              type="button"
+              class="context-numbers"
+              onclick={toggleContextBudgetMenu}
+              aria-expanded={contextBudgetMenuOpen}
+              aria-haspopup="listbox"
+            title={footerProfile().showMonthlyUsage
+              ? cloudContextBudgetTitle(maxContextTokens())
+              : contextBudgetTitle(footerProfile(), $settings.chatBackend)}
           >
             <span class="context-numbers-text"
               >~{formatTok(contextUsed())} / {formatTok(maxContextTokens())} tok</span
             >
-          </button>
-          {#if contextBudgetMenuOpen}
-            <div class="context-budget-menu" role="listbox" aria-label="Context budget">
-              {#each contextBudgetOptions() as opt (opt)}
-                <button
-                  type="button"
-                  role="option"
-                  class="context-budget-option"
-                  class:current={opt === maxContextTokens()}
-                  aria-selected={opt === maxContextTokens()}
-                  onclick={() => pickContextBudgetOption(opt)}
-                >
-                  {formatTok(opt)} tok
-                </button>
-              {/each}
-            </div>
-          {/if}
-        {:else}
-          <span
-            class="context-numbers context-numbers--static"
-            title={contextBudgetTitle(footerProfile(), $settings.chatBackend)}
+            </button>
+            {#if contextBudgetMenuOpen}
+              <div class="context-budget-menu" role="listbox" aria-label="Context budget">
+                {#each contextBudgetOptions() as opt (opt)}
+                  <button
+                    type="button"
+                    role="option"
+                    class="context-budget-option"
+                    class:current={opt === maxContextTokens()}
+                    aria-selected={opt === maxContextTokens()}
+                    onclick={() => pickContextBudgetOption(opt)}
+                  >
+                    {formatTok(opt)} tok
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            <span
+              class="context-numbers context-numbers--static"
+            title={footerProfile().showMonthlyUsage
+              ? cloudContextBudgetTitle(maxContextTokens())
+              : contextBudgetTitle(footerProfile(), $settings.chatBackend)}
           >
             <span class="context-numbers-text">
               ~{formatTok(contextUsed())} / {formatTok(maxContextTokens())} tok{#if footerProfile().contextHint}
-                <span class="context-hint"> · {footerProfile().contextHint}</span>{/if}
+                  <span class="context-hint"> · {footerProfile().contextHint}</span>{/if}
+              </span>
             </span>
-          </span>
-        {/if}
+          {/if}
+        </div>
+        <button
+          type="button"
+          class="context-compact-btn"
+          class:context-compact-btn--inactive={compactButtonInactive}
+          aria-disabled={compactButtonInactive}
+          title={MANUAL_COMPACTION_BUTTON_TITLE}
+          aria-label={MANUAL_COMPACTION_BUTTON_TITLE}
+          onclick={() => requestManualCompaction()}
+        >
+          <AppIcon name="circle-spark" size={14} />
+        </button>
       </div>
     </div>
   </div>
@@ -1819,7 +2073,9 @@ import {
     height: 100%;
     min-height: 0;
     min-width: 0;
-    overflow-x: hidden;
+    overflow: hidden;
+    border-radius: inherit;
+    background: var(--chat-panel-bg, var(--sidebar));
   }
 
   .tool-approval-slot {
@@ -2123,29 +2379,18 @@ import {
     padding-bottom: 28px;
   }
 
-  .message-user-composer {
+  .message-user-composer.composer-shell--chromed {
     width: 100%;
     cursor: pointer;
-    border-color: transparent;
   }
 
   .message-user-composer.composer-shell--editing {
     cursor: text;
   }
 
-  .message-user-composer.composer-shell--editing:focus-within {
-    border-color: #007acc;
-  }
-
-  .message-user-composer:not(.composer-shell--editing):hover {
-    background: color-mix(in oklch, #2d2d30 92%, #ffffff);
-  }
-
   .message-user-composer:not(.composer-shell--editing):focus,
   .message-user-composer:not(.composer-shell--editing):focus-visible {
     outline: none;
-    border-color: transparent;
-    box-shadow: none;
   }
 
   .message-user-preview {
@@ -2413,16 +2658,69 @@ import {
     overflow: visible;
   }
 
-  .composer-mode-btn :global(svg),
-  .composer-model-btn :global(svg) {
-    width: 11px;
-    height: 11px;
+  /* Composer chrome: editor fill + 1px border (idle / focused / streaming rainbow). */
+  .composer-shell--chromed {
+    --composer-chrome-fill: var(--editor-bg, #1e1e1e);
+    position: relative;
+    background: var(--composer-chrome-fill);
+    border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
-  .composer-stop-btn :global(svg),
-  .composer-send-minimal :global(svg) {
-    width: var(--workbench-icon-btn-icon-size, 18px);
-    height: var(--workbench-icon-btn-icon-size, 18px);
+  .composer-shell--chromed[data-chrome-state="idle"]:hover {
+    border-color: color-mix(in srgb, var(--muted-foreground) 45%, var(--border));
+  }
+
+  .composer-shell--chromed[data-chrome-state="focused"] {
+    border-color: var(--primary, #007acc);
+    box-shadow: none;
+  }
+
+  .composer-shell--chromed[data-chrome-state="working"] {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--composer-chrome-fill), var(--composer-chrome-fill)) padding-box,
+      linear-gradient(
+          90deg,
+          #ff6b9d,
+          #c56cf0,
+          #4dabf7,
+          #51cf66,
+          #ffd43b,
+          #ff922b,
+          #ff6b9d
+        )
+        border-box;
+    background-size: 100% 100%, 320% 100%;
+    animation: composer-rainbow-border 3.5s linear infinite;
+  }
+
+  @keyframes composer-rainbow-border {
+    to {
+      background-position: 0 0, 320% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .composer-shell--chromed[data-chrome-state="working"] {
+      animation: none;
+      background-size: 100% 100%, 100% 100%;
+      border: 1px solid var(--primary, #007acc);
+      background: var(--composer-chrome-fill);
+      box-shadow: none;
+    }
+  }
+
+  .composer-model-btn :global(svg) {
+    flex-shrink: 0;
+    display: block;
+    width: 12px;
+    height: 12px;
+  }
+
+  .composer-tool-cluster .composer-tool-btn :global(svg) {
+    width: var(--composer-tool-cluster-icon-size, 18px);
+    height: var(--composer-tool-cluster-icon-size, 18px);
   }
 
   .composer-textarea {
@@ -2451,44 +2749,113 @@ import {
     outline: none;
   }
 
-  .composer-form .composer-shell:focus-within {
-    border-color: #007acc;
-  }
-
   .composer-toolbar {
+    --composer-tool-cluster-bg: var(--chat-panel-bg, var(--sidebar));
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 6px;
     padding: 5px 6px 7px;
     min-height: 0;
   }
 
-  .composer-mode-wrap {
+  .composer-mode-wrap,
+  .composer-model-wrap {
     position: relative;
-    align-self: center;
+    display: inline-flex;
+    align-items: center;
     flex-shrink: 0;
   }
 
-  .composer-mode-btn {
+  .composer-mode-btn,
+  .composer-model-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px 3px 6px;
+    justify-content: center;
+    gap: 5px;
+    height: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0 8px;
+    box-sizing: border-box;
     border: none;
-    border-radius: 6px;
-    background: rgba(78, 201, 176, 0.15);
-    color: #4ec9b0;
+    border-radius: 10px;
+    font-family: inherit;
     font-size: 11px;
-    line-height: 1.2;
-    cursor: pointer;
     font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
   }
 
-  .composer-mode-btn:hover {
-    background: rgba(78, 201, 176, 0.25);
+  .composer-mode-btn {
+    padding: 0 8px 0 6px;
+    background: var(--composer-tool-cluster-bg);
+    border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    border-radius: 9999px;
+  }
+
+  .composer-mode-btn--chat {
+    color: #4ec9b0;
+  }
+
+  .composer-mode-btn--chat:hover {
+    background: color-mix(in srgb, var(--foreground) 8%, var(--composer-tool-cluster-bg));
+  }
+
+  .composer-mode-btn--plan {
+    color: #dcdcaa;
+  }
+
+  .composer-mode-btn--plan:hover {
+    background: color-mix(in srgb, var(--foreground) 8%, var(--composer-tool-cluster-bg));
+  }
+
+  .composer-mode-btn--agent {
+    color: #b0b0b0;
+  }
+
+  .composer-mode-btn--agent:hover {
+    background: color-mix(in srgb, var(--foreground) 8%, var(--composer-tool-cluster-bg));
+  }
+
+  .composer-mode-icon,
+  .composer-mode-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+
+  .composer-mode-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .composer-mode-icon :global(svg) {
+    display: block;
+    width: 13px;
+    height: 13px;
+    transform: translateY(-0.5px);
+  }
+
+  .composer-mode-chevron {
+    width: 12px;
+    height: 12px;
+  }
+
+  .composer-mode-chevron :global(svg) {
+    display: block;
+    width: 12px;
+    height: 12px;
   }
 
   .composer-mode-label {
+    display: block;
+    line-height: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2510,9 +2877,9 @@ import {
 
   .mode-popup-option {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
-    gap: 2px;
+    gap: 10px;
     width: 100%;
     padding: 8px 12px;
     border: none;
@@ -2521,6 +2888,32 @@ import {
     font-size: 12px;
     text-align: left;
     cursor: pointer;
+  }
+
+  .mode-option-icon {
+    display: flex;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .mode-popup-option--chat .mode-option-icon {
+    color: #4ec9b0;
+  }
+
+  .mode-popup-option--plan .mode-option-icon {
+    color: #dcdcaa;
+  }
+
+  .mode-popup-option--agent .mode-option-icon {
+    color: #a3a3a3;
+  }
+
+  .mode-option-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
   }
 
   .mode-popup-option:hover {
@@ -2541,33 +2934,22 @@ import {
   }
 
   .composer-model-wrap {
-    position: relative;
-    align-self: center;
     min-width: 0;
     max-width: min(7.5rem, 32vw);
     flex: 0 1 auto;
   }
 
   .composer-model-btn {
-    display: inline-flex;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px 3px 6px;
-    border: none;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
+    padding: 0 6px 0 4px;
+    background: transparent;
     color: #c8c8c8;
-    font-size: 11px;
-    line-height: 1.2;
-    cursor: pointer;
-    box-sizing: border-box;
   }
 
   .composer-model-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: transparent;
     color: #f0f0f0;
   }
 
@@ -2596,55 +2978,35 @@ import {
     border: 0;
   }
 
-  .composer-stop-btn {
+  /** Attach / mic|send / stop — pill matches messages pane background. */
+  .composer-tool-cluster {
+    --composer-tool-cluster-size: 28px;
+    --composer-tool-cluster-icon-size: 17px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: var(--workbench-icon-btn-size, 32px);
-    height: var(--workbench-icon-btn-size, 32px);
-    padding: 0;
-    border: none;
-    border-radius: 6px;
-    background: rgba(180, 60, 60, 0.25);
-    color: #f48771;
-    cursor: pointer;
+    gap: 0;
+    flex-shrink: 0;
+    padding: 2px;
+    border-radius: 9999px;
+    background: var(--composer-tool-cluster-bg);
+    border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
 
-  .composer-stop-btn:hover {
-    background: rgba(180, 60, 60, 0.4);
-  }
-
-  .composer-send-minimal {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border: none;
-    border-radius: 6px;
-    background: #007acc;
-    color: #fff;
-    cursor: pointer;
-  }
-
-  .composer-send-minimal:hover:not(:disabled) {
-    background: #0098ff;
-  }
-
-  .composer-send-minimal:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
+  .composer-tool-cluster .composer-tool-btn.workbench-icon-btn {
+    width: var(--composer-tool-cluster-size);
+    height: var(--composer-tool-cluster-size);
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    --workbench-icon-btn-bg-hover: color-mix(in srgb, var(--foreground) 10%, transparent);
+    --workbench-icon-btn-bg-active: color-mix(in srgb, var(--foreground) 14%, transparent);
   }
 
   .model-popup {
-    position: absolute;
-    left: 0;
-    bottom: calc(100% + 6px);
-    z-index: 60;
-    min-width: min(100%, 220px);
-    width: max(100%, 260px);
-    max-width: min(92vw, 320px);
+    min-width: 220px;
+    width: max(260px, 12rem);
+    max-width: min(96vw, 360px);
     max-height: min(56vh, 360px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -2775,19 +3137,51 @@ import {
   .context-meta {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
+    min-height: 22px;
     font-size: 10px;
+    line-height: 14px;
     color: var(--muted-foreground);
   }
 
-  .context-chat-tok {
+  .context-meta-start {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 2px;
     flex: 1;
+    min-width: 0;
+  }
+
+  .context-monthly-usage,
+  .context-chat-tok {
+    display: inline-flex;
+    align-items: center;
+    min-height: 14px;
     min-width: 0;
     text-align: left;
     font-variant-numeric: tabular-nums;
+    line-height: 14px;
     user-select: none;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .context-monthly-usage {
+    color: #9cdcfe;
+  }
+
+  .context-budget-row {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    gap: 2px;
+    flex-shrink: 0;
+    min-height: 22px;
   }
 
   .context-budget-wrap {
@@ -2795,10 +3189,48 @@ import {
     flex-shrink: 0;
   }
 
+  .context-compact-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #a3a3a3;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .context-compact-btn:hover {
+    color: #e8e8e8;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .context-compact-btn:focus-visible {
+    outline: 1px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .context-compact-btn--inactive {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .context-compact-btn--inactive:hover {
+    color: #a3a3a3;
+    background: transparent;
+  }
+
   .context-numbers {
     display: inline-flex;
     align-items: center;
     justify-content: flex-end;
+    min-height: 14px;
+    line-height: 14px;
     gap: 0;
     margin: 0;
     padding: 0;
@@ -2818,10 +3250,18 @@ import {
   }
 
   .context-numbers-text {
+    display: inline-flex;
+    align-items: center;
+    min-height: 14px;
+    line-height: 14px;
     min-width: 0;
   }
 
   .context-numbers--static {
+    display: inline-flex;
+    align-items: center;
+    min-height: 14px;
+    line-height: 14px;
     cursor: default;
     pointer-events: none;
   }

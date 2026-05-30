@@ -49,8 +49,8 @@
     display: flex;
     align-items: stretch;
     flex-shrink: 0;
-    height: var(--workbench-shell-header-height);
-    min-height: var(--workbench-shell-header-height);
+    height: var(--workbench-titlebar-height);
+    min-height: var(--workbench-titlebar-height);
     border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     background: color-mix(in srgb, var(--surface, var(--card)) 88%, var(--background) 12%);
   }

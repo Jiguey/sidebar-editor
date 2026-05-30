@@ -46,6 +46,7 @@ export async function pollBackendHealth(input: {
   llamacppEndpoint: string;
   llamacppApiKey?: string;
   anthropicApiKey: string;
+  deepseekApiKey: string;
 }): Promise<BackendStatusLine> {
   const {
     chatBackend,
@@ -54,6 +55,7 @@ export async function pollBackendHealth(input: {
     llamacppEndpoint,
     llamacppApiKey,
     anthropicApiKey,
+    deepseekApiKey,
   } = input;
 
   if (chatBackend === "ollama") {
@@ -117,6 +119,24 @@ export async function pollBackendHealth(input: {
     } catch {
       return { backend: "llamacpp", dot: h.dot, label: "llama.cpp", detail: h.detail };
     }
+  }
+
+  if (chatBackend === "deepseek") {
+    const key = deepseekApiKey.trim();
+    if (key.length >= 20) {
+      return {
+        backend: "deepseek",
+        dot: "green",
+        label: "DeepSeek",
+        detail: selectedModel,
+      };
+    }
+    return {
+      backend: "deepseek",
+      dot: "red",
+      label: "DeepSeek",
+      detail: "Add an API key in Settings",
+    };
   }
 
   const key = anthropicApiKey.trim();

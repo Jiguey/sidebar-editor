@@ -1,11 +1,15 @@
 <script lang="ts">
   import { chat } from "$lib/stores/chat";
+  import { settings } from "$lib/stores/settings";
   import { tabStripScroll } from "$lib/actions/scrollOverflow";
+  import AppIcon from "$lib/components/AppIcon.svelte";
   import ShellTabBubble from "../workbench/ShellTabBubble.svelte";
-  import ChatCircleIcon from "phosphor-svelte/lib/ChatCircleIcon";
   import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 
   let tabScroll: HTMLDivElement;
+
+  let uniformTabWidth = $derived($settings.editor.uniformTabWidth);
+  let uniformTabWidthPx = $derived($settings.editor.uniformTabWidthPx);
 
   function newChat() {
     chat.newSession();
@@ -27,12 +31,14 @@
           <ShellTabBubble
             title={session.title}
             active={session.id === $chat.activeSessionId}
+            uniformWidth={uniformTabWidth}
+            uniformWidthPx={uniformTabWidthPx}
             allowMiddleClose
             onActivate={() => chat.setActiveSession(session.id)}
             onClose={() => chat.closeSession(session.id)}
           >
             {#snippet icon()}
-              <ChatCircleIcon size={14} />
+              <AppIcon name="chat-lines" size={11} />
             {/snippet}
           </ShellTabBubble>
         </div>
@@ -53,7 +59,7 @@
     height: 100%;
     min-height: 0;
     min-width: 0;
-    padding: 0 3px 0 1px;
+    padding: 0 6px 0 0;
     border: none;
     outline: none;
     box-shadow: none;
@@ -68,6 +74,7 @@
     overflow-x: auto;
     overflow-y: hidden;
     min-width: 0;
+    padding-left: var(--workbench-tab-strip-inner-padding-left, 8px);
   }
 
   .hdr-tab-slot {

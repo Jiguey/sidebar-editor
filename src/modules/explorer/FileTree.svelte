@@ -307,7 +307,7 @@
     flex: 1;
     min-height: 0;
     width: 100%;
-    background: var(--sidebar);
+    background-color: var(--explorer-panel-bg, var(--workbench-panel-bg, var(--sidebar)));
     color: var(--sidebar-foreground);
     overflow: hidden;
   }
@@ -333,9 +333,12 @@
   .loading,
   .error,
   .tree-prompt {
+    flex: 1;
+    min-height: 0;
     padding: 16px;
     color: var(--muted-foreground);
     font-size: 13px;
+    background-color: inherit;
   }
 
   .error {

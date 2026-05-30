@@ -6,6 +6,8 @@ export type OllamaModelConfig = {
   contextWindow: number;
   /** Upper bound from Ollama model metadata (`/api/show`). */
   contextLimitMax?: number;
+  /** When false, hidden from the chat model picker. */
+  showInPicker?: boolean;
 };
 
 /** Pull these for a good local dev experience (small downloads, roughly 0.5–2.5 GB total). */
@@ -93,8 +95,8 @@ export async function fetchOllamaModelMaxContext(endpoint: string, modelName: st
 function mergePreviousContext(
   id: string,
   maxCtx: number,
-  previous: { id: string; contextWindow: number }[] | undefined
-): { contextWindow: number; contextLimitMax: number } {
+  previous: { id: string; contextWindow: number; showInPicker?: boolean }[] | undefined
+): { contextWindow: number; contextLimitMax: number; showInPicker: boolean } {
   const prev = previous?.find((m) => m.id === id);
   const max = Math.max(MIN_CTX, maxCtx);
   const prevSel = prev?.contextWindow;
@@ -103,6 +105,7 @@ function mergePreviousContext(
   return {
     contextLimitMax: max,
     contextWindow: pickContextOption(raw, max),
+    showInPicker: prev?.showInPicker !== false,
   };
 }
 
@@ -112,7 +115,7 @@ function mergePreviousContext(
  */
 export async function fetchOllamaModelList(
   endpoint: string,
-  previousModels?: { id: string; contextWindow: number }[]
+  previousModels?: { id: string; contextWindow: number; showInPicker?: boolean }[]
 ): Promise<OllamaModelConfig[]> {
   const base = endpoint.replace(/\/$/, "");
   const res = await fetch(`${base}/api/tags`, {
@@ -127,13 +130,18 @@ export async function fetchOllamaModelList(
   const enriched = await Promise.all(
     names.map(async (name) => {
       const maxCtx = await fetchOllamaModelMaxContext(endpoint, name);
-      const { contextWindow, contextLimitMax } = mergePreviousContext(name, maxCtx, previousModels);
+      const { contextWindow, contextLimitMax, showInPicker } = mergePreviousContext(
+        name,
+        maxCtx,
+        previousModels
+      );
       return {
         id: name,
         name,
         provider: "ollama" as const,
         contextWindow,
         contextLimitMax,
+        showInPicker,
       };
     })
   );
