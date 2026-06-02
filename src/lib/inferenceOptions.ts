@@ -24,9 +24,9 @@ export function inferenceOptionsForModel(
     };
   }
   if (backend === "llamacpp") {
-    const row = st.llamacppModels.find((m) => m.id === modelId);
-    if (!row?.contextWindow) return undefined;
-    return { num_ctx: row.contextWindow, think: true };
+    // llama-server sets context at startup — num_ctx is not a per-request parameter.
+    // think/options are Ollama extensions that llama-server rejects.
+    return undefined;
   }
   return undefined;
 }

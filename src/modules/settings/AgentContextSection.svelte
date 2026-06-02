@@ -7,6 +7,7 @@
   import { buildAssemblyPreview } from "$lib/agent/systemPrompt/assemble";
   import { resolveActiveModelSettings } from "$lib/modelSettings";
   import SystemPromptsManager from "$lib/components/SystemPromptsManager.svelte";
+  import SkillsManager from "$lib/components/SkillsManager.svelte";
   import AssemblyPreviewModal from "./AssemblyPreviewModal.svelte";
 
   export type AgentContextSubview = "overview" | "prompts" | "skills";
@@ -122,15 +123,11 @@
     <button type="button" class="drillback" onclick={() => go('overview')}>← Agent Context</button>
     <h3 class="section-title">Skills</h3>
     <p class="note muted">
-      Skills inject workspace-aware context into the system prompt. Full skills management ships in
-      a later phase — this panel is a placeholder for now.
+      Skills inject workspace-aware context fragments into the system prompt. Enable per skill,
+      choose which modes they apply to, and edit the markdown content with the gear icon.
+      Stored in <code class="inline-code">.tinyllama/skills/</code>.
     </p>
-    <div class="skills-placeholder">
-      <p>No skills configured yet.</p>
-      <p class="note muted">
-        Bundled skills, auto-detection, and per-project activation will appear here.
-      </p>
-    </div>
+    <SkillsManager />
   </div>
 {/if}
 
@@ -249,14 +246,6 @@
     background: none;
     color: var(--link, #60a5fa);
     cursor: pointer;
-  }
-
-  .skills-placeholder {
-    padding: 1.5rem;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-    text-align: center;
-    color: var(--muted-foreground);
   }
 
   .inline-code {

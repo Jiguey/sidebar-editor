@@ -7,19 +7,45 @@ export type AgentLimits = {
   maxToolCallsPerRun: number;
   /** Tool calls allowed from a single model response. 0 = unlimited. */
   maxToolsPerTurn: number;
+  /** Run independent read-only tools concurrently within a single model turn. */
+  parallelExecution: boolean;
+  /** Maximum number of tools to run concurrently when parallelExecution is enabled. */
+  maxConcurrentTools: number;
 };
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
   maxAgentSteps: 0,
   maxToolCallsPerRun: 0,
   maxToolsPerTurn: 0,
+  parallelExecution: false,
+  maxConcurrentTools: 4,
 };
 
 export const AGENT_LIMIT_BOUNDS = {
   maxAgentSteps: { min: 0, max: 200 },
   maxToolCallsPerRun: { min: 0, max: 500 },
   maxToolsPerTurn: { min: 0, max: 50 },
+  maxConcurrentTools: { min: 1, max: 16 },
 } as const;
+
+/**
+ * Tools safe to run concurrently — they read but never write workspace state.
+ * Write tools always run sequentially to prevent race conditions.
+ */
+export const READ_ONLY_TOOL_NAMES = new Set([
+  "read_file",
+  "grep",
+  "get_file_tree",
+  "list_directory",
+  "git_log",
+  "git_diff",
+  "git_status",
+  "web_fetch",
+]);
+
+export function isReadOnlyTool(name: string): boolean {
+  return READ_ONLY_TOOL_NAMES.has(name);
+}
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -52,6 +78,15 @@ export function clampAgentLimits(raw: Partial<AgentLimits> | undefined): AgentLi
       AGENT_LIMIT_BOUNDS.maxToolsPerTurn.min,
       AGENT_LIMIT_BOUNDS.maxToolsPerTurn.max,
       DEFAULT_AGENT_LIMITS.maxToolsPerTurn
+    ),
+    parallelExecution: typeof base.parallelExecution === "boolean"
+      ? base.parallelExecution
+      : DEFAULT_AGENT_LIMITS.parallelExecution,
+    maxConcurrentTools: clampInt(
+      base.maxConcurrentTools,
+      AGENT_LIMIT_BOUNDS.maxConcurrentTools.min,
+      AGENT_LIMIT_BOUNDS.maxConcurrentTools.max,
+      DEFAULT_AGENT_LIMITS.maxConcurrentTools
     ),
   };
 }

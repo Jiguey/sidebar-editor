@@ -2,6 +2,10 @@
 @import "tw-animate-css";
 @import "./workbench-icon-btn.css";
 
+/* Tailwind 4's HMR scanner misclassifies raw Svelte script blocks as CSS declarations.
+   These components use no Tailwind utilities — exclude them from scanning. */
+@source not "../lib/components/DevViteReconnect.svelte";
+
 @custom-variant dark (&:is(.dark *));
 
 /*
@@ -53,13 +57,13 @@
   /** Bottom status bar (matches tab row for visual rhythm). */
   --workbench-shell-header-height: 36px;
 
-  /* Editor / workbench — VS Code Dark */
-  --editor-bg: #1e1e1e;
-  --editor-fg: #d4d4d4;
-  --editor-gutter-fg: #858585;
-  --editor-line-hl: #2a2d2e;
-  --editor-selection: #264f78;
-  --editor-cursor: #d4d4d4;
+  /* Editor / workbench — Monokai */
+  --editor-bg: #272822;
+  --editor-fg: #f8f8f2;
+  --editor-gutter-fg: #75715e;
+  --editor-line-hl: #3e3d32;
+  --editor-selection: #49483e;
+  --editor-cursor: #f8f8f2;
 
   --background: #1e1e1e;
   --foreground: #d4d4d4;
@@ -123,12 +127,12 @@
 }
 
 .dark {
-  --editor-bg: #1e1e1e;
-  --editor-fg: #d4d4d4;
-  --editor-gutter-fg: #858585;
-  --editor-line-hl: #2a2d2e;
-  --editor-selection: #264f78;
-  --editor-cursor: #d4d4d4;
+  --editor-bg: #272822;
+  --editor-fg: #f8f8f2;
+  --editor-gutter-fg: #75715e;
+  --editor-line-hl: #3e3d32;
+  --editor-selection: #49483e;
+  --editor-cursor: #f8f8f2;
 
   --background: #1e1e1e;
   --foreground: #d4d4d4;

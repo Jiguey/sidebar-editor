@@ -94,7 +94,9 @@ export async function* streamChat(
   tools?: Tool[],
   signal?: AbortSignal,
   inferenceOptions?: InferenceOptions,
-  apiKey?: string
+  apiKey?: string,
+  /** Set true only for Ollama — enables Ollama-specific body extensions (think, options). */
+  isOllama = false
 ): AsyncGenerator<StreamEvent> {
   const url = `${baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
@@ -108,11 +110,11 @@ export async function* streamChat(
     body.tools = tools;
   }
 
-  if (inferenceOptions?.think) {
+  if (isOllama && inferenceOptions?.think) {
     body.think = true;
   }
 
-  if (inferenceOptions?.num_ctx || inferenceOptions?.num_thread) {
+  if (isOllama && (inferenceOptions?.num_ctx || inferenceOptions?.num_thread)) {
     body.options = {
       ...(inferenceOptions.num_ctx ? { num_ctx: inferenceOptions.num_ctx } : {}),
       ...(inferenceOptions.num_thread ? { num_thread: inferenceOptions.num_thread } : {}),

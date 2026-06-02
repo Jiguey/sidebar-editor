@@ -50,6 +50,8 @@ export interface ChatSession {
   compactedAt?: string;
   /** Number of times this session has been compacted. */
   compactionCount?: number;
+  /** Full message history saved before the last compaction — enables archive display and revert. */
+  preCompactionMessages?: Message[];
   /** Set when the session lives in history (last closed time). */
   closedAt?: number;
 }
@@ -269,6 +271,7 @@ function createChatStore() {
           if (sess.id !== aid) return sess;
           return {
             ...sess,
+            preCompactionMessages: sess.messages,
             messages,
             compactedAt: now,
             compactionCount: (sess.compactionCount ?? 0) + 1,
@@ -276,6 +279,25 @@ function createChatStore() {
           };
         });
         return { ...s, sessions, isStreaming: false, currentToolCall: null };
+      });
+    },
+    revertCompaction: () => {
+      update((s) => {
+        const aid = s.activeSessionId;
+        if (!aid) return s;
+        const sessions = s.sessions.map((sess) => {
+          if (sess.id !== aid || !sess.preCompactionMessages) return sess;
+          const count = Math.max(0, (sess.compactionCount ?? 1) - 1);
+          return {
+            ...sess,
+            messages: sess.preCompactionMessages,
+            preCompactionMessages: undefined,
+            compactedAt: count > 0 ? sess.compactedAt : undefined,
+            compactionCount: count || undefined,
+            updatedAt: Date.now(),
+          };
+        });
+        return { ...s, sessions };
       });
     },
     truncateBeforeUserMessage: (userMessageId: string) => {

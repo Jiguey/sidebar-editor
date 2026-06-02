@@ -1,27 +1,27 @@
-/** Tokyo Night–style defaults for the code editor (Nightfox / Tokyo Night Storm–aligned). */
-export const TOKYO_NIGHT_SYNTAX_DEFAULTS = {
-  keyword: "#bb9af7",
-  function: "#7aa2f7",
-  variable: "#c0caf5",
-  number: "#ff9e64",
-  string: "#9ece6a",
-  type: "#2ac3de",
-  operator: "#f7768e",
-  property: "#73daca",
-  comment: "#565f89",
-  default: "#c0caf5",
-  invalid: "#f7768e",
-  heading: "#7aa2f7",
-  link: "#73daca",
-  emphasis: "#bb9af7",
-  strong: "#c0caf5",
-  meta: "#565f89",
-  punctuation: "#9aa5ce",
-  tag: "#f7768e",
-  regexp: "#b4f9f8",
+/** Monokai–style defaults for the code editor. */
+export const MONOKAI_SYNTAX_DEFAULTS = {
+  keyword: "#f92672",
+  function: "#a6e22e",
+  variable: "#f8f8f2",
+  number: "#ae81ff",
+  string: "#e6db74",
+  type: "#66d9e8",
+  operator: "#f92672",
+  property: "#a6e22e",
+  comment: "#75715e",
+  default: "#f8f8f2",
+  invalid: "#f92672",
+  heading: "#a6e22e",
+  link: "#66d9e8",
+  emphasis: "#f92672",
+  strong: "#f8f8f2",
+  meta: "#75715e",
+  punctuation: "#f8f8f2",
+  tag: "#f92672",
+  regexp: "#e6db74",
 } as const;
 
-export type SyntaxColorKey = keyof typeof TOKYO_NIGHT_SYNTAX_DEFAULTS;
+export type SyntaxColorKey = keyof typeof MONOKAI_SYNTAX_DEFAULTS;
 
 export type SyntaxColorMap = Record<SyntaxColorKey, string>;
 
@@ -66,7 +66,7 @@ function normalizeHex(raw: string, fallback: string): string {
 }
 
 export function defaultSyntaxColors(): SyntaxColorMap {
-  return { ...TOKYO_NIGHT_SYNTAX_DEFAULTS };
+  return { ...MONOKAI_SYNTAX_DEFAULTS };
 }
 
 export function normalizeSyntaxColors(parsed: Partial<SyntaxColorMap> | null | undefined): SyntaxColorMap {

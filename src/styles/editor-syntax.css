@@ -1,32 +1,32 @@
 /**
- * CodeMirror syntax tokens — defaults: Tokyo Night.
+ * CodeMirror syntax tokens — defaults: Monokai.
  * Overridden at runtime from Settings → Appearance → Syntax (see syntaxTheme store).
  */
 :root,
 .dark {
-  --syntax-default: #c0caf5;
-  --syntax-keyword: #bb9af7;
-  --syntax-function: #7aa2f7;
-  --syntax-variable: #c0caf5;
-  --syntax-number: #ff9e64;
-  --syntax-string: #9ece6a;
-  --syntax-type: #2ac3de;
-  --syntax-operator: #f7768e;
-  --syntax-property: #73daca;
-  --syntax-comment: #565f89;
-  --syntax-bool: #ff9e64;
-  --syntax-class: #2ac3de;
-  --syntax-parameter: #c0caf5;
-  --syntax-punctuation: #f7768e;
-  --syntax-tag: #2ac3de;
-  --syntax-attribute: #73daca;
-  --syntax-regexp: #9ece6a;
-  --syntax-meta: #565f89;
-  --syntax-heading: #7aa2f7;
-  --syntax-link: #73daca;
-  --syntax-invalid: #f7768e;
-  --syntax-strong: #c0caf5;
-  --syntax-emphasis: #bb9af7;
+  --syntax-default: #f8f8f2;
+  --syntax-keyword: #f92672;
+  --syntax-function: #a6e22e;
+  --syntax-variable: #f8f8f2;
+  --syntax-number: #ae81ff;
+  --syntax-string: #e6db74;
+  --syntax-type: #66d9e8;
+  --syntax-operator: #f92672;
+  --syntax-property: #a6e22e;
+  --syntax-comment: #75715e;
+  --syntax-bool: #ae81ff;
+  --syntax-class: #66d9e8;
+  --syntax-parameter: #fd971f;
+  --syntax-punctuation: #f8f8f2;
+  --syntax-tag: #f92672;
+  --syntax-attribute: #a6e22e;
+  --syntax-regexp: #e6db74;
+  --syntax-meta: #75715e;
+  --syntax-heading: #a6e22e;
+  --syntax-link: #66d9e8;
+  --syntax-invalid: #f92672;
+  --syntax-strong: #f8f8f2;
+  --syntax-emphasis: #f92672;
 }
 
 /* Class-based token colors (see `lib/editor/syntaxTheme.ts`). */
@@ -91,10 +91,10 @@
 
 /* Git diff line highlights in editor (working tree vs HEAD). */
 .cm-editor .cm-diff-line-add {
-  background-color: color-mix(in srgb, #73c991 22%, transparent);
+  background-color: color-mix(in srgb, #a6e22e 22%, transparent);
 }
 .cm-editor .cm-diff-line-change {
-  background-color: color-mix(in srgb, #e2b340 18%, transparent);
+  background-color: color-mix(in srgb, #e6db74 18%, transparent);
 }
 
 /* Default code text when no token class applies. */

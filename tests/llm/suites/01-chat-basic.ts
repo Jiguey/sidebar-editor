@@ -1,0 +1,90 @@
+import type { LLMSuite } from "../types";
+
+export const suite: LLMSuite = {
+  id: "01-chat-basic",
+  title: "Chat: Basic",
+  tests: [
+    {
+      id: "chat-basic-01",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "What is the difference between a mutex and a semaphore?",
+      messages: [{ role: "user", content: "What is the difference between a mutex and a semaphore?" }],
+      expectedBehavior: "Clear technical explanation, accurate, no hallucinations",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-02",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "Explain TCP/IP to a 12-year-old.",
+      messages: [{ role: "user", content: "Explain TCP/IP to a 12-year-old." }],
+      expectedBehavior: "Simple language, correct analogy, appropriate length",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-03",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "What does async/await do in JavaScript?",
+      messages: [{ role: "user", content: "What does `async/await` do in JavaScript?" }],
+      expectedBehavior: "Accurate explanation with a short example",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-04",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "List 5 common causes of memory leaks in C++.",
+      messages: [{ role: "user", content: "List 5 common causes of memory leaks in C++." }],
+      expectedBehavior: "Numbered list, all causes accurate",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-05",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "Quicksort worst-case time complexity",
+      messages: [
+        {
+          role: "user",
+          content: "What is the time complexity of quicksort in the worst case and why?",
+        },
+      ],
+      expectedBehavior: "Correct answer (O(n²)), correct explanation",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-06",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "What is a monad in functional programming?",
+      messages: [{ role: "user", content: "What is a monad in functional programming?" }],
+      expectedBehavior: "Technically accurate, not hand-wavy",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-07",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "Explain the CAP theorem.",
+      messages: [{ role: "user", content: "Explain the CAP theorem." }],
+      expectedBehavior: "Correct tradeoff description",
+      tags: ["basic"],
+    },
+    {
+      id: "chat-basic-08",
+      suite: "01-chat-basic",
+      mode: "chat",
+      description: "Difference between == and === in JavaScript",
+      messages: [
+        {
+          role: "user",
+          content: "What is the difference between `==` and `===` in JavaScript?",
+        },
+      ],
+      expectedBehavior: "Correct, concise",
+      tags: ["basic"],
+    },
+  ],
+};

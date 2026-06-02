@@ -34,8 +34,11 @@
   let desktopAvailable = $state(isTauriAvailable());
   let highlightPath = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
-  /** Skip redundant reveal work when the active editor path did not change. */
-  let lastRevealedPath = $state<string | null>(null);
+  /** Skip redundant reveal work when the active editor path did not change.
+   * Plain variable (not $state) so writing it in handleActivate does not
+   * re-trigger the $effect that reads it — avoiding a race where the effect
+   * fires with the stale $activeWorkbenchTab before openEditorFile updates it. */
+  let lastRevealedPath: string | null = null;
   let gitRows = $state<GitPathStatus[]>([]);
   let ctxMenu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
   let unlistenFsChanged: (() => void) | null = null;

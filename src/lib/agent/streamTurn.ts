@@ -110,7 +110,8 @@ export async function streamOneTurn(options: {
       options.tools,
       options.signal,
       options.inferenceOptions,
-      options.apiKey || undefined
+      options.apiKey || undefined,
+      options.backend === "ollama"
     );
     await processStream(stream);
   }

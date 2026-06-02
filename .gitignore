@@ -10,3 +10,5 @@ src-tauri/target/
 !.env.example
 *.log
 .DS_Store
+tests/llm/results/*
+!tests/llm/results/.gitkeep

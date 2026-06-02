@@ -245,34 +245,67 @@ export async function closeAuxiliaryWebviewWindows(): Promise<void> {
 }
 
 export function getLanguageFromPath(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const filename = path.split("/").pop() ?? "";
+  if (/^dockerfile(\..*)?$/i.test(filename)) return "dockerfile";
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const langMap: Record<string, string> = {
     ts: "typescript",
-    tsx: "typescript",
+    tsx: "tsx",
     js: "javascript",
-    jsx: "javascript",
+    jsx: "jsx",
     json: "json",
     md: "markdown",
+    mdx: "markdown",
     rs: "rust",
     py: "python",
     html: "html",
+    htm: "html",
     css: "css",
     scss: "css",
+    less: "css",
     svelte: "svelte",
     vue: "vue",
     go: "go",
     java: "java",
     c: "c",
     cpp: "cpp",
+    cc: "cpp",
+    cxx: "cpp",
     h: "c",
     hpp: "cpp",
+    hxx: "cpp",
     sh: "shell",
     bash: "shell",
     zsh: "shell",
+    fish: "shell",
     yaml: "yaml",
     yml: "yaml",
     toml: "toml",
     sql: "sql",
+    xml: "xml",
+    svg: "xml",
+    php: "php",
+    phtml: "php",
+    rb: "ruby",
+    rake: "ruby",
+    gemspec: "ruby",
+    kt: "kotlin",
+    kts: "kotlin",
+    cs: "csharp",
+    scala: "scala",
+    sc: "scala",
+    dart: "dart",
+    lua: "lua",
+    ps1: "powershell",
+    psm1: "powershell",
+    pl: "perl",
+    pm: "perl",
+    swift: "swift",
+    hs: "haskell",
+    lhs: "haskell",
+    r: "r",
+    groovy: "groovy",
+    gradle: "groovy",
   };
   return langMap[ext] ?? "plaintext";
 }
@@ -329,6 +362,11 @@ export async function writeSystemPrompt(workspacePath: string, content: string):
 export async function ensureSystemPromptsLayout(workspacePath: string): Promise<void> {
   await ensureTauriApi();
   return invoke<void>("ensure_system_prompts_layout", { workspacePath });
+}
+
+export async function ensureSkillDir(workspacePath: string, skillId: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("ensure_skill_dir", { workspacePath, skillId });
 }
 
 export async function readProjectState(workspacePath: string): Promise<string | null> {

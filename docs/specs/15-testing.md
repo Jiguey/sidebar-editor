@@ -21,6 +21,8 @@ Tests target the **current webview + Rust** stack. There are **no** sidecar or h
 ```bash
 pnpm test                   # Run all unit tests
 pnpm test:ollama            # Optional live Ollama integration
+pnpm eval                   # Long-running LLM eval harness (requires Ollama)
+pnpm eval:report            # Open latest eval report
 ```
 
 For Ollama tests, set `RUN_OLLAMA_TESTS=1` environment variable.
@@ -115,6 +117,7 @@ For Ollama tests, set `RUN_OLLAMA_TESTS=1` environment variable.
 | Suite | File | Status |
 |-------|------|--------|
 | Ollama Integration | `integration/ollama.test.ts` | ✅ (optional) — calls Ollama HTTP **directly** (same as `openaiCompat.ts`), not via sidecar |
+| LLM Eval Harness | `tests/llm/` | 🔶 — long-running Chat/Plan/Agent eval vs Ollama; see [31-llm-eval-harness.md](31-llm-eval-harness.md) |
 
 ### What we do not test
 

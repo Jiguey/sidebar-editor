@@ -1,5 +1,5 @@
 import { writable, derived, get } from "svelte/store";
-import { ptyClose } from "../ipc";
+import { ptyClose, getLanguageFromPath } from "../ipc";
 import { normalizeFilePath } from "../fsPath";
 import { files, type OpenFile } from "./files";
 
@@ -62,25 +62,7 @@ function createWorkbenchStore() {
           try {
             const content = await loadFile(tp);
             const name = tp.split("/").pop() ?? tp;
-            const ext = name.includes(".") ? name.split(".").pop()?.toLowerCase() ?? "" : "";
-            const language =
-              ext === "ts"
-                ? "typescript"
-                : ext === "js" || ext === "jsx"
-                  ? "javascript"
-                  : ext === "rs"
-                    ? "rust"
-                    : ext === "py"
-                      ? "python"
-                      : ext === "json"
-                        ? "json"
-                        : ext === "md"
-                          ? "markdown"
-                          : ext === "css"
-                            ? "css"
-                            : ext === "html"
-                              ? "html"
-                              : "plaintext";
+            const language = getLanguageFromPath(tp);
             files.openFile({
               path: tp,
               name,

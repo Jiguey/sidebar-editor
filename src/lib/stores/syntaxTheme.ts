@@ -4,7 +4,7 @@ import {
   defaultSyntaxColors,
   loadSyntaxColors,
   saveSyntaxColors,
-  TOKYO_NIGHT_SYNTAX_DEFAULTS,
+  MONOKAI_SYNTAX_DEFAULTS,
   type SyntaxColorMap,
 } from "../editor/syntaxColors";
 
@@ -40,7 +40,7 @@ function createSyntaxThemeStore() {
       return colors;
     },
 
-    defaults: TOKYO_NIGHT_SYNTAX_DEFAULTS,
+    defaults: MONOKAI_SYNTAX_DEFAULTS,
   };
 }
 

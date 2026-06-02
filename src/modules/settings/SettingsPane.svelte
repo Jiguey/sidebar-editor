@@ -224,6 +224,8 @@
   let maxAgentSteps = $state(0);
   let maxToolCallsPerRun = $state(0);
   let maxToolsPerTurn = $state(0);
+  let parallelExecution = $state(false);
+  let maxConcurrentTools = $state(4);
   let includeWorkspaceInChat = $state(false);
   let readFileCapMode = $state<"lines" | "percent">("lines");
   let readFileCapMaxLines = $state(500);
@@ -360,6 +362,8 @@
     maxAgentSteps = $settings.agentLimits.maxAgentSteps;
     maxToolCallsPerRun = $settings.agentLimits.maxToolCallsPerRun;
     maxToolsPerTurn = $settings.agentLimits.maxToolsPerTurn;
+    parallelExecution = $settings.agentLimits.parallelExecution;
+    maxConcurrentTools = $settings.agentLimits.maxConcurrentTools;
     includeWorkspaceInChat = $settings.includeWorkspaceInChat;
     readFileCapMode = $settings.readFileCap.mode;
     readFileCapMaxLines = $settings.readFileCap.maxLines;
@@ -407,11 +411,15 @@
       maxAgentSteps,
       maxToolCallsPerRun,
       maxToolsPerTurn,
+      parallelExecution,
+      maxConcurrentTools,
     });
     const saved = get(settings).agentLimits;
     maxAgentSteps = saved.maxAgentSteps;
     maxToolCallsPerRun = saved.maxToolCallsPerRun;
     maxToolsPerTurn = saved.maxToolsPerTurn;
+    parallelExecution = saved.parallelExecution;
+    maxConcurrentTools = saved.maxConcurrentTools;
   }
 
   function persistAgentCompaction() {
@@ -1756,6 +1764,37 @@
               </span>
             </label>
 
+            <p class="group-label">Parallel tool execution</p>
+            <p class="note muted">
+              Run independent read-only tools concurrently within a single agent turn.
+              Write tools always execute sequentially to prevent conflicts.
+              Requires the active model to support parallel tool calls (set in provider model settings).
+            </p>
+            <label class="field">
+              <span class="name">Enable parallel execution</span>
+              <input
+                type="checkbox"
+                bind:checked={parallelExecution}
+                onchange={persistAgentLimits}
+              />
+            </label>
+            {#if parallelExecution}
+              <label class="field">
+                <span class="name">Max concurrent tools</span>
+                <input
+                  type="number"
+                  class="input"
+                  min={AGENT_LIMIT_BOUNDS.maxConcurrentTools.min}
+                  max={AGENT_LIMIT_BOUNDS.maxConcurrentTools.max}
+                  bind:value={maxConcurrentTools}
+                  onchange={persistAgentLimits}
+                />
+                <span class="hint">
+                  How many read-only tools run at the same time (default 4, max {AGENT_LIMIT_BOUNDS.maxConcurrentTools.max}).
+                </span>
+              </label>
+            {/if}
+
             <p class="group-label">read_file cap</p>
             <p class="note muted">
               Limits how many lines the agent can read per <code class="inline-code">read_file</code> call
@@ -2338,7 +2377,7 @@
                 syntaxColors = syntaxTheme.resetToDefaults();
               }}
             >
-              Reset to Tokyo Night defaults
+              Reset to Monokai defaults
             </button>
           </div>
 
@@ -2491,8 +2530,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(2px);
+    background: rgba(0, 0, 0, 0.72);
   }
 
   .modal.page-variant {
@@ -2589,7 +2627,12 @@
 
   .nav-item.active {
     color: #fafafa;
-    background: #333;
+    background: #3a3a3a;
+    box-shadow: inset 3px 0 0 #6b6b6b;
+  }
+
+  .nav-item.active:hover {
+    background: #424242;
   }
 
   .nav-group {
@@ -3521,8 +3564,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(3px);
+    background: rgba(0, 0, 0, 0.72);
   }
 
   .tool-editor-modal {

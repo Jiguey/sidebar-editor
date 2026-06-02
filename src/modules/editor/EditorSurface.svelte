@@ -101,7 +101,7 @@
           backgroundColor: "var(--editor-line-hl, #262626)",
         },
         ".cm-activeLine": {
-          backgroundColor: "var(--editor-line-hl, #262626)",
+          backgroundColor: "var(--editor-line-hl, rgba(255,255,255,0.04))",
         },
         ".cm-selectionBackground": {
           backgroundColor: "var(--editor-selection, #404040) !important",

@@ -1,311 +1,259 @@
 # Tiny Llama
 
-A minimal, **local-first** desktop IDE with an integrated AI coding agent. Built with **Tauri 2**, **Svelte 5**, and **CodeMirror 6**.
+A local-first desktop AI coding assistant built with **Tauri 2**, **Svelte 5**, and **CodeMirror 6**. Your code stays on your machine. You pick the model. Nothing phones home.
 
-Use **Ollama** or **llama.cpp** on your machine, or cloud APIs (**Anthropic**, **DeepSeek**) with your own keys. Agent tools read and write files in your project; changes show up in the **Git** panel for review and discard.
+The privacy moat is real: run Ollama or llama.cpp locally and the only traffic leaving your machine is what you choose to send to a cloud API with your own key. The agent loop, context tracking, and tool execution all run in the desktop webview and Rust backend — no Node sidecar, no required cloud account.
 
-**More docs:** [Architecture](docs/architecture/ARCHITECTURE.md) · [Specifications](docs/specs/README.md) · [Overview snapshot](docs/overview/OVERVIEW.md)
-
----
-
-## Table of contents
-
-1. [What it is](#what-it-is)
-2. [How the application works](#how-the-application-works)
-3. [Main features](#main-features)
-4. [AI providers & chat modes](#ai-providers--chat-modes)
-5. [Agent loop & tool calling](#agent-loop--tool-calling)
-6. [Context budget & compaction](#context-budget--compaction)
-7. [Git, editor & terminal](#git-editor--terminal)
-8. [Project persistence & configuration](#project-persistence--configuration)
-9. [Architecture](#architecture)
-10. [Quick start](#quick-start)
-11. [Roadmap & gaps](#roadmap--gaps)
+**Hackable:** the shortcut system, tool policy, system prompts, and skills are all user-editable. The spec documents under `docs/specs/` describe every subsystem in detail.
 
 ---
 
-## What it is
+## What is implemented now
 
-Tiny Llama is a hackable, Cursor-like workbench that keeps **your code on disk** and **your model choice under your control**. There is no required cloud account and no Node.js sidecar at runtime—the agent loop runs in the desktop webview; filesystem, git, shell, and terminal integration run in Rust.
-
-| Property | Detail |
-|----------|--------|
-| **Platform** | Tauri 2 desktop (Linux, macOS, Windows) |
-| **UI** | Svelte 5 workbench: chat, editor, terminal, explorer, git |
-| **Models** | Ollama, llama.cpp (local), Anthropic, DeepSeek (cloud) |
-| **Agent** | Multi-turn streaming with 16 built-in tools |
-| **Review** | Git panel for staged/unstaged changes, diffs, discard |
-
-`pnpm dev` runs the frontend alone for UI work; tools, git, and PTY require `pnpm tauri dev`.
+| Area | Status |
+|------|--------|
+| Workbench shell (editor, terminal, explorer, git, sidebar) | Shipped |
+| Multi-tab chat with session history | Shipped |
+| Agent loop with streaming + tool calling | Shipped |
+| Ollama, llama.cpp, Anthropic, DeepSeek providers | Shipped |
+| 16 built-in agent tools | Shipped |
+| Tool policy system (allow / ask / deny) | Shipped |
+| Git panel (stage, commit, diff, discard) | Shipped |
+| Per-project state persistence (`.tinyllama/`) | Shipped |
+| Context budget tracking + breakdown popover | Shipped |
+| Context compaction (manual + auto) | Shipped — experimental |
+| Compaction archive with restore | Shipped |
+| Segmented context bar (system/tools/history) | Shipped |
+| Workspace text search (ripgrep) | Shipped |
+| Filesystem watcher (explorer + git refresh) | Shipped |
+| Editor formatting (wrap, Prettier) | Partial |
+| Skills system | Placeholder wired; implementation pending |
+| Rust path sandbox (defense in depth) | Planned — TS layer enforces today |
+| Workspace lock (multi-window safety) | Planned |
+| LSP, inline edit (Cmd+K) | Planned |
+| OS keychain for API keys | Planned |
 
 ---
 
-## How the application works
+## How it works
 
-At a high level, every user message in **Agent** or **Plan** mode triggers a loop:
+Every user message in **Agent** or **Plan** mode drives a loop:
 
 ```
 User message
-    → build system prompt (mode + workspace + .tinyllama/prompt.md)
-    → build provider message history
-    → [optional] auto-compact if context threshold exceeded
-    → stream one model turn (text + tool calls)
-    → run tools through policy gates (allow / ask / deny)
-    → append tool results to history
-    → repeat until the model stops, limits hit, or context budget exceeded
-    → refresh explorer / editor / git after filesystem changes
+  → build system prompt (mode + workspace + prompts + skills)
+  → build provider message history
+  → [optional] auto-compact if context threshold exceeded
+  → stream one model turn (text + tool calls)
+  → run tools through policy gates (allow / ask / deny)
+  → append tool results to history
+  → repeat until model stops, step limit hit, or context budget exceeded
+  → refresh explorer / editor / git panel after filesystem changes
 ```
 
-**Data paths:**
+Data flow:
 
 ```
-Svelte UI  →  lib/providers (HTTP fetch to LLM APIs)
+Svelte UI  →  lib/providers/*  →  HTTP fetch to LLM APIs
            →  lib/tools/toolRunner.ts  →  lib/ipc.ts  →  Tauri invoke
 Rust       →  filesystem, git, grep, shell, web_fetch, PTY
 ```
 
-There is **no Node sidecar**. Node.js is used only for dev/build (Vite, Vitest, Tauri CLI).
+There is no Node.js sidecar at runtime. Node is used only during build (Vite, Vitest, Tauri CLI).
 
 ---
 
-## Main features
+## Providers
 
-### Workbench layout
+| Provider | Protocol | Streaming | Context window |
+|----------|----------|-----------|----------------|
+| **Ollama** | OpenAI-compatible `/v1/chat/completions` | SSE | Configurable per model (`num_ctx`); editable in the chat footer |
+| **llama.cpp** | OpenAI-compatible (`llama-server`) | SSE | Set per model in provider settings |
+| **Anthropic** | Anthropic Messages API | SSE | Model max; optional budget cap |
+| **DeepSeek** | OpenAI-compatible | SSE | Chat and Reasoner models from catalog |
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Header: chat tabs · editor / terminal / preview tabs            │
-├──────────────┬────────────────────────────────────┬─────────────┤
-│ Chat pane    │ Center workbench                   │ Sidebar     │
-│ · messages   │ · CodeMirror editor tabs           │ · Explorer  │
-│ · tool cards │ · xterm terminal tabs              │ · Search    │
-│ · composer   │ · HTML preview tabs                │ · Git       │
-│ · context    │ · optional bottom dock (terminals) │             │
-│   meter      │                                    │             │
-└──────────────┴────────────────────────────────────┴─────────────┘
-│ Status bar: model, context usage, pane toggles                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+All providers stream tokens into the chat pane in real time. Local providers (Ollama, llama.cpp) show tok/s and time-to-first-token in the footer. Anthropic tracks cumulative input/output tokens.
 
-- **Chat tabs** — multiple sessions per project; history picker for closed tabs
-- **Composer** — mode switch (Chat / Plan / Agent), model picker, attachments, send/stop
-- **Activity feed** — collapsible view of tool calls and intermediate “plan” text during agent turns
-- **Settings** — separate Tauri window for providers, themes, tool policy, agent limits, compaction
-
-### Chat modes
-
-| Mode | Tools | Purpose |
-|------|-------|---------|
-| **Chat** | None | Pure conversation; no filesystem access |
-| **Plan** | Read-only (read, grep, list, git read, web fetch) | Analyze and recommend without writes |
-| **Agent** | All 16 built-in tools | Implement features, run commands, edit files |
-
-The effective tool list sent to the model is **mode tools ∩ tool policy** (denied tools are removed from the schema).
-
-### Per-project agent context
-
-When a folder is open, the agent receives:
-
-- Workspace path and optional file tree snippet
-- Contents of `.tinyllama/prompt.md` (project-specific instructions)
-- Merged tool rules from `.tinyllama/tools.json`
-
-Chat sessions and editor tabs persist in `.tinyllama/state.json` (autosaved on change).
+**Models without native tool support:** some local models emit tool calls as plain text. The app recovers them via `textToolCalls.ts` and can run a synthesis pass for a final natural-language summary after tool-heavy turns.
 
 ---
 
-## AI providers & chat modes
+## Agent tools
 
-### Supported backends
-
-| Backend | Client | Streaming | Context window |
-|---------|--------|-----------|----------------|
-| **Ollama** | OpenAI-compatible `/v1/chat/completions` | SSE | Configurable per model (`num_ctx`); editable from chat footer |
-| **llama.cpp** | OpenAI-compatible (`llama-server`) | SSE | From server / model row (read-only in footer) |
-| **Anthropic** | Messages API | SSE | Model max capped by optional budget setting |
-| **DeepSeek** | OpenAI-compatible API | SSE | Model catalog (Chat / Reasoner) |
-
-Settings → Providers: connect Ollama/llama.cpp, enter API keys for cloud providers, choose default model and context size. Ollama supports an optional API key and a model grid to control which models appear in the chat picker.
-
-### Streaming & metrics
-
-- All backends stream tokens into the chat pane in real time
-- Local backends (Ollama, llama.cpp) show tok/s and time-to-first-token in the footer
-- Anthropic tracks monthly input/output token totals in the footer
-
-### Models without native tool support
-
-Some local models emit tool calls as plain text instead of structured `tool_calls`. The app can **recover tool invocations from text** (`textToolCalls.ts`) and optionally run a **synthesis** pass so the user gets a final natural-language summary after tool-heavy turns.
-
----
-
-## Agent loop & tool calling
-
-### Loop implementation
-
-Core files:
-
-| Piece | Location |
-|-------|----------|
-| Agent loop | `src/modules/agent/ChatPane.svelte` (`runAgentLoop`) |
-| Single turn stream | `src/lib/agent/streamTurn.ts` (`streamOneTurn`) |
-| Message shaping | `src/lib/agent/conversation.ts` |
-| Tool execution | `src/lib/tools/toolRunner.ts` |
-| Policy | `src/lib/stores/toolPolicy.ts`, `src/lib/toolPolicy.ts` |
-
-Each **step** of the loop:
-
-1. Check context budget; stop with a clear message if exceeded
-2. Call `streamOneTurn()` with system prompt, history, tools schema, inference options
-3. If the model returns tool calls, execute them (subject to policy and limits)
-4. Append assistant message + tool result messages to history
-5. Continue until no tools, step limit, tool-run cap, or user cancel
-
-### Built-in tools (16)
+16 built-in tools grouped by category:
 
 | Category | Tools |
 |----------|-------|
-| **Files** | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_dir`, `find_file`, `get_file_tree` |
-| **Git** | `get_git_status`, `get_git_log`, `get_git_diff` |
-| **Shell** | `run_shell`, `run_tests`, `run_script` |
-| **Network** | `web_fetch` (hostname allowlist) |
+| **Files** | `read_file` — read a file's contents; `write_file` — overwrite a file; `create_file` — create a new file; `delete_file` — delete a file; `rename_file` — rename or move a file; `list_directory` — list directory contents; `find_file` — find files by name pattern; `get_file_tree` — get the workspace file tree (gitignore-filtered) |
+| **Git** | `get_git_status` — staged/unstaged changes; `get_git_log` — recent commit history; `get_git_diff` — file or workspace diff |
+| **Shell** | `run_shell` — run a shell command; `run_tests` — run the project's test suite; `run_script` — run a named script from `package.json` |
+| **Network** | `web_fetch` — fetch a URL (hostname allowlist enforced) |
 
-Tools run only inside the **opened workspace**. Paths are sandboxed: `..` traversal and paths outside the project root are rejected (`pathUtils.ts`).
+All tools run inside the opened workspace. Paths are sandboxed by `pathUtils.ts` — `..` traversal and paths outside the project root are rejected before reaching Rust.
 
 ### Tool policy
 
-Three policies per tool (global Settings + per-project `.tinyllama/tools.json`):
+Three policies apply per tool, configurable globally in Settings and per-project in `.tinyllama/tools.json`:
 
 | Policy | Behavior |
 |--------|----------|
-| **allow** | Execute immediately |
-| **ask** | Show approval UI above composer (Allow / Allow always / Deny) |
-| **deny** | Skip; return a policy error to the model |
+| **allow** | Executes immediately |
+| **ask** | Shows an approval prompt above the composer |
+| **deny** | Skipped; error returned to the model |
 
-Defaults lean toward **allow** for reads and **ask** for destructive or shell operations. Custom tool schemas can be declared in JSON; they need a matching handler in `TOOL_HANDLERS` to actually run.
+Defaults lean toward **allow** for reads and **ask** for writes and shell. The effective tool list sent to the model is `mode tools ∩ allowed tools` — denied tools are removed from the schema entirely.
 
 ### Agent limits
 
-Configurable in Settings → Agent limits (0 = unlimited):
+Configurable in Settings (0 = unlimited):
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| `maxAgentSteps` | 0 | Max model ↔ tool round trips per user message |
-| `maxToolCallsPerRun` | 0 | Total tool executions per user message |
-| `maxToolsPerTurn` | 0 | Tool calls allowed in a single model response |
-
-When a cap is hit, the loop stops and the assistant explains why.
-
-### Tool UI & filesystem sync
-
-- Each tool call renders as a **ToolCallCard** (status, paths, output snippet)
-- After write/move/delete tools, `filesystemSync.ts` refreshes the explorer and open editor tabs
-- Git panel refresh runs after mutating operations
-
-### Chat rewind
-
-Before sending a user message, the app can snapshot the git tree (**checkpoint**). **Rewind** on a user message restores the workspace to that checkpoint and truncates chat history from that point—useful when an agent edit went wrong.
-
----
-
-## Context budget & compaction
-
-Long agent sessions fill the model context window. Tiny Llama tracks estimated token usage in the chat footer and supports **summarize-and-rehydrate compaction** (experimental).
-
-### Context meter
-
-- Estimates tokens from message history + in-flight stream + draft input (`chatContext.ts`, `contextBudget.ts`)
-- Compares usage to the resolved context window for the active model
-- Stops the agent loop with an explicit message when the **budget limit** (window minus reply reserve) would be exceeded
-
-### Compaction strategy
-
-Instead of silently dropping old messages, compaction:
-
-1. Sends a **slice** of history (first user turn + last 20 messages) to a summary model
-2. Asks for a structured markdown summary (original task, what was done, current state, files touched)
-3. Replaces history with a **synthetic pair**:
-   - User: `[Session context — compacted to free space]` + summary
-   - Assistant: `Understood. Continuing from the compacted context.`
-4. Appends the last **N** raw messages unchanged (`compactKeepRecentTurns`, default 6)
-
-Session metadata records `compactedAt` and `compactionCount`.
-
-### Compaction settings (Settings → Compaction)
-
-| Control | Purpose |
+| Setting | Meaning |
 |---------|---------|
-| **Enable compaction** | Master switch; disables manual and auto compaction when off |
-| **Use active chat model** | Summarize with the connected chat model (default) |
-| **Compaction model picker** | When active model is off, pick any provider/model for summaries |
-| **Enable automatic compaction** | Run before agent turns when context crosses threshold |
-| **Threshold %** | Auto-trigger level (50–95%, default 85%) |
-| **Keep last messages** | Raw tail preserved after summary (2–20) |
-
-Manual compaction: **Compact** button in the chat footer (spark icon), when compaction is enabled and enough history exists.
-
-Implementation: `src/lib/agent/compactHistory.ts`, `sessionCompaction.ts`, `compactionModel.ts`.
-
-**Not yet wired:** embedding active plan file content in summaries ([planning spec](docs/specs/19-planning-system.md)), visual “compacted here” divider in the transcript.
+| `maxAgentSteps` | Max model ↔ tool round trips per message |
+| `maxToolCallsPerRun` | Total tool executions per message |
+| `maxToolsPerTurn` | Tool calls allowed in a single model response |
 
 ---
 
-## Git, editor & terminal
+## Context and compaction
 
-### Git panel
+### Segmented context bar
 
-Primary surface for reviewing agent changes:
+The chat footer shows a 3px bar divided into three segments:
 
-- **Staged** and **Changes** sections with status badges (M/A/D/U)
+- **Purple** — system prompt (base mode, workspace context, tool instructions, prompts, skills)
+- **Orange** — tool schemas (native tool call mode only)
+- **Blue** — chat history
+
+Hover the bar to see a breakdown popover with per-section token counts, total used, context window size, and reply reserve.
+
+### Compaction
+
+When the context fills up, compaction summarizes old messages into a compact block and preserves the last N raw turns. Instead of silently dropping history:
+
+1. A slice of history (first turn + last 20 messages) is sent to a summary model
+2. The summary is structured markdown: original task, what was done, current state, files touched
+3. History is replaced with a synthetic user/assistant pair wrapping the summary
+4. The last `compactKeepRecentTurns` raw messages (default 6) are appended unchanged
+
+**Archive and restore:** the full pre-compaction message list is saved as `preCompactionMessages` on the session. The compaction divider in the chat shows "N archived messages · Restore full context". Clicking "Restore full context" reverts the session to its pre-compaction state — one level of undo.
+
+**Settings** (Settings → Compaction): master switch, summary model picker, auto-compaction threshold (50–95%, default 85%), keep-last-N raw turns (2–20).
+
+---
+
+## Skills
+
+Skills are context fragments — small markdown documents injected into the system prompt when certain workspace conditions are met. A React skill activates when `react` is in `package.json`; a Rust skill activates when `Cargo.toml` is present.
+
+**Current state:** the `assemble.ts` slot for skills is wired. `src/lib/skills/` is empty — the bundled skill pack and the skills UI are not yet implemented. The design is in [Spec 30](docs/specs/30-agent-context-and-model-settings.md).
+
+**Planned:**
+- Skills panel in Settings → Agent Context → Skills
+- Auto-activation signals (file presence, package.json deps, config files)
+- Bundled starter pack (Node/TS, React, Svelte, Rust, Python, Docker, Git Conventions)
+- Per-project skills committed with the repo (`.tinyllama/skills/`)
+- Global skills (`~/.tinyllama/skills/`)
+- Variable interpolation: `{{workspace_name}}`, `{{git_branch}}`, `{{active_file}}`, etc.
+
+---
+
+## Git integration
+
+The git panel is the primary surface for reviewing what the agent changed:
+
+- **Staged** and **Changes** sections with M/A/D/R status badges
 - Click a file → diff view in the editor (decorations vs HEAD)
-- Stage, unstage, commit, discard; hover actions on file rows
+- Stage, unstage, commit with a message, discard changes
+- Hover actions on file rows for quick stage/discard
 
-### Editor
+Agent tools that mutate files (`write_file`, `create_file`, `delete_file`, `rename_file`) trigger an automatic git panel refresh. Git tools (`get_git_status`, `get_git_log`, `get_git_diff`) are read-only and available in Plan and Agent modes.
 
-- **CodeMirror 6** with multi-tab editing
-- **15+ language grammars** (JS/TS, Rust, Python, Go, HTML/CSS, JSON, Markdown, YAML, SQL, Svelte, etc.)
-- Custom **syntax colors** and **editor chrome** (Settings → Appearance)
-- Word wrap, format-on-save (Prettier where supported)
-- Git diff mode when opened from the Git panel
-
-### Terminal
-
-- **xterm.js** + native PTY via Rust
-- Tabs in the center workbench or bottom dock
-- Full shell in the project directory
-
-### Explorer & icons
-
-- File tree with Seti, VS Code Icons, Codicons, or custom icon pack
-- Configurable explorer colors and git decoration hints on rows
+**Chat rewind:** before sending a message, the app can snapshot the git tree (checkpoint). Rewinding a message restores the workspace to that checkpoint and truncates chat history from that point.
 
 ---
 
-## Project persistence & configuration
+## Configuration
 
 ### Global settings
 
-Stored in `localStorage` under `tinyllama.settings.v3`:
+Stored in `localStorage` under `tinyllama.settings.v4`:
 
-- Provider endpoints, API keys, model lists, context templates
+- Provider endpoints, API keys, model lists with per-model context window and tool call settings
 - Workbench theme, icon theme, syntax/editor/chat appearance
-- Tool policy defaults, web fetch allowlist
-- Agent limits, compaction, model role overrides
+- Tool policy defaults and web fetch hostname allowlist
+- Agent limits, compaction settings, model role assignments
 - Anthropic extended thinking and context budget cap
 
-Optional env fallbacks: see [.env.example](.env.example).
+Optional environment variable fallbacks: see `.env.example`.
 
-### Per-project files
+### Per-project files (`.tinyllama/`)
 
 | Path | Purpose |
 |------|---------|
-| `.tinyllama/prompts/*.md` | Per-mode or shared system prompt files (edited in the editor) |
+| `.tinyllama/state.json` | Chat sessions, history, editor tabs — autosaved |
+| `.tinyllama/prompts/*.md` | Per-mode or shared system prompt files |
 | `.tinyllama/prompts.json` | Prompt manifest — enable/disable and mode scope |
-| `.tinyllama/prompt.md` | Legacy single prompt (migrated to `prompts/agent.md` on first load) |
 | `.tinyllama/tools.json` | Tool policy overrides and custom tool schemas |
-| `.tinyllama/state.json` | Chat sessions, history, editor tabs (auto) |
+| `.tinyllama/skills/` | Project-scoped skill directories (planned) |
+| `.tinyllama/skills-config.json` | Per-workspace skill activation overrides (planned) |
+| `.tinyllama/prompt.md` | Legacy single prompt — auto-migrated to `prompts/agent.md` |
 
-Secrets stay in local settings / env—not committed to the repo. See [Security spec](docs/specs/14-security.md).
+Secrets stay in local settings or environment variables — not committed to the repo. See [Security spec](docs/specs/14-security.md).
+
+---
+
+## Development quick start
+
+### Prerequisites
+
+- Node.js 18+
+- pnpm 9+
+- Rust 1.70+
+- [Tauri 2 platform dependencies](https://tauri.app/start/prerequisites/)
+
+**Linux (Arch):**
+
+```bash
+sudo pacman -S webkit2gtk-4.1 base-devel curl wget openssl gtk3 libayatana-appindicator librsvg libvips
+```
+
+### Running
+
+```bash
+pnpm install
+
+# Full desktop app (Tauri + Svelte — required for tools, git, terminal)
+pnpm tauri dev
+
+# Frontend only (UI work without Rust — tools, git, PTY will not work)
+pnpm dev
+```
+
+Dev server port: **14200** (set in `vite.config.ts`).
+
+---
+
+## Testing
+
+```bash
+# Unit tests (Vitest)
+pnpm test
+
+# LLM eval harness (requires Ollama running with a model pulled)
+pnpm eval
+
+# Run a specific eval suite
+pnpm eval -- --suite 08-agent-files
+
+# Run a specific eval test
+pnpm eval -- --test agent-files-01
+
+# Open the latest eval report
+pnpm eval:report
+```
+
+The eval harness (`tests/llm/`) runs all three modes (Chat, Plan, Agent) against a real Ollama model. Full run against a 27B model takes 30–90 minutes. Results write to `tests/llm/results/` (gitignored). See [Spec 31](docs/specs/31-llm-eval-harness.md) for the full harness design.
 
 ---
 
@@ -315,65 +263,45 @@ Secrets stay in local settings / env—not committed to the repo. See [Security 
 ┌──────────────────────────────────────────────────────────────┐
 │ Svelte frontend (src/)                                        │
 │  WorkbenchShell · ChatPane · Editor · Terminal · GitPanel    │
-│  Stores: chat, files, settings, toolPolicy, mode, …          │
+│  Stores: chat, files, settings, toolPolicy, mode, ...        │
 │  lib/providers/*  →  fetch() to LLM APIs                     │
 │  lib/tools/*      →  ipc.ts → Tauri commands                 │
 └────────────────────────────┬─────────────────────────────────┘
-                             │ invoke + events (pty:data, …)
+                             │ invoke() + events (pty:data, fs:changed, ...)
 ┌────────────────────────────▼─────────────────────────────────┐
 │ Rust backend (src-tauri/src/)                                 │
-│  filesystem · git · pty · grep · shell · web_fetch            │
+│  filesystem · git · pty · grep · shell · web_fetch           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Deep dive: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).
+- **Two-tier runtime:** Svelte agent loop + Rust IPC. No Node sidecar.
+- **LLM HTTP:** `fetch()` from the webview directly to provider APIs. No Rust proxy.
+- **Filesystem watcher:** `watcher.rs` → debounced `fs:changed` events → tree + git refresh in the UI.
+
+Deep dive: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) · [Specifications index](docs/specs/README.md)
 
 ---
 
-## Quick start
+## Roadmap
 
-### Prerequisites
+What is not built yet, in rough priority order:
 
-- [Node.js](https://nodejs.org/) 18+
-- [pnpm](https://pnpm.io/) 9+
-- [Rust](https://rustup.rs/) 1.70+
-- [Tauri 2 platform deps](https://tauri.app/start/prerequisites/)
+| Area | Status | Spec |
+|------|--------|------|
+| Skills system (bundled pack + UI) | Planned | [30](docs/specs/30-agent-context-and-model-settings.md) |
+| Agent error recovery (retries, continue after step limit) | Planned | [32](docs/specs/32-agent-error-recovery.md) |
+| Rust path enforcement (symlink escape hardening) | Planned | [33](docs/specs/33-rust-path-enforcement.md) |
+| Context overflow warnings (amber/red bar states) | Planned | [34](docs/specs/34-context-overflow-warnings.md) |
+| Workspace lock (multi-window safety) | Planned | [35](docs/specs/35-workspace-lock.md) |
+| First-run / onboarding empty states | Planned | [36](docs/specs/36-first-run-onboarding.md) |
+| Shortcut rebinding UI | Planned | [37](docs/specs/37-shortcut-rebinding.md) |
+| Parallel tool execution | Planned | [38](docs/specs/38-parallel-tool-execution.md) |
+| File-backed planning system (`plans/`) | Planned | [19](docs/specs/19-planning-system.md) |
+| Inline edit / Cmd+K | Planned | [28](docs/specs/28-inline-edit-autocomplete.md) |
+| LSP diagnostics (TypeScript, etc.) | Planned | [25](docs/specs/25-lsp-diagnostics.md) |
+| OS keychain for API keys | Planned | [14](docs/specs/14-security.md) |
 
-**Linux (Arch):**
-
-```bash
-sudo pacman -S webkit2gtk-4.1 base-devel curl wget openssl gtk3 libayatana-appindicator librsvg libvips
-```
-
-### Run
-
-```bash
-pnpm install
-pnpm tauri dev
-```
-
-- Unit tests: `pnpm test`
-- Integration tests (optional Ollama): [tests/README.md](tests/README.md)
-- Dev server port: **14200** (`vite.config.ts`)
-
----
-
-## Roadmap & gaps
-
-| Area | Status |
-|------|--------|
-| Workbench, agent loop, tools, git UI | ✅ Shipped |
-| Ollama, llama.cpp, Anthropic, DeepSeek | ✅ Shipped |
-| Context compaction (manual + auto) | 🔶 Experimental |
-| Editor wrap, Prettier, expanded theming | 🔶 Partial |
-| File-backed planning (`plans/`) | ❌ Not started |
-| Inline autocomplete | ❌ Settings only |
-| LSP, Cmd+K inline edit | ❌ Not started |
-| OS keychain for API keys | ❌ Not started |
-| LLM calls in Rust | ❌ Not started |
-| Rust path sandbox (defense in depth) | 🔶 Partial (TS sandbox today) |
-
-Full roadmap: [docs/specs/17-roadmap.md](docs/specs/17-roadmap.md).
+Full roadmap with phasing: [docs/specs/17-roadmap.md](docs/specs/17-roadmap.md).
 
 ---
 

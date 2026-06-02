@@ -89,6 +89,7 @@ import {
     stallNudgeMessage,
   } from "$lib/agent/stallDetection";
   import {
+    isReadOnlyTool,
     isToolRunCapReached,
     perTurnToolCap,
     shouldContinueAgentStep,
@@ -96,6 +97,7 @@ import {
   } from "$lib/agentLimits";
   import {
     contextBudgetStopMessage,
+    effectiveReserveTokens,
     estimateProviderMessagesTokens,
     isAgentContextBudgetExceeded,
     resolveModelContextWindow,
@@ -160,6 +162,8 @@ import {
   let compactionNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let compacting = $state(false);
   let messagesContainer: HTMLDivElement;
+  let showBreakdown = $state(false);
+  let archiveExpanded = $state(false);
 
   function expandUserMessage(id: string, content: string) {
     const wasExpanded = userMessageExpanded[id];
@@ -400,9 +404,33 @@ import {
               "Anthropic")
   );
 
-  let contextUsed = $derived(() => {
+  /** System prompt sections + tool schema tokens — recomputed only when settings/mode change. */
+  let systemBreakdown = $derived(() => {
+    const st = $settings;
+    const mode = $currentMode;
+    const modeConfig = MODE_CONFIG[mode];
+    const toolObjects = getToolsForPolicy($effectiveToolPolicy, modeConfig.tools);
+    const modelSettings = resolveActiveModelSettings(st);
+    const { sections } = assembleSystemPrompt({
+      mode,
+      workspacePath: $files.workspacePath,
+      includeWorkspaceInChat: st.includeWorkspaceInChat,
+      userPromptText: $activeSystemPromptText,
+      toolsEnabled: toolObjects.length > 0,
+      modelSettings,
+    });
+    const toolSchemaTokens = usesNativeToolCalls(modelSettings) && toolObjects.length
+      ? countTokens(JSON.stringify(toolObjects))
+      : 0;
+    return { sections, toolSchemaTokens };
+  });
+
+  /** Full context breakdown used by the segmented bar and hover popover. */
+  let contextBreakdown = $derived(() => {
+    const { sections, toolSchemaTokens } = systemBreakdown();
+    const systemTokens = sections.reduce((sum, s) => sum + s.tokenEstimate, 0);
     const msgs = $activeSession?.messages ?? [];
-    const persisted = estimateChatContextTokens(
+    const historyTokens = estimateChatContextTokens(
       msgs.map((m) => ({
         role: m.role,
         content: m.content,
@@ -410,25 +438,38 @@ import {
         rawToolCalls: m.rawToolCalls,
       }))
     );
-    const inflight =
-      $chat.isStreaming && liveTurn
+    const lt = liveTurn;
+    const inflightTokens =
+      $chat.isStreaming && lt
         ? estimateInflightContextTokens({
             streamingContent,
-            thinking: liveTurn.thinking,
-            planText: liveTurn.planText,
-            response: liveTurn.response,
+            thinking: lt.thinking,
+            planText: lt.planText,
+            response: lt.response,
           })
         : $chat.isStreaming && streamingContent
           ? estimateInflightContextTokens({ streamingContent })
           : 0;
     const draft = inputValue.trim();
     const draftTokens = draft ? 4 + countTokens(draft) : 0;
-    return persisted + inflight + draftTokens;
+    const contextWindow = maxContextTokens();
+    const reserveTokens = effectiveReserveTokens(contextWindow);
+    return {
+      sections,
+      systemTokens,
+      toolSchemaTokens,
+      historyTokens: historyTokens + inflightTokens + draftTokens,
+      reserveTokens,
+      contextWindow,
+      total: systemTokens + toolSchemaTokens + historyTokens + inflightTokens + draftTokens,
+    };
   });
 
+  let contextUsed = $derived(() => contextBreakdown().total);
+
   let contextPct = $derived(() => {
-    const max = maxContextTokens();
-    return max > 0 ? Math.min(100, (contextUsed() / max) * 100) : 0;
+    const { total, contextWindow } = contextBreakdown();
+    return contextWindow > 0 ? Math.min(100, (total / contextWindow) * 100) : 0;
   });
 
   let footerProfile = $derived(() => chatFooterProfile($settings.chatBackend));
@@ -820,6 +861,78 @@ import {
     return prompt;
   }
 
+  type ToolExecResult = {
+    id: string;
+    name: string;
+    content: string;
+    input: Record<string, unknown>;
+    success: boolean;
+    paths: string[];
+  };
+
+  async function runOneTool(
+    tc: StoredToolCall,
+    args: Record<string, unknown>,
+    workspacePath: string,
+    webFetchAllowedHosts: string[],
+    readFileMaxLines: number | undefined
+  ): Promise<ToolExecResult> {
+    patchLiveTurn((t) =>
+      upsertLiveTool(t, { id: tc.id, name: tc.name, input: args, status: "running" })
+    );
+    const result = await executeTool(tc.name, args, workspacePath, {
+      webFetchAllowedHosts,
+      readFileMaxLines,
+    });
+    await syncUiAfterFilesystemTool(workspacePath, tc.name, args, result.success);
+    const toolResult: ToolExecResult = {
+      id: tc.id,
+      name: tc.name,
+      content: result.success ? result.output : `Error: ${result.output}`,
+      input: args,
+      success: result.success,
+      paths: openableFilePaths(tc.name, args, workspacePath, result.success),
+    };
+    patchLiveTurn((t) =>
+      upsertLiveTool(t, {
+        id: toolResult.id,
+        name: toolResult.name,
+        input: toolResult.input,
+        status: toolResult.success ? "done" : "error",
+        content: toolResult.content,
+        success: toolResult.success,
+        paths: toolResult.paths,
+      })
+    );
+    return toolResult;
+  }
+
+  async function flushParallelBatch(
+    batch: Array<{ tc: StoredToolCall; args: Record<string, unknown> }>,
+    workspacePath: string,
+    webFetchAllowedHosts: string[],
+    readFileMaxLines: number | undefined,
+    maxConcurrent: number,
+    runCounter: { executed: number }
+  ): Promise<ToolExecResult[]> {
+    if (batch.length === 0) return [];
+    const out: ToolExecResult[] = [];
+    for (let i = 0; i < batch.length; i += maxConcurrent) {
+      const chunk = batch.slice(i, i + maxConcurrent);
+      const chunkResults = await Promise.all(
+        chunk.map(({ tc, args }) =>
+          runOneTool(tc, args, workspacePath, webFetchAllowedHosts, readFileMaxLines)
+        )
+      );
+      for (const r of chunkResults) {
+        runCounter.executed++;
+        out.push(r);
+      }
+    }
+    chat.setToolCall(null);
+    return out;
+  }
+
   async function executeToolCallsWithApproval(
     toolCalls: StoredToolCall[],
     policy: ToolPolicyState,
@@ -833,26 +946,31 @@ import {
       stallTracker?: StallTracker;
     }
   ): Promise<{
-    results: Array<{
-      id: string;
-      name: string;
-      content: string;
-      input: Record<string, unknown>;
-      success: boolean;
-      paths: string[];
-    }>;
+    results: ToolExecResult[];
     hitRunCap: boolean;
     stallAbort?: boolean;
   }> {
-    const results: Array<{
-      id: string;
-      name: string;
-      content: string;
-      input: Record<string, unknown>;
-      success: boolean;
-      paths: string[];
-    }> = [];
+    const results: ToolExecResult[] = [];
     let hitRunCap = false;
+    const canParallel = limits.parallelExecution && limits.maxConcurrentTools > 1;
+    let parallelBatch: Array<{ tc: StoredToolCall; args: Record<string, unknown> }> = [];
+
+    async function flushBatch() {
+      if (parallelBatch.length === 0) return;
+      const batchResults = await flushParallelBatch(
+        parallelBatch,
+        workspacePath,
+        webFetchAllowedHosts,
+        options?.readFileMaxLines,
+        limits.maxConcurrentTools,
+        runCounter
+      );
+      for (const r of batchResults) {
+        results.push(r);
+        options?.stallTracker?.resetOnProgress(r.name, r.input);
+      }
+      parallelBatch = [];
+    }
 
     const perTurnCap = perTurnToolCap(limits, toolCalls.length);
     const toRun = toolCalls.slice(0, perTurnCap);
@@ -878,6 +996,7 @@ import {
       }
 
       if (isToolRunCapReached(runCounter.executed, limits)) {
+        await flushBatch();
         hitRunCap = true;
         results.push({
           id: tc.id,
@@ -903,6 +1022,7 @@ import {
       }
 
       if (toolNeedsUserApproval(policy, tc.name)) {
+        await flushBatch();
         toolApprovalChoice = "allow";
         toolApprovalMenuOpen = false;
         pendingToolApproval = { id: tc.id, tool: tc.name, input: args };
@@ -924,6 +1044,7 @@ import {
 
       const stall = options?.stallTracker?.record(tc.name, args);
       if (stall === "abort") {
+        await flushBatch();
         return { results, hitRunCap: false, stallAbort: true };
       }
       if (stall === "nudge") {
@@ -938,58 +1059,26 @@ import {
         continue;
       }
 
-      chat.setToolCall({
-        id: tc.id,
-        tool: tc.name,
-        input: args,
-        status: "running",
-      });
-      patchLiveTurn((t) =>
-        upsertLiveTool(t, {
-          id: tc.id,
-          name: tc.name,
-          input: args,
-          status: "running",
-        })
-      );
-
-      const result = await executeTool(tc.name, args, workspacePath, {
-        webFetchAllowedHosts,
-        readFileMaxLines: options?.readFileMaxLines,
-      });
-      chat.setToolCall(null);
-      runCounter.executed++;
-
-      await syncUiAfterFilesystemTool(workspacePath, tc.name, args, result.success);
-
-      const toolResult = {
-        id: tc.id,
-        name: tc.name,
-        content: result.success ? result.output : `Error: ${result.output}`,
-        input: args,
-        success: result.success,
-        paths: openableFilePaths(tc.name, args, workspacePath, result.success),
-      };
-      results.push(toolResult);
-      options?.stallTracker?.resetOnProgress(tc.name, args);
-
-      patchLiveTurn((t) =>
-        upsertLiveTool(t, {
-          id: toolResult.id,
-          name: toolResult.name,
-          input: toolResult.input,
-          status: toolResult.success ? "done" : "error",
-          content: toolResult.content,
-          success: toolResult.success,
-          paths: toolResult.paths,
-        })
-      );
+      if (canParallel && isReadOnlyTool(tc.name)) {
+        parallelBatch.push({ tc, args });
+      } else {
+        await flushBatch();
+        chat.setToolCall({ id: tc.id, tool: tc.name, input: args, status: "running" });
+        const toolResult = await runOneTool(
+          tc, args, workspacePath, webFetchAllowedHosts, options?.readFileMaxLines
+        );
+        chat.setToolCall(null);
+        runCounter.executed++;
+        results.push(toolResult);
+        options?.stallTracker?.resetOnProgress(tc.name, args);
+      }
 
       if (isToolRunCapReached(runCounter.executed, limits)) {
         hitRunCap = true;
       }
     }
 
+    await flushBatch();
     return { results, hitRunCap };
   }
 
@@ -1655,9 +1744,44 @@ import {
     {:else}
       {#each groupAgentTurnsForDisplay($activeSession?.messages ?? [], $chat.isStreaming, Boolean(liveTurn)) as block (block.kind === "user" ? block.message.id : block.id)}
         {#if block.kind === "user" && block.message.compactionBoundary}
+          {@const archived = $activeSession?.preCompactionMessages ?? []}
+          {@const archivedCount = archived.filter(m => m.role === "user" && !m.compactionBoundary).length}
+          {#if archiveExpanded && archived.length > 0}
+            <div class="archive-messages">
+              {#each archived as msg (msg.id)}
+                {#if msg.role === "user" && !msg.compactionBoundary}
+                  <div class="archive-msg archive-msg--user">{msg.content}</div>
+                {:else if msg.role === "assistant" && msg.content}
+                  <div class="archive-msg archive-msg--assistant">{msg.content}</div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
           <div class="compaction-divider" role="separator">
             <span class="compaction-divider-line"></span>
-            <span class="compaction-divider-label">Context compacted — session summary preserved</span>
+            <div class="compaction-divider-center">
+              {#if archived.length > 0}
+                <button
+                  type="button"
+                  class="compaction-archive-btn"
+                  onclick={() => (archiveExpanded = !archiveExpanded)}
+                  aria-expanded={archiveExpanded}
+                >
+                  <span class="compaction-archive-chevron" class:compaction-archive-chevron--open={archiveExpanded}>▶</span>
+                  {archivedCount} archived {archivedCount === 1 ? "message" : "messages"}
+                </button>
+                <span class="compaction-divider-sep">·</span>
+                <button
+                  type="button"
+                  class="compaction-restore-btn"
+                  onclick={() => { chat.revertCompaction(); archiveExpanded = false; }}
+                >
+                  Restore full context
+                </button>
+              {:else}
+                <span class="compaction-divider-label">Context compacted</span>
+              {/if}
+            </div>
             <span class="compaction-divider-line"></span>
           </div>
         {:else if block.kind === "user"}
@@ -2116,9 +2240,66 @@ import {
 
   <div class="context-footer" aria-label={footerAriaLabel()}>
     {#if footerProfile().showContextBar}
-      <div class="context-bar">
-        <div class="context-fill" style="width: {contextPct()}%"></div>
+      {@const bd = contextBreakdown()}
+      {@const cw = bd.contextWindow}
+      {@const seg = (n: number) => cw > 0 ? Math.min(100, (n / cw) * 100) : 0}
+      <div
+        class="context-bar"
+        role="button"
+        tabindex="0"
+        aria-label="Context usage breakdown"
+        onmouseenter={() => (showBreakdown = true)}
+        onmouseleave={() => (showBreakdown = false)}
+        onfocus={() => (showBreakdown = true)}
+        onblur={() => (showBreakdown = false)}
+      >
+        <div class="context-seg context-seg--system" style="width: {seg(bd.systemTokens)}%"></div>
+        <div class="context-seg context-seg--tools" style="width: {seg(bd.toolSchemaTokens)}%"></div>
+        <div class="context-seg context-seg--history" style="width: {seg(bd.historyTokens)}%"></div>
       </div>
+      {#if showBreakdown}
+        <div class="context-breakdown-popover" role="tooltip">
+          <div class="breakdown-title">Context breakdown</div>
+          <div class="breakdown-group">
+            <div class="breakdown-row breakdown-row--header">
+              <span class="breakdown-dot breakdown-dot--system"></span>
+              <span class="breakdown-label">System prompt</span>
+              <span class="breakdown-tok">{formatTok(bd.systemTokens)} tok</span>
+            </div>
+            {#each bd.sections.filter(s => s.tokenEstimate > 0) as section (section.id)}
+              <div class="breakdown-row breakdown-row--sub">
+                <span class="breakdown-label">{section.label}</span>
+                <span class="breakdown-tok">{formatTok(section.tokenEstimate)}</span>
+              </div>
+            {/each}
+          </div>
+          {#if bd.toolSchemaTokens > 0}
+            <div class="breakdown-group">
+              <div class="breakdown-row breakdown-row--header">
+                <span class="breakdown-dot breakdown-dot--tools"></span>
+                <span class="breakdown-label">Tool schemas</span>
+                <span class="breakdown-tok">{formatTok(bd.toolSchemaTokens)} tok</span>
+              </div>
+            </div>
+          {/if}
+          <div class="breakdown-group">
+            <div class="breakdown-row breakdown-row--header">
+              <span class="breakdown-dot breakdown-dot--history"></span>
+              <span class="breakdown-label">Chat history</span>
+              <span class="breakdown-tok">{formatTok(bd.historyTokens)} tok</span>
+            </div>
+          </div>
+          <div class="breakdown-divider"></div>
+          <div class="breakdown-row breakdown-row--total">
+            <span class="breakdown-label">Used</span>
+            <span class="breakdown-tok">~{formatTok(bd.total)} / {formatTok(cw)} tok</span>
+          </div>
+          <div class="breakdown-row breakdown-row--reserve">
+            <span class="breakdown-label">Reply reserve</span>
+            <span class="breakdown-tok">{formatTok(bd.reserveTokens)} tok</span>
+          </div>
+        </div>
+      {/if}
     {/if}
     <div class="context-meta">
       <div class="context-meta-start">
@@ -2519,12 +2700,102 @@ import {
     background: color-mix(in srgb, var(--border, #4c4c4c) 70%, transparent);
   }
 
+  .compaction-divider-center {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   .compaction-divider-label {
     flex-shrink: 0;
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.02em;
     color: var(--muted-foreground, #808080);
+  }
+
+  .compaction-divider-sep {
+    font-size: 11px;
+    color: var(--muted-foreground, #808080);
+  }
+
+  .compaction-archive-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted-foreground, #808080);
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+
+  .compaction-archive-btn:hover {
+    color: var(--foreground);
+  }
+
+  .compaction-archive-chevron {
+    font-size: 8px;
+    display: inline-block;
+    transition: transform 0.15s ease;
+  }
+
+  .compaction-archive-chevron--open {
+    transform: rotate(90deg);
+  }
+
+  .compaction-restore-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 11px;
+    font-weight: 500;
+    color: #569cd6;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+
+  .compaction-restore-btn:hover {
+    color: #9cdcfe;
+  }
+
+  .archive-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 0;
+    opacity: 0.45;
+    pointer-events: none;
+    user-select: text;
+  }
+
+  .archive-msg {
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .archive-msg--user {
+    align-self: flex-end;
+    background: color-mix(in srgb, var(--foreground, #d4d4d4) 8%, transparent);
+    max-width: 85%;
+  }
+
+  .archive-msg--assistant {
+    align-self: flex-start;
+    color: var(--muted-foreground, #808080);
+    max-width: 90%;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
   }
 
   .message.user-message-slot {
@@ -3286,13 +3557,94 @@ import {
     border-radius: 2px;
     overflow: hidden;
     margin-bottom: 4px;
+    display: flex;
+    cursor: default;
   }
 
-  .context-fill {
+  .context-seg {
     height: 100%;
-    background: linear-gradient(90deg, #4ec9b0, #569cd6);
-    max-width: 100%;
     transition: width 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .context-seg--system { background: #c586c0; }
+  .context-seg--tools  { background: #ce9178; }
+  .context-seg--history { background: #569cd6; }
+
+  .context-breakdown-popover {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 10px;
+    min-width: 240px;
+    background: #1e1e1e;
+    border: 1px solid #3c3c3c;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--foreground, #d4d4d4);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  .breakdown-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #808080;
+    margin-bottom: 8px;
+  }
+
+  .breakdown-group {
+    margin-bottom: 4px;
+  }
+
+  .breakdown-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+  }
+
+  .breakdown-row--header { font-weight: 500; }
+
+  .breakdown-row--sub {
+    padding-left: 16px;
+    color: #808080;
+    font-size: 10.5px;
+  }
+
+  .breakdown-row--total { font-weight: 500; margin-top: 2px; }
+  .breakdown-row--reserve { color: #606060; }
+
+  .breakdown-label { flex: 1; }
+
+  .breakdown-tok {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-foreground, #808080);
+    flex-shrink: 0;
+  }
+
+  .breakdown-row--header .breakdown-tok,
+  .breakdown-row--total .breakdown-tok { color: var(--foreground, #d4d4d4); }
+
+  .breakdown-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .breakdown-dot--system  { background: #c586c0; }
+  .breakdown-dot--tools   { background: #ce9178; }
+  .breakdown-dot--history { background: #569cd6; }
+
+  .breakdown-divider {
+    height: 1px;
+    background: #3c3c3c;
+    margin: 6px 0;
   }
 
   .context-meta {

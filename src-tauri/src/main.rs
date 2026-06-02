@@ -9,7 +9,7 @@ use modules::commands::{
     icon_pack_get_dir, icon_pack_refresh_bundled, open_settings_window, path_exists,
     pick_icon_pack_folder, pick_workspace_folder, read_file, read_project_state,
     read_system_prompt, rename_entry, run_shell, watch_workspace, web_fetch, write_file,
-    write_project_state, write_system_prompt, ensure_system_prompts_layout,
+    write_project_state, write_system_prompt, ensure_system_prompts_layout, ensure_skill_dir,
 };
 use modules::pty::{pty_close, pty_create, pty_resize, pty_write, PtyManager};
 use modules::watcher::WatcherState;
@@ -55,6 +55,7 @@ fn main() {
             read_system_prompt,
             write_system_prompt,
             ensure_system_prompts_layout,
+            ensure_skill_dir,
             read_project_state,
             write_project_state,
             icon_pack_get_dir,

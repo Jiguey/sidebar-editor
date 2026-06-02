@@ -747,3 +747,117 @@ This derived value is what `buildSystemPrompt()` consumes — it never reads raw
 *This spec supersedes [23-skills-system.md](23-skills-system.md) and the capability-flag/prompt-variant parts of [27-local-model-ux.md](27-local-model-ux.md). The Ollama model-pull UI in [27](27-local-model-ux.md) §4 remains current. All other specs remain unaffected.*
 
 *Spec created: 2026-05-30 · Source: parent Agent Context & Model Settings spec (supersedes `extension.md` §3 & §8)*
+
+---
+
+## Addendum A — Skills CRUD in Settings
+
+*Added: 2026-06-01*
+
+This addendum covers the create, read, update, and delete operations for skills inside the Settings → Agent Context → Skills panel. It extends §5 (Skills Panel) without changing the layout or data format defined there.
+
+### A.1 Creating a New Skill
+
+**Trigger:** the `[+ New skill]` button in the Skills panel (§5.1).
+
+**Flow:**
+
+1. A small inline form appears above the skill list prompting: "Skill ID (kebab-case)" and "Save to: [This project ▼ / Globally]".
+2. On confirm, the app:
+   - Scaffolds `.tinyllama/skills/<id>/skill.json` with minimum valid fields (`id`, `title`, `scope`, `modes: []`)
+   - Scaffolds `.tinyllama/skills/<id>/skill.md` with a comment header: `# <Title>\n\nAdd your skill content here.`
+   - Opens `skill.md` in the main editor
+   - Opens the metadata form panel (see §A.3) alongside the editor
+3. The new skill appears at the bottom of the "Active in this workspace" list, enabled by default.
+
+For globally-scoped skills, files go to `~/.tinyllama/skills/<id>/`.
+
+**ID validation:** IDs must match `^[a-z0-9-]+$`. If the ID already exists (same scope), the form shows an inline error: "A skill with this ID already exists."
+
+### A.2 Opening a Skill for Editing
+
+**Trigger:** clicking a skill's title text in the Skills panel row.
+
+**Behavior:**
+- Opens `skill.md` in the main editor tab (same tab if already open, or a new tab)
+- Opens the metadata form panel (§A.3) as a side panel or as the skills panel content — the metadata panel and the main editor coexist
+
+For bundled skills (read-only), the editor tab opens in read-only mode with a banner: "Bundled skill — read-only. [Duplicate to edit]". Clicking "Duplicate to edit" copies the skill directory to `.tinyllama/skills/<id>-custom/` and opens the copy.
+
+### A.3 Inline Metadata Editing
+
+The metadata form in the Skills panel replaces the skill list when a skill is being edited. It shows editable fields without requiring the user to manually edit `skill.json`:
+
+```
+┌─ Edit Skill Metadata ────────────────────────────────────┐
+│  ← Back to skill list                                     │
+│                                                           │
+│  Title         [React + TypeScript              ]         │
+│  Description   [React component conventions...  ]         │
+│                                                           │
+│  Active in modes                                          │
+│  [ ] Chat   [x] Plan   [x] Agent                         │
+│                                                           │
+│  Auto-activate                                            │
+│  [x] Enable auto-activation                              │
+│                                                           │
+│  Content (main editor)                                    │
+│  skill.md                              [Open in editor →] │
+│                                                           │
+│  [Save metadata]                         [Cancel]         │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Fields:**
+- **Title**: maps to `skill.json` `title` field
+- **Description**: maps to `skill.json` `description` field
+- **Active in modes**: mode checkboxes map to `skill.json` `modes` array
+- **Auto-activate toggle**: enables/disables the `autoActivate` object. When toggled off, the `autoActivate` field is set to `null` (skill becomes manual-only). When toggled on for a skill that had no prior signals, opens the auto-activation signal editor (advanced — deferred to Phase 2).
+
+**Save:** writes `skill.json` only. The content of `skill.md` is managed directly in the editor — saving the editor tab writes the file. The metadata form and the editor are separate save flows.
+
+**"Open in editor →":** navigates to the `skill.md` editor tab (or opens it if not already open).
+
+### A.4 Deleting a Skill
+
+**Trigger:** the `[⚙]` gear menu on a skill row, then "Delete skill".
+
+**Behavior:**
+
+1. Show a confirmation dialog:
+   ```
+   Delete "React + TypeScript"?
+   This removes .tinyllama/skills/react-typescript/ permanently.
+   [Delete]  [Cancel]
+   ```
+2. On confirm: delete the directory from disk (or `~/.tinyllama/skills/` for global scope).
+3. Remove the skill from `skills-config.json` (order and overrides).
+4. The skill disappears from the list immediately.
+
+Bundled skills cannot be deleted — the "Delete skill" option is not shown in their gear menu.
+
+### A.5 Validation on Save
+
+When the metadata form is saved, `skill.json` is validated against the schema defined in §8.2:
+
+| Validation | Error shown |
+|------------|-------------|
+| `id` missing or invalid characters | "ID must be kebab-case (letters, numbers, hyphens only)" |
+| `title` empty | "Title is required" |
+| `scope` not a valid value | "Scope must be 'project', 'global', or 'bundled'" |
+| `modes` not an array | Reset to empty array, no error |
+| `autoActivate.requires` not 'any' or 'all' | "Requires must be 'any' or 'all'" |
+
+Validation errors appear inline below the relevant field. The Save button is disabled until all errors are resolved.
+
+If `skill.json` on disk is already invalid when the panel opens (e.g. hand-edited incorrectly), the panel shows a banner: "skill.json has validation errors — some fields may not load correctly." The form still opens with best-effort field values.
+
+### A.6 Summary of Editor vs Panel Responsibilities
+
+| Surface | What it manages |
+|---------|----------------|
+| **Settings panel (metadata form)** | `title`, `description`, `modes`, `autoActivate` toggle |
+| **Main editor (CodeMirror tab)** | `skill.md` content — all prose and variable usage |
+| **Neither** | `id`, `scope`, `version` — set at creation, not changed afterward |
+
+The division keeps the metadata panel simple (structured inputs) and uses the full editor for free-form content — consistent with how system prompts are edited in this project.

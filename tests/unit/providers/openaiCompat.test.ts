@@ -149,7 +149,7 @@ describe("openaiCompat", () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(body));
 
       const events = await collect(
-        streamChat("http://localhost:11434", "model", [], undefined, undefined, { think: true })
+        streamChat("http://localhost:11434", "model", [], undefined, undefined, { think: true }, undefined, true)
       );
 
       const thinking = events.filter(
@@ -324,7 +324,7 @@ describe("openaiCompat", () => {
         streamChat("http://localhost:11434", "model", [], undefined, undefined, {
           num_ctx: 4096,
           num_thread: 6,
-        })
+        }, undefined, true)
       );
 
       const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];

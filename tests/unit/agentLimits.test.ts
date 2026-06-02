@@ -16,17 +16,16 @@ describe("clampAgentLimits", () => {
   });
 
   it("clamps values to bounds", () => {
-    expect(
-      clampAgentLimits({
-        maxAgentSteps: 999,
-        maxToolCallsPerRun: 999,
-        maxToolsPerTurn: 100,
-      })
-    ).toEqual({
-      maxAgentSteps: AGENT_LIMIT_BOUNDS.maxAgentSteps.max,
-      maxToolCallsPerRun: AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max,
-      maxToolsPerTurn: AGENT_LIMIT_BOUNDS.maxToolsPerTurn.max,
+    const result = clampAgentLimits({
+      maxAgentSteps: 999,
+      maxToolCallsPerRun: 999,
+      maxToolsPerTurn: 100,
+      maxConcurrentTools: 999,
     });
+    expect(result.maxAgentSteps).toBe(AGENT_LIMIT_BOUNDS.maxAgentSteps.max);
+    expect(result.maxToolCallsPerRun).toBe(AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max);
+    expect(result.maxToolsPerTurn).toBe(AGENT_LIMIT_BOUNDS.maxToolsPerTurn.max);
+    expect(result.maxConcurrentTools).toBe(AGENT_LIMIT_BOUNDS.maxConcurrentTools.max);
   });
 
   it("allows zero for unlimited caps", () => {
@@ -44,11 +43,10 @@ describe("normalizeAgentLimits", () => {
   });
 
   it("keeps explicit non-default caps", () => {
-    expect(normalizeAgentLimits({ maxAgentSteps: 5, maxToolCallsPerRun: 10, maxToolsPerTurn: 2 })).toEqual({
-      maxAgentSteps: 5,
-      maxToolCallsPerRun: 10,
-      maxToolsPerTurn: 2,
-    });
+    const result = normalizeAgentLimits({ maxAgentSteps: 5, maxToolCallsPerRun: 10, maxToolsPerTurn: 2 });
+    expect(result.maxAgentSteps).toBe(5);
+    expect(result.maxToolCallsPerRun).toBe(10);
+    expect(result.maxToolsPerTurn).toBe(2);
   });
 });
 

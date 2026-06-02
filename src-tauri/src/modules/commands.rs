@@ -357,6 +357,7 @@ pub fn run_shell(
 const TINYLLAMA_DIR: &str = ".tinyllama";
 const SYSTEM_PROMPT_FILE: &str = "prompt.md";
 const PROMPTS_DIR: &str = "prompts";
+const SKILLS_DIR: &str = "skills";
 const PROJECT_STATE_FILE: &str = "state.json";
 
 fn tinyllama_dir(workspace_path: &str) -> Result<PathBuf, String> {
@@ -382,6 +383,21 @@ pub fn ensure_system_prompts_layout(workspace_path: String) -> Result<(), String
     let prompts_dir = dir.join(PROMPTS_DIR);
     std::fs::create_dir_all(&prompts_dir)
         .map_err(|e| format!("Failed to create .tinyllama/prompts directory: {e}"))
+}
+
+#[tauri::command]
+pub fn ensure_skill_dir(workspace_path: String, skill_id: String) -> Result<(), String> {
+    if skill_id.is_empty()
+        || skill_id.contains('/')
+        || skill_id.contains('\\')
+        || skill_id.contains("..")
+    {
+        return Err(format!("Invalid skill id: {skill_id}"));
+    }
+    let dir = ensure_tinyllama_dir(&workspace_path)?;
+    let skill_dir = dir.join(SKILLS_DIR).join(&skill_id);
+    std::fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create skill directory '{skill_id}': {e}"))
 }
 
 #[tauri::command]
