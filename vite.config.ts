@@ -5,6 +5,25 @@ import { defineConfig, loadEnv } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { sveltePhosphorOptimize } from "phosphor-svelte/vite";
 
+/**
+ * CodeMirror packages the editor always needs (statically imported by
+ * loadCodeMirror.ts). Grouped into one eager `codemirror` chunk. Per-language
+ * `lang-*`/`legacy-modes` packages and their `@lezer/*` parsers are excluded so
+ * they split into on-demand chunks. Only the generic lezer runtime is core here.
+ */
+const CODEMIRROR_CORE = [
+  "@codemirror/state",
+  "@codemirror/view",
+  "@codemirror/language",
+  "@codemirror/commands",
+  "@codemirror/search",
+  "@codemirror/autocomplete",
+  "@codemirror/lint",
+  "@lezer/common",
+  "@lezer/highlight",
+  "@lezer/lr",
+];
+
 const devPort = Number(process.env.VITE_PORT ?? process.env.PORT ?? 14200);
 /** Set by `tauri dev` on iOS/Android; desktop leaves this unset. */
 const tauriDevHost = process.env.TAURI_DEV_HOST;
@@ -66,7 +85,17 @@ export default defineConfig(({ mode }) => {
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
-          if (id.includes("@codemirror") || id.includes("codemirror")) return "codemirror";
+          // Language grammars (+ their lezer parsers) load on demand — leave them
+          // unnamed so Vite emits a separate async chunk per language. Must be
+          // checked before the core `@codemirror` rule below.
+          if (
+            id.includes("@codemirror/lang-") ||
+            id.includes("@codemirror/legacy-modes") ||
+            id.includes("codemirror-lang-")
+          ) {
+            return;
+          }
+          if (CODEMIRROR_CORE.some((pkg) => id.includes(pkg))) return "codemirror";
           if (id.includes("@xterm") || id.includes("xterm")) return "xterm";
           if (id.includes("@tauri-apps")) return "tauri";
         },

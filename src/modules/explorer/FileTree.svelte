@@ -20,6 +20,8 @@
     refreshWorkspaceTree,
     workspaceFolderName,
   } from "$lib/workspace";
+  import { openGitDiffFile } from "$lib/git/openChangedFile";
+  import { relPathFromWorkspace } from "$lib/explorer/treeGitDecorations";
   import { normalizeFilePath } from "$lib/fsPath";
   import { gitStatus } from "$lib/ipc";
   import { bumpGitRefresh } from "$lib/stores/gitRefresh";
@@ -233,15 +235,26 @@
     highlightPath = path;
     lastRevealedPath = path;
 
+    // If the file has tracked modifications, open with the green/red diff overlay.
+    const ws = get(files).workspacePath;
+    const rel = ws ? relPathFromWorkspace(ws, entry.path) : null;
+    const row = rel ? gitByRel.get(rel) : undefined;
+    const tracked = row && row.worktree !== "??" && row.index !== "??";
+    const hasChanges = tracked && (row.worktree.includes("M") || row.index.includes("M"));
+
     try {
-      const content = await readFile(entry.path);
-      workbench.openEditorFile({
-        path: entry.path,
-        name: entry.name,
-        content,
-        isDirty: false,
-        language: getLanguageFromPath(entry.path),
-      });
+      if (ws && rel && hasChanges) {
+        await openGitDiffFile(ws, rel);
+      } else {
+        const content = await readFile(entry.path);
+        workbench.openEditorFile({
+          path: entry.path,
+          name: entry.name,
+          content,
+          isDirty: false,
+          language: getLanguageFromPath(entry.path),
+        });
+      }
     } catch (e) {
       console.error("Failed to read file:", e);
     }

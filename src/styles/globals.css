@@ -2,10 +2,6 @@
 @import "tw-animate-css";
 @import "./workbench-icon-btn.css";
 
-/* Tailwind 4's HMR scanner misclassifies raw Svelte script blocks as CSS declarations.
-   These components use no Tailwind utilities — exclude them from scanning. */
-@source not "../lib/components/DevViteReconnect.svelte";
-
 @custom-variant dark (&:is(.dark *));
 
 /*

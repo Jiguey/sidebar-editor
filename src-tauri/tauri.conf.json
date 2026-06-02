@@ -6,8 +6,22 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:14200",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build:skip-tests",
     "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Local-first AI coding assistant",
+    "longDescription": "A privacy-first desktop AI coding assistant. Run local models via Ollama or llama.cpp, or connect your own cloud API key. Your code never leaves your machine."
   },
   "app": {
     "withGlobalTauri": true,

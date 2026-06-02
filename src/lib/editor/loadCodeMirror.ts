@@ -24,10 +24,8 @@ import {
 } from "@codemirror/autocomplete";
 import { lintKeymap } from "@codemirror/lint";
 import { foldKeymap } from "@codemirror/language";
-import type { OpenFile } from "$lib/stores/files";
 import { editorSyntaxHighlighting } from "./syntaxTheme";
 import { middleClickScroll } from "./middleClickScroll";
-import { gitDiffHighlightExtension } from "./diffDecorations";
 
 /** Same as codemirror's `basicSetup` but without `defaultHighlightStyle` (we use custom syntax). */
 export const editorBaseSetup: Extension[] = [
@@ -65,147 +63,121 @@ export type CodeMirrorKit = {
   scrollPastEnd: typeof scrollPastEnd;
   editorBaseSetup: Extension[];
   syntaxHighlighting: Extension;
-  languageExtensions: Record<string, Extension>;
+  /** Grammar for an already-resolved language, or null if not loaded yet / unsupported. */
+  getLoadedLanguage(language: string): Extension | null;
+  /** Dynamically import a language grammar (once), caching the resolved extension. */
+  loadLanguage(language: string): Promise<Extension | null>;
 };
+
+/**
+ * One dynamic import per language. Each loader is the only static reference to its
+ * grammar package, so Vite emits a separate async chunk per language — opening a
+ * `.py` file pulls Python's grammar, not all 27. See `manualChunks` in vite.config.ts.
+ */
+const languageLoaders: Record<string, () => Promise<Extension>> = {
+  javascript: async () => (await import("@codemirror/lang-javascript")).javascript(),
+  typescript: async () =>
+    (await import("@codemirror/lang-javascript")).javascript({ typescript: true }),
+  jsx: async () => (await import("@codemirror/lang-javascript")).javascript({ jsx: true }),
+  tsx: async () =>
+    (await import("@codemirror/lang-javascript")).javascript({ typescript: true, jsx: true }),
+  html: async () => (await import("@codemirror/lang-html")).html(),
+  css: async () => (await import("@codemirror/lang-css")).css(),
+  json: async () => (await import("@codemirror/lang-json")).json(),
+  markdown: async () => (await import("@codemirror/lang-markdown")).markdown(),
+  rust: async () => (await import("@codemirror/lang-rust")).rust(),
+  python: async () => (await import("@codemirror/lang-python")).python(),
+  yaml: async () => (await import("@codemirror/lang-yaml")).yaml(),
+  go: async () => (await import("@codemirror/lang-go")).go(),
+  cpp: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  c: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  java: async () => (await import("@codemirror/lang-java")).java(),
+  sql: async () => (await import("@codemirror/lang-sql")).sql(),
+  xml: async () => (await import("@codemirror/lang-xml")).xml(),
+  svelte: async () => (await import("codemirror-lang-svelte")).svelte(),
+  vue: async () => (await import("@codemirror/lang-html")).html(),
+  php: async () => (await import("@codemirror/lang-php")).php(),
+  shell: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/shell")).shell),
+  toml: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/toml")).toml),
+  ruby: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/ruby")).ruby),
+  kotlin: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/clike")).kotlin),
+  csharp: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/clike")).csharp),
+  scala: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/clike")).scala),
+  dart: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/clike")).dart),
+  lua: async () => StreamLanguage.define((await import("@codemirror/legacy-modes/mode/lua")).lua),
+  dockerfile: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/dockerfile")).dockerFile),
+  powershell: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/powershell")).powerShell),
+  perl: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/perl")).perl),
+  swift: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/swift")).swift),
+  haskell: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/haskell")).haskell),
+  r: async () => StreamLanguage.define((await import("@codemirror/legacy-modes/mode/r")).r),
+  groovy: async () =>
+    StreamLanguage.define((await import("@codemirror/legacy-modes/mode/groovy")).groovy),
+};
+
+/** Resolved grammars (value `null` = no grammar for this language; don't retry). */
+const loadedLanguages = new Map<string, Extension | null>();
+/** De-dupes concurrent loads of the same language. */
+const inflightLanguages = new Map<string, Promise<Extension | null>>();
+
+function getLoadedLanguage(language: string): Extension | null {
+  return loadedLanguages.get(language) ?? null;
+}
+
+function loadLanguage(language: string): Promise<Extension | null> {
+  const cached = loadedLanguages.get(language);
+  if (cached !== undefined) return Promise.resolve(cached);
+  const inflight = inflightLanguages.get(language);
+  if (inflight) return inflight;
+
+  const loader = languageLoaders[language];
+  if (!loader) {
+    loadedLanguages.set(language, null);
+    return Promise.resolve(null);
+  }
+
+  const promise = loader()
+    .then((ext) => {
+      loadedLanguages.set(language, ext);
+      inflightLanguages.delete(language);
+      return ext;
+    })
+    .catch((err) => {
+      console.error(`Failed to load CodeMirror grammar for "${language}"`, err);
+      loadedLanguages.set(language, null);
+      inflightLanguages.delete(language);
+      return null;
+    });
+  inflightLanguages.set(language, promise);
+  return promise;
+}
 
 let loadPromise: Promise<CodeMirrorKit> | null = null;
 
-/** Load CodeMirror once per app session (avoids re-import on every editor remount). */
+/** Load the CodeMirror core once per app session. Language grammars load on demand. */
 export function loadCodeMirror(): Promise<CodeMirrorKit> {
   if (!loadPromise) {
-    loadPromise = Promise.all([
-      import("@codemirror/lang-javascript"),
-      import("@codemirror/lang-html"),
-      import("@codemirror/lang-css"),
-      import("@codemirror/lang-json"),
-      import("@codemirror/lang-markdown"),
-      import("@codemirror/lang-rust"),
-      import("@codemirror/lang-python"),
-      import("@codemirror/lang-yaml"),
-      import("@codemirror/lang-go"),
-      import("@codemirror/lang-cpp"),
-      import("@codemirror/lang-java"),
-      import("@codemirror/lang-sql"),
-      import("@codemirror/lang-xml"),
-      import("codemirror-lang-svelte"),
-      import("@codemirror/lang-php"),
-      import("@codemirror/legacy-modes/mode/shell"),
-      import("@codemirror/legacy-modes/mode/toml"),
-      import("@codemirror/legacy-modes/mode/ruby"),
-      import("@codemirror/legacy-modes/mode/clike"),
-      import("@codemirror/legacy-modes/mode/lua"),
-      import("@codemirror/legacy-modes/mode/dockerfile"),
-      import("@codemirror/legacy-modes/mode/powershell"),
-      import("@codemirror/legacy-modes/mode/perl"),
-      import("@codemirror/legacy-modes/mode/swift"),
-      import("@codemirror/legacy-modes/mode/haskell"),
-      import("@codemirror/legacy-modes/mode/r"),
-      import("@codemirror/legacy-modes/mode/groovy"),
-    ]).then(
-      ([
-        jsModule,
-        htmlModule,
-        cssModule,
-        jsonModule,
-        mdModule,
-        rustModule,
-        pythonModule,
-        yamlModule,
-        goModule,
-        cppModule,
-        javaModule,
-        sqlModule,
-        xmlModule,
-        svelteModule,
-        phpModule,
-        shellModule,
-        tomlModule,
-        rubyModule,
-        clikeModule,
-        luaModule,
-        dockerfileModule,
-        powershellModule,
-        perlModule,
-        swiftModule,
-        haskellModule,
-        rModule,
-        groovyModule,
-      ]) => ({
-        EditorState,
-        EditorView,
-        scrollPastEnd,
-        editorBaseSetup,
-        syntaxHighlighting: editorSyntaxHighlighting,
-        languageExtensions: {
-          javascript: jsModule.javascript(),
-          typescript: jsModule.javascript({ typescript: true }),
-          jsx: jsModule.javascript({ jsx: true }),
-          tsx: jsModule.javascript({ typescript: true, jsx: true }),
-          html: htmlModule.html(),
-          css: cssModule.css(),
-          json: jsonModule.json(),
-          markdown: mdModule.markdown(),
-          rust: rustModule.rust(),
-          python: pythonModule.python(),
-          yaml: yamlModule.yaml(),
-          go: goModule.go(),
-          cpp: cppModule.cpp(),
-          c: cppModule.cpp(),
-          java: javaModule.java(),
-          sql: sqlModule.sql(),
-          xml: xmlModule.xml(),
-          svelte: svelteModule.svelte(),
-          vue: htmlModule.html(),
-          php: phpModule.php(),
-          shell: StreamLanguage.define(shellModule.shell),
-          toml: StreamLanguage.define(tomlModule.toml),
-          ruby: StreamLanguage.define(rubyModule.ruby),
-          kotlin: StreamLanguage.define(clikeModule.kotlin),
-          csharp: StreamLanguage.define(clikeModule.csharp),
-          scala: StreamLanguage.define(clikeModule.scala),
-          dart: StreamLanguage.define(clikeModule.dart),
-          lua: StreamLanguage.define(luaModule.lua),
-          dockerfile: StreamLanguage.define(dockerfileModule.dockerFile),
-          powershell: StreamLanguage.define(powershellModule.powerShell),
-          perl: StreamLanguage.define(perlModule.perl),
-          swift: StreamLanguage.define(swiftModule.swift),
-          haskell: StreamLanguage.define(haskellModule.haskell),
-          r: StreamLanguage.define(rModule.r),
-          groovy: StreamLanguage.define(groovyModule.groovy),
-        },
-      })
-    );
+    loadPromise = Promise.resolve({
+      EditorState,
+      EditorView,
+      scrollPastEnd,
+      editorBaseSetup,
+      syntaxHighlighting: editorSyntaxHighlighting,
+      getLoadedLanguage,
+      loadLanguage,
+    });
   }
   return loadPromise;
-}
-
-export function createEditorState(
-  kit: CodeMirrorKit,
-  file: OpenFile,
-  onDocChange: (path: string, text: string) => void
-) {
-  const langExt = kit.languageExtensions[file.language];
-  const lang = langExt != null ? [langExt] : [];
-  const diffMode = file.diffBase !== undefined;
-  const diffExt = diffMode
-    ? [
-        gitDiffHighlightExtension(() => file.diffBase),
-        EditorState.readOnly.of(true),
-      ]
-    : [];
-  return kit.EditorState.create({
-    doc: file.content,
-    extensions: [
-      ...kit.editorBaseSetup,
-      ...lang,
-      ...diffExt,
-      kit.syntaxHighlighting,
-      kit.scrollPastEnd(),
-      kit.EditorView.updateListener.of((update) => {
-        if (update.docChanged && !diffMode) {
-          onDocChange(file.path, update.state.doc.toString());
-        }
-      }),
-    ],
-  });
 }

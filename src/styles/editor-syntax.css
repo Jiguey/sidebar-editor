@@ -89,12 +89,23 @@
   color: var(--syntax-invalid);
 }
 
+/* Raise the selection layer above the content layer so active-line backgrounds
+   don't cover it. CM6 sets z-index: -1 inline on .cm-selectionLayer; !important
+   overrides that inline value. The selection color is made semi-transparent in
+   EditorSurface.svelte via color-mix so text remains readable through it. */
+.cm-editor .cm-selectionLayer {
+  z-index: 1 !important;
+}
+
 /* Git diff line highlights in editor (working tree vs HEAD). */
 .cm-editor .cm-diff-line-add {
-  background-color: color-mix(in srgb, #a6e22e 22%, transparent);
+  background-color: color-mix(in srgb, #4ec994 20%, transparent);
 }
-.cm-editor .cm-diff-line-change {
-  background-color: color-mix(in srgb, #e6db74 18%, transparent);
+.cm-editor .cm-diff-del-marker {
+  height: 2px;
+  background-color: color-mix(in srgb, #f14c4c 60%, transparent);
+  width: 100%;
+  pointer-events: none;
 }
 
 /* Default code text when no token class applies. */

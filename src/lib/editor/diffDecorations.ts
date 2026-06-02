@@ -1,68 +1,131 @@
 import { RangeSetBuilder } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+} from "@codemirror/view";
+
+// ── Decorations ────────────────────────────────────────────────────────────
 
 const diffAddLine = Decoration.line({ attributes: { class: "cm-diff-line-add" } });
-const diffChangeLine = Decoration.line({ attributes: { class: "cm-diff-line-change" } });
 
-export type LineDiffKind = "same" | "add" | "change";
+class DeletionBar extends WidgetType {
+  toDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "cm-diff-del-marker";
+    return el;
+  }
+  eq() { return true; }
+}
 
-/** Line-level diff kinds for the working copy (new text). */
-export function diffLineKinds(oldText: string, newText: string): LineDiffKind[] {
+const deletionBarWidget = Decoration.widget({
+  widget: new DeletionBar(),
+  block: true,
+  side: -1, // renders before the character at the given position
+});
+
+// ── Diff algorithm ─────────────────────────────────────────────────────────
+
+export type LineDiffKind = "same" | "add";
+
+/**
+ * LCS-based line diff.
+ * Returns:
+ *   kinds        — per-new-file-line classification ("same" or "add")
+ *   delBefore    — set of 1-based new-file line numbers that have a deletion
+ *                  marker *before* them (0 = deletions before line 1).
+ */
+export function diffLineKinds(
+  oldText: string,
+  newText: string
+): { kinds: LineDiffKind[]; delBefore: Set<number> } {
   const oldLines = oldText.split("\n");
   const newLines = newText.split("\n");
   const n = oldLines.length;
   const m = newLines.length;
 
-  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  // LCS DP table
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
+      dp[i][j] =
+        oldLines[i - 1] === newLines[j - 1]
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
 
-  const kinds: LineDiffKind[] = Array(m).fill("change");
+  // Trace back
+  const kinds: LineDiffKind[] = new Array(m).fill("add");
+  const delBefore = new Set<number>();
   let i = n;
   let j = m;
+  // pendingDel: we saw old-line deletions at "current j" during trace-back.
+  // Once j decrements (or we finish), those deletions belong before line j+1.
+  let pendingDel = false;
+
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      if (pendingDel) { delBefore.add(j + 1); pendingDel = false; }
       kinds[j - 1] = "same";
       i--;
       j--;
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      kinds[j - 1] = "add";
+      if (pendingDel) { delBefore.add(j + 1); pendingDel = false; }
+      // kinds[j-1] stays "add"
       j--;
-    } else if (i > 0) {
-      i--;
     } else {
-      j--;
+      // Old line deleted — track for marker
+      pendingDel = true;
+      i--;
+    }
+  }
+  // Deletions that happened before new line 1 (or in an empty new file)
+  if (pendingDel) delBefore.add(1);
+
+  return { kinds, delBefore };
+}
+
+// ── Decoration builder ─────────────────────────────────────────────────────
+
+function buildDiffDecorations(view: EditorView, diffBase: string): DecorationSet {
+  const doc = view.state.doc;
+  const { kinds, delBefore } = diffLineKinds(diffBase, doc.toString());
+  const lineCount = doc.lines;
+
+  // Collect all (from, decoration) pairs then sort so RangeSetBuilder is happy
+  type Entry = { from: number; widget: boolean; dec: Decoration };
+  const entries: Entry[] = [];
+
+  for (let li = 0; li < Math.min(kinds.length, lineCount); li++) {
+    if (kinds[li] === "add") {
+      const line = doc.line(li + 1);
+      entries.push({ from: line.from, widget: false, dec: diffAddLine });
     }
   }
 
-  return kinds;
-}
-
-function buildDiffDecorations(view: EditorView, diffBase: string): DecorationSet {
-  const doc = view.state.doc.toString();
-  const kinds = diffLineKinds(diffBase, doc);
-  const builder = new RangeSetBuilder<Decoration>();
-  const lineCount = view.state.doc.lines;
-
-  for (let i = 0; i < Math.min(kinds.length, lineCount); i++) {
-    const kind = kinds[i];
-    if (kind === "same") continue;
-    const line = view.state.doc.line(i + 1);
-    const mark = kind === "add" ? diffAddLine : diffChangeLine;
-    builder.add(line.from, line.from, mark);
+  for (const lineNum of delBefore) {
+    const clamped = Math.max(1, Math.min(lineNum, lineCount));
+    const pos = doc.line(clamped).from;
+    entries.push({ from: pos, widget: true, dec: deletionBarWidget });
   }
 
+  // Sort: ascending position; widgets before line decorations at same position
+  entries.sort((a, b) => a.from - b.from || (a.widget ? -1 : 1));
+
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const e of entries) {
+    builder.add(e.from, e.from, e.dec);
+  }
   return builder.finish();
 }
 
-/** Highlight added/changed lines when `diffBase` is set on the open file. */
+// ── ViewPlugin ─────────────────────────────────────────────────────────────
+
+/** Highlight added lines (green) and mark deleted positions (red bar). */
 export function gitDiffHighlightExtension(getDiffBase: () => string | undefined) {
   return ViewPlugin.fromClass(
     class {

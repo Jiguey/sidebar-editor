@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
-  import { Compartment } from "@codemirror/state";
+  import { Compartment, type Extension } from "@codemirror/state";
   import { EditorView } from "@codemirror/view";
   import type { OpenFile } from "$lib/stores/files";
   import type { WorkbenchTab } from "$lib/stores/workbench";
@@ -26,7 +26,10 @@
   const states = new Map<string, EditorState>();
   /** Tracks wrap mode used when each path's EditorState was built. */
   const stateWrapByPath = new Map<string, boolean>();
+  /** Paths whose state already has its language grammar applied (grammars load async). */
+  const langAppliedByPath = new Set<string>();
   const wrapCompartment = new Compartment();
+  const languageCompartment = new Compartment();
   let kit: CodeMirrorKit | null = $state(null);
   let resizeObserver: ResizeObserver | null = null;
   /** 1-indexed line to scroll to once the matching path becomes active. */
@@ -61,6 +64,7 @@
       if (!allowed.has(key)) {
         states.delete(key);
         stateWrapByPath.delete(key);
+        langAppliedByPath.delete(key);
       }
     }
   }
@@ -104,7 +108,8 @@
           backgroundColor: "var(--editor-line-hl, rgba(255,255,255,0.04))",
         },
         ".cm-selectionBackground": {
-          backgroundColor: "var(--editor-selection, #404040) !important",
+          backgroundColor:
+            "color-mix(in srgb, var(--editor-selection, #404040) 40%, transparent) !important",
         },
         "&.cm-focused .cm-cursor": {
           borderLeftColor: "var(--editor-cursor, var(--editor-fg, #e4e4e4))",
@@ -115,26 +120,25 @@
   }
 
   function createState(cm: CodeMirrorKit, file: OpenFile, wordWrap: boolean) {
-    const langExt = cm.languageExtensions[file.language];
-    const lang = langExt != null ? [langExt] : [];
-    const diffMode = file.diffBase !== undefined;
-    const diffExt = diffMode
-      ? [
-          gitDiffHighlightExtension(() => file.diffBase),
-          EditorState.readOnly.of(true),
-        ]
+    // Grammars load on demand; seed the compartment with one if already cached,
+    // otherwise `applyLanguage` fills it in once the async import resolves.
+    const langExt = cm.getLoadedLanguage(file.language);
+    if (langExt != null) langAppliedByPath.add(file.path);
+    else langAppliedByPath.delete(file.path);
+    const diffExt = file.diffBase !== undefined
+      ? [gitDiffHighlightExtension(() => file.diffBase)]
       : [];
     return cm.EditorState.create({
       doc: file.content,
       extensions: [
         ...cm.editorBaseSetup,
-        ...lang,
+        languageCompartment.of(langExt != null ? [langExt] : []),
         ...diffExt,
         cm.syntaxHighlighting,
         cm.scrollPastEnd(),
         wrapExtension(wordWrap),
         cm.EditorView.updateListener.of((update) => {
-          if (update.docChanged && !diffMode) {
+          if (update.docChanged) {
             files.updateFileContent(file.path, update.state.doc.toString());
             states.set(file.path, update.state);
           }
@@ -142,6 +146,28 @@
         editorTheme(cm),
       ],
     });
+  }
+
+  /** Apply `path`'s grammar into the live view's language compartment when it resolves. */
+  function applyLanguage(cm: CodeMirrorKit, path: string, language: string) {
+    if (langAppliedByPath.has(path)) return;
+    const cached = cm.getLoadedLanguage(language);
+    if (cached != null) {
+      reconfigureLanguage(path, cached);
+      return;
+    }
+    void cm.loadLanguage(language).then((ext) => {
+      if (ext != null) reconfigureLanguage(path, ext);
+    });
+  }
+
+  function reconfigureLanguage(path: string, ext: Extension) {
+    if (!editorView) return;
+    const tagged = (editorView as unknown as { __tinyPath?: string }).__tinyPath;
+    if (tagged !== path) return; // user switched files before the grammar resolved
+    editorView.dispatch({ effects: languageCompartment.reconfigure(ext) });
+    langAppliedByPath.add(path);
+    states.set(path, editorView.state);
   }
 
   function reconfigureWrap(enabled: boolean) {
@@ -201,6 +227,7 @@
     }
     (editorView as unknown as { __tinyPath?: string }).__tinyPath = path;
     reconfigureWrap(wordWrap);
+    applyLanguage(kit, path, activeFile.language);
 
     void tick().then(() => {
       editorView?.requestMeasure();

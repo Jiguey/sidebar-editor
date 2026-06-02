@@ -12,3 +12,4 @@ src-tauri/target/
 .DS_Store
 tests/llm/results/*
 !tests/llm/results/.gitkeep
+tests/llm/fixtures/workspace/

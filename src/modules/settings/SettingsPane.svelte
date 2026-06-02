@@ -5,17 +5,12 @@
     type ModelConfig,
     type ChatBackend,
     AGENT_LIMIT_BOUNDS,
-    AGENT_COMPACTION_BOUNDS,
-    compactionThresholdPercent,
-    compactionThresholdFromPercent,
-    AUTOCOMPLETE_BOUNDS,
     READ_FILE_CAP_BOUNDS,
   } from "$lib/stores/settings";
   import {
     fetchAnthropicModelCatalog,
     fetchDeepseekModelCatalog,
   } from "$lib/cloudModelCatalog";
-  import { buildCompactionModelOptions } from "$lib/compactionModel";
   import { mergeCloudModelCatalog, modelsVisibleInPicker } from "$lib/modelPicker";
   import {
     fetchOllamaModelList,
@@ -54,6 +49,9 @@
   } from "./AgentContextSection.svelte";
   import ModelListWithSettings from "./ModelListWithSettings.svelte";
   import ProviderModelDefaultsPanel from "./ProviderModelDefaultsPanel.svelte";
+  import AppearanceSettings from "./AppearanceSettings.svelte";
+  import ExperimentalSettings from "./ExperimentalSettings.svelte";
+  import KeybindingsSettings from "./KeybindingsSettings.svelte";
   import {
     probeOllama,
     probeLlamacpp,
@@ -63,7 +61,6 @@
     stopLlamacppServerCommand,
     type ProviderHealth,
   } from "$lib/providerHealth";
-  import { SHORTCUT_DEFAULTS } from "../shortcuts/defaults";
   import {
     WORKBENCH_THEME_OPTIONS,
     applyWorkbenchTheme,
@@ -72,8 +69,8 @@
   import { iconTheme } from "$lib/stores/iconTheme";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { editorChrome } from "$lib/stores/editorChrome";
-  import { SYNTAX_COLOR_FIELDS, type SyntaxColorMap } from "$lib/editor/syntaxColors";
-  import { EDITOR_CHROME_FIELDS, type EditorChromeMap } from "$lib/editor/editorChrome";
+  import { type SyntaxColorMap } from "$lib/editor/syntaxColors";
+  import { type EditorChromeMap } from "$lib/editor/editorChrome";
   import {
     DEFAULT_TAB_UNIFORM_WIDTH_PX,
     TAB_UNIFORM_WIDTH_MAX,
@@ -83,12 +80,10 @@
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
   import {
-    EXPLORER_COLOR_FIELDS,
     EXPLORER_SIZE_FIELDS,
     type ExplorerAppearanceMap,
   } from "$lib/explorer/explorerAppearance";
   import {
-    CHAT_APPEARANCE_COLOR_FIELDS,
     CHAT_WAITING_STYLE_OPTIONS,
     type ChatAppearanceMap,
     type ChatWaitingStyle,
@@ -242,14 +237,6 @@
   let editorUniformTabWidthPx = $state(96);
   let explorerColors = $state<ExplorerAppearanceMap>(explorerAppearance.get());
   let chatColors = $state<ChatAppearanceMap>(chatAppearance.get());
-  let autoCompact = $state(false);
-  let compactEnabled = $state(false);
-  let useActiveChatModel = $state(true);
-  let compactThresholdPct = $state(85);
-  let compactKeepRecent = $state(6);
-  let compactionModelChoice = $state("");
-  let autocompleteEnabled = $state(false);
-  let autocompleteDebounceMs = $state(300);
 
   let modelSearchQuery = $state("");
   let modelSearchResults = $state<OllamaLibraryModel[]>([]);
@@ -301,33 +288,6 @@
     { id: "keybindings", label: "Keybindings" },
   ];
 
-
-  let activeChatModelLabel = $derived.by(() => {
-    const st = $settings;
-    if (st.chatBackend === "ollama") {
-      return st.ollamaModels.find((m) => m.id === st.selectedModel)?.name ?? st.selectedModel;
-    }
-    if (st.chatBackend === "llamacpp") {
-      return st.llamacppModels.find((m) => m.id === st.selectedModel)?.name ?? st.selectedModel;
-    }
-    if (st.chatBackend === "deepseek") {
-      return st.deepseekModels.find((m) => m.id === st.selectedModel)?.name ?? "DeepSeek";
-    }
-    if (st.chatBackend === "anthropic") {
-      return st.anthropicModels.find((m) => m.id === st.selectedModel)?.name ?? "Anthropic";
-    }
-    return st.selectedModel;
-  });
-
-  let compactionModelOptions = $derived.by(() =>
-    buildCompactionModelOptions({
-      ollamaModels: $settings.ollamaModels,
-      llamacppModels: $settings.llamacppModels,
-      anthropicModels: $settings.anthropicModels,
-      deepseekModels: $settings.deepseekModels,
-    })
-  );
-
   let settingsModalWasOpen = $state(false);
 
   $effect(() => {
@@ -378,14 +338,6 @@
     editorUniformTabWidthPx = $settings.editor.uniformTabWidthPx;
     explorerColors = { ...explorerAppearance.get() };
     chatColors = { ...chatAppearance.get() };
-    autoCompact = $settings.agentCompaction.autoCompact;
-    compactEnabled = $settings.agentCompaction.enabled;
-    useActiveChatModel = $settings.agentCompaction.useActiveChatModel;
-    compactThresholdPct = compactionThresholdPercent($settings.agentCompaction.compactThreshold);
-    compactKeepRecent = $settings.agentCompaction.compactKeepRecentTurns;
-    compactionModelChoice = $settings.modelRoles.compaction ?? "";
-    autocompleteEnabled = $settings.autocomplete.enabled;
-    autocompleteDebounceMs = $settings.autocomplete.debounceMs;
     llamacppModels = $settings.llamacppModels;
     ollamaServerTemplate = structuredClone($settings.ollamaServerTemplate);
     llamacppServerTemplate = structuredClone($settings.llamacppServerTemplate);
@@ -420,58 +372,6 @@
     maxToolsPerTurn = saved.maxToolsPerTurn;
     parallelExecution = saved.parallelExecution;
     maxConcurrentTools = saved.maxConcurrentTools;
-  }
-
-  function persistAgentCompaction() {
-    settings.setAgentCompaction({
-      enabled: compactEnabled,
-      autoCompact,
-      useActiveChatModel,
-      compactThreshold: compactionThresholdFromPercent(compactThresholdPct),
-      compactKeepRecentTurns: compactKeepRecent,
-    });
-    if (useActiveChatModel) {
-      settings.setModelRoles({ compaction: null });
-      compactionModelChoice = "";
-    }
-    const saved = get(settings).agentCompaction;
-    compactEnabled = saved.enabled;
-    autoCompact = saved.autoCompact;
-    useActiveChatModel = saved.useActiveChatModel;
-    compactThresholdPct = compactionThresholdPercent(saved.compactThreshold);
-    compactKeepRecent = saved.compactKeepRecentTurns;
-    if (useActiveChatModel) {
-      compactionModelChoice = "";
-    }
-  }
-
-  function persistUseActiveChatModel() {
-    if (useActiveChatModel) {
-      compactionModelChoice = "";
-    }
-    persistAgentCompaction();
-  }
-
-  function persistCompactionModel() {
-    settings.setModelRoles({
-      compaction: compactionModelChoice.trim() || null,
-    });
-    if (compactionModelChoice.trim()) {
-      useActiveChatModel = false;
-      settings.setAgentCompaction({ useActiveChatModel: false });
-    }
-    compactionModelChoice = get(settings).modelRoles.compaction ?? "";
-    useActiveChatModel = get(settings).agentCompaction.useActiveChatModel;
-  }
-
-  function persistAutocompleteSettings() {
-    settings.setAutocompleteSettings({
-      enabled: autocompleteEnabled,
-      debounceMs: autocompleteDebounceMs,
-    });
-    const saved = get(settings).autocomplete;
-    autocompleteEnabled = saved.enabled;
-    autocompleteDebounceMs = saved.debounceMs;
   }
 
   function persistHeaderTabWidthPx() {
@@ -1955,453 +1855,22 @@
             </div>
           </div>
 
-        {:else if activeSection === "experimental-compaction"}
-          <div class="stack">
-            <div class="provider-page-head">
-              <h3 class="provider-page-title">Compaction</h3>
-              <span class="experimental-pill">Experimental</span>
-            </div>
-            <p class="note">
-              Summarize-and-rehydrate long chat sessions when context fills up (spec 21). Enable
-              compaction first, then choose manual-only or automatic behavior.
-            </p>
+        {:else if activeSection === "experimental-compaction" || activeSection === "experimental-autocomplete"}
+          <ExperimentalSettings section={activeSection} />
 
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={compactEnabled}
-                onchange={persistAgentCompaction}
-              />
-              <span class="name">Enable compaction</span>
-            </label>
-            <p class="note muted">
-              When off, the chat footer Compact button and automatic compaction are disabled.
-            </p>
-
-            {#if compactEnabled}
-            <p class="group-label">Compaction model</p>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={useActiveChatModel}
-                onchange={persistUseActiveChatModel}
-              />
-              <span class="name">Use active chat model</span>
-            </label>
-            {#if useActiveChatModel}
-              <p class="note muted">Summaries use <strong>{activeChatModelLabel}</strong>.</p>
-            {:else}
-              <label class="field">
-                <span class="name">Compaction model</span>
-                <select
-                  class="input"
-                  bind:value={compactionModelChoice}
-                  onchange={persistCompactionModel}
-                >
-                  <option value="" disabled>Select a model…</option>
-                  {#each compactionModelOptions as opt (opt.value)}
-                    <option value={opt.value}>{opt.label}</option>
-                  {/each}
-                </select>
-                <span class="hint">
-                  Pick a model from any connected provider — useful for a cheaper or faster
-                  summarizer.
-                </span>
-              </label>
-            {/if}
-
-            <p class="group-label">Automatic compaction</p>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={autoCompact}
-                onchange={persistAgentCompaction}
-              />
-              <span class="name">Enable automatic compaction</span>
-            </label>
-            <p class="note muted">
-              When off, compact only from the chat footer button. Manual compact is always available
-              while compaction is enabled.
-            </p>
-
-            <label class="field" class:field--disabled={!autoCompact}>
-              <span class="name">Auto-compact when context reaches</span>
-              <div class="threshold-row">
-                <input
-                  type="number"
-                  class="input threshold-input"
-                  min={compactionThresholdPercent(AGENT_COMPACTION_BOUNDS.compactThreshold.min)}
-                  max={compactionThresholdPercent(AGENT_COMPACTION_BOUNDS.compactThreshold.max)}
-                  bind:value={compactThresholdPct}
-                  disabled={!autoCompact}
-                  onchange={persistAgentCompaction}
-                />
-                <span class="threshold-suffix">% of model window</span>
-              </div>
-              <span class="hint">Range 50–95. Default 85 leaves headroom for the summary call.</span>
-            </label>
-
-            <label class="field">
-              <span class="name">Keep last messages after compacting</span>
-              <input
-                type="number"
-                class="input"
-                min={AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.min}
-                max={AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.max}
-                bind:value={compactKeepRecent}
-                onchange={persistAgentCompaction}
-              />
-              <span class="hint">
-                Raw messages preserved after the summary (default 6, max {AGENT_COMPACTION_BOUNDS.compactKeepRecentTurns.max}).
-              </span>
-            </label>
-            {/if}
-          </div>
-
-        {:else if activeSection === "experimental-autocomplete"}
-          <div class="stack">
-            <div class="provider-page-head">
-              <h3 class="provider-page-title">Autocomplete</h3>
-              <span class="experimental-pill">Experimental</span>
-            </div>
-            <p class="note">
-              Inline code completions while you type. Not implemented yet — options are saved for when
-              the feature lands.
-            </p>
-
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={autocompleteEnabled}
-                disabled
-                onchange={persistAutocompleteSettings}
-              />
-              <span class="name">Enable inline autocomplete</span>
-            </label>
-            <p class="note muted">Coming soon — checkbox is disabled until the feature exists.</p>
-
-            <label class="field">
-              <span class="name">Debounce before requesting</span>
-              <input
-                type="number"
-                class="input"
-                min={AUTOCOMPLETE_BOUNDS.debounceMs.min}
-                max={AUTOCOMPLETE_BOUNDS.debounceMs.max}
-                bind:value={autocompleteDebounceMs}
-                disabled
-                onchange={persistAutocompleteSettings}
-              />
-              <span class="hint">Milliseconds to wait after you stop typing (100–2000).</span>
-            </label>
-
-            <p class="group-label">Model for autocomplete</p>
-            <label class="field">
-              <span class="name">Autocomplete model</span>
-              <select class="input" disabled title="Not wired yet — uses active chat model">
-                <option value="">{activeChatModelLabel} (active chat model)</option>
-              </select>
-              <span class="hint">A fast local model may be recommended when this ships.</span>
-            </label>
-          </div>
-
-        {:else if activeSection === "appearance-editor"}
-          <div class="stack">
-            <h3 class="provider-page-title">Editor</h3>
-            <p class="note">
-              Editor chrome colors. Theme, icons, wrap, tab width, and Prettier are under
-              <button type="button" class="linkish" onclick={() => selectSettingsSection("general")}>
-                General
-              </button>.
-              Syntax token colors are under
-              <button type="button" class="linkish" onclick={() => (activeSection = "appearance-syntax")}>
-                Syntax
-              </button>.
-              Changing the workbench theme in General updates color pickers below (save to keep).
-            </p>
-            <p class="note muted">
-              Wrap, tab width, Prettier, and related options are under
-              <button type="button" class="linkish" onclick={() => selectSettingsSection("general")}>
-                General
-              </button>.
-            </p>
-            <h4 class="settings-subheading">Editor colors</h4>
-            {#each EDITOR_CHROME_FIELDS as field}
-              <label class="field syntax-color-field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <div class="syntax-color-row">
-                  <input
-                    type="color"
-                    class="syntax-color-swatch"
-                    value={editorColors[field.key]}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      editorColors = { ...editorColors, [field.key]: v };
-                      editorChrome.apply(editorColors);
-                    }}
-                  />
-                  <input
-                    type="text"
-                    class="input syntax-color-hex"
-                    value={editorColors[field.key]}
-                    spellcheck={false}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      editorColors = { ...editorColors, [field.key]: v };
-                      editorChrome.apply(editorColors);
-                    }}
-                  />
-                </div>
-              </label>
-            {/each}
-            <div
-              class="editor-chrome-preview"
-              style={`background:${editorColors.bg};color:${editorColors.fg};`}
-              aria-hidden="true"
-            >
-              <span style={`color:${editorColors.gutterFg}`}>1</span>
-              <span> function hello() {'{'}</span>
-              <span
-                class="editor-chrome-preview__selection"
-                style={`background:${editorColors.selection}`}
-              >
-                return "world";
-              </span>
-              <span> {'}'}</span>
-            </div>
-            <button
-              type="button"
-              class="btn ghost"
-              onclick={() => {
-                applyWorkbenchTheme(workbenchTheme);
-                editorColors = editorChrome.syncFromActiveTheme();
-              }}
-            >
-              Sync editor colors from theme
-            </button>
-            <button
-              type="button"
-              class="btn ghost"
-              onclick={() => {
-                editorColors = editorChrome.resetToDefaults();
-              }}
-            >
-              Reset editor color defaults
-            </button>
-          </div>
-
-        {:else if activeSection === "appearance-explorer"}
-          <div class="stack">
-            <h3 class="provider-page-title">Explorer</h3>
-            <p class="note">
-              File tree selection and git status colors. Label and icon sizes are under
-              <button type="button" class="linkish" onclick={() => (activeSection = "general")}>
-                General
-              </button>.
-              Changes preview live; click Save to keep them.
-            </p>
-            {#each EXPLORER_COLOR_FIELDS as field}
-              <label class="field syntax-color-field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <div class="syntax-color-row">
-                  <input
-                    type="color"
-                    class="syntax-color-swatch"
-                    value={explorerColors[field.key] as string}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      explorerColors = { ...explorerColors, [field.key]: v };
-                      explorerAppearance.apply(explorerColors);
-                    }}
-                  />
-                  <input
-                    type="text"
-                    class="input syntax-color-hex"
-                    value={explorerColors[field.key] as string}
-                    spellcheck={false}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      explorerColors = { ...explorerColors, [field.key]: v };
-                      explorerAppearance.apply(explorerColors);
-                    }}
-                  />
-                </div>
-              </label>
-            {/each}
-            <button
-              type="button"
-              class="btn ghost"
-              onclick={() => {
-                explorerColors = explorerAppearance.resetToDefaults();
-              }}
-            >
-              Reset explorer defaults
-            </button>
-          </div>
-
-        {:else if activeSection === "appearance-chat"}
-          <div class="stack">
-            <h3 class="provider-page-title">Chat activity</h3>
-            <p class="note">
-              Agent feed colors for thoughts, tools, and badges. The waiting indicator style is under
-              <button type="button" class="linkish" onclick={() => (activeSection = "general")}>
-                General
-              </button>.
-              Changes preview live; click Save to keep them.
-            </p>
-            {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
-              <label class="field syntax-color-field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <div class="syntax-color-row">
-                  <input
-                    type="color"
-                    class="syntax-color-swatch"
-                    value={chatColors[field.key]}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      chatColors = { ...chatColors, [field.key]: v };
-                      chatAppearance.apply(chatColors);
-                    }}
-                  />
-                  <input
-                    type="text"
-                    class="input syntax-color-hex"
-                    value={chatColors[field.key]}
-                    spellcheck={false}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      chatColors = { ...chatColors, [field.key]: v };
-                      chatAppearance.apply(chatColors);
-                    }}
-                  />
-                </div>
-              </label>
-            {/each}
-            <button
-              type="button"
-              class="btn ghost"
-              onclick={() => {
-                chatColors = chatAppearance.resetToDefaults();
-              }}
-            >
-              Reset chat activity defaults
-            </button>
-          </div>
-
-        {:else if activeSection === "appearance-syntax"}
-          <div class="stack">
-            <h3 class="provider-page-title">Syntax highlighting</h3>
-            <p class="note">
-              Colors in the code editor for every language. Default palette: Tokyo Night.
-              Changes preview live; click Save to keep them.
-            </p>
-            <h4 class="settings-subheading">Code tokens</h4>
-            {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group !== "markdown") as field}
-              <label class="field syntax-color-field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <div class="syntax-color-row">
-                  <input
-                    type="color"
-                    class="syntax-color-swatch"
-                    value={syntaxColors[field.key]}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      syntaxColors = { ...syntaxColors, [field.key]: v };
-                      syntaxTheme.apply(syntaxColors);
-                    }}
-                  />
-                  <input
-                    type="text"
-                    class="input syntax-color-hex"
-                    value={syntaxColors[field.key]}
-                    spellcheck={false}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      syntaxColors = { ...syntaxColors, [field.key]: v };
-                      syntaxTheme.apply(syntaxColors);
-                    }}
-                  />
-                </div>
-              </label>
-            {/each}
-            <h4 class="settings-subheading">Markdown tokens</h4>
-            {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group === "markdown") as field}
-              <label class="field syntax-color-field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <div class="syntax-color-row">
-                  <input
-                    type="color"
-                    class="syntax-color-swatch"
-                    value={syntaxColors[field.key]}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      syntaxColors = { ...syntaxColors, [field.key]: v };
-                      syntaxTheme.apply(syntaxColors);
-                    }}
-                  />
-                  <input
-                    type="text"
-                    class="input syntax-color-hex"
-                    value={syntaxColors[field.key]}
-                    spellcheck={false}
-                    oninput={(e) => {
-                      const v = (e.currentTarget as HTMLInputElement).value;
-                      syntaxColors = { ...syntaxColors, [field.key]: v };
-                      syntaxTheme.apply(syntaxColors);
-                    }}
-                  />
-                </div>
-              </label>
-            {/each}
-            <div class="syntax-preview" aria-hidden="true">
-              <p class="syntax-preview-label">TypeScript</p>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// comment</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">count</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">42</span><span style="color: {syntaxColors.punctuation}">;</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">MyClass</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
-              <span class="syntax-preview-line">  <span style="color: {syntaxColors.function}">render</span><span style="color: {syntaxColors.punctuation}">()</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span> <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.string}">"hello"</span><span style="color: {syntaxColors.punctuation}">;</span> <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-              <p class="syntax-preview-label">Markdown</p>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700"># Title</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.link}">[link](https://example.com)</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.emphasis}">*emphasis*</span> <span style="color: {syntaxColors.strong}; font-weight:700">**strong**</span></span>
-              <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```ts</span></span>
-            </div>
-            <button
-              type="button"
-              class="btn ghost"
-              onclick={() => {
-                syntaxColors = syntaxTheme.resetToDefaults();
-              }}
-            >
-              Reset to Monokai defaults
-            </button>
-          </div>
+        {:else if activeSection === "appearance-editor" || activeSection === "appearance-explorer" || activeSection === "appearance-chat" || activeSection === "appearance-syntax"}
+          <AppearanceSettings
+            section={activeSection}
+            bind:syntaxColors
+            bind:editorColors
+            bind:explorerColors
+            bind:chatColors
+            {workbenchTheme}
+            onNavigate={selectSettingsSection}
+          />
 
         {:else if activeSection === "keybindings"}
-          <div class="stack">
-            <p class="note muted">
-              Built-in shortcuts. <kbd class="inline-code">Mod</kbd> is Ctrl on Linux/Windows
-              and ⌘ on macOS.
-            </p>
-            <table class="kbd-table">
-              <thead>
-                <tr><th>Action</th><th>Chord</th><th>Category</th></tr>
-              </thead>
-              <tbody>
-                {#each SHORTCUT_DEFAULTS as row}
-                  <tr>
-                    <td>{row.description}</td>
-                    <td><code class="inline-code">{row.keys}</code></td>
-                    <td>{row.category}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
+          <KeybindingsSettings />
         {/if}
         </div>
       </div>
@@ -2672,35 +2141,8 @@
     background: rgba(201, 162, 39, 0.12);
   }
 
-  .experimental-pill {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #c9a227;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(201, 162, 39, 0.12);
-  }
-
-  .threshold-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .threshold-input {
-    width: 4.5rem;
-  }
-
   .tab-width-input {
     width: 4.5rem;
-  }
-
-  .threshold-suffix {
-    font-size: 12px;
-    color: #a3a3a3;
   }
 
   .nav-active-dot {
@@ -2822,10 +2264,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .field--disabled {
-    opacity: 0.55;
   }
 
   .chat-model-context-row {
@@ -2958,42 +2396,6 @@
     color: #5c5c5c;
   }
 
-  .note.caution {
-    color: #d4a656;
-    margin-top: 8px;
-  }
-
-  .live-server-panel {
-    margin-top: 12px;
-    padding: 10px 12px;
-    border: 1px solid #333;
-    border-radius: 8px;
-    background: #181818;
-  }
-
-  .live-server-dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 12px;
-    margin: 0 0 8px;
-    font-size: 12px;
-  }
-
-  .live-server-dl dt {
-    color: #737373;
-    font-weight: 500;
-  }
-
-  .live-server-dl dd {
-    margin: 0;
-    color: #e0e0e0;
-  }
-
-  .model-list-meta {
-    font-size: 10px;
-    color: #737373;
-  }
-
   .note a {
     color: #6ca6e8;
   }
@@ -3005,35 +2407,6 @@
     border-radius: 4px;
     background: #1c1c1c;
     color: #c5c5c5;
-  }
-
-  .backend-toggle {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .backend-btn {
-    flex: 1;
-    min-width: 140px;
-    padding: 10px 12px;
-    font-size: 12px;
-    border-radius: 6px;
-    border: 1px solid #404040;
-    background: #1e1e1e;
-    color: #a3a3a3;
-    cursor: pointer;
-  }
-
-  .backend-btn:hover {
-    border-color: #555;
-    color: #e0e0e0;
-  }
-
-  .backend-btn.active {
-    border-color: #007acc;
-    background: #1a2330;
-    color: #e8e8e8;
   }
 
   .modal-footer {
@@ -3090,77 +2463,6 @@
     cursor: not-allowed;
   }
 
-  .kbd-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-
-  .kbd-table th,
-  .kbd-table td {
-    padding: 8px 10px;
-    border-bottom: 1px solid #333;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  .kbd-table th {
-    color: #b8b8b8;
-    font-weight: 600;
-  }
-
-  .model-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .model-list-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 6px 4px 10px;
-    background: #1c1c1c;
-    border: 1px solid #333;
-    border-radius: 6px;
-  }
-
-  .model-picker-cards {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .model-picker-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    min-width: 0;
-    padding: 6px 8px;
-    background: #1c1c1c;
-    border: 1px solid #333;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .model-picker-card--hidden {
-    opacity: 0.55;
-  }
-
-  .model-picker-card--readonly {
-    cursor: default;
-    padding: 6px 10px;
-  }
-
-  .model-picker-card--loaded {
-    border-color: color-mix(in srgb, var(--primary, #007acc) 55%, #333);
-    background: color-mix(in srgb, var(--primary, #007acc) 8%, #1c1c1c);
-  }
-
-  .model-list-meta--loaded {
-    color: #7eb8e8;
-  }
-
   .provider-readonly-value {
     display: block;
     min-height: 24px;
@@ -3185,45 +2487,6 @@
 
   .chat-model-context-row .provider-readonly-value {
     min-width: 72px;
-  }
-
-  .model-picker-card .checkbox {
-    flex-shrink: 0;
-    margin: 1px 0 0;
-  }
-
-  .model-picker-card-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .model-picker-card-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 10px;
-    line-height: 1.3;
-    color: #86c9b7;
-  }
-
-  .model-picker-card:hover .model-picker-card-name {
-    color: #a8e6d4;
-  }
-
-  @media (max-width: 720px) {
-    .model-picker-cards {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 480px) {
-    .model-picker-cards {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
 
   .ollama-settings {
@@ -3273,12 +2536,6 @@
 
   .catalog-error {
     color: #f48771;
-  }
-
-  .model-list-name {
-    font-size: 11px;
-    font-family: ui-monospace, monospace;
-    color: #86c9b7;
   }
 
   .model-library-toggle {
@@ -3424,16 +2681,6 @@
     color: #666;
   }
 
-  .provider-card {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px;
-    background: #1e1e1e;
-    border: 1px solid #383838;
-    border-radius: 8px;
-  }
-
   .provider-head {
     display: flex;
     flex-wrap: wrap;
@@ -3441,24 +2688,11 @@
     gap: 8px 12px;
   }
 
-  .provider-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #e8e8e8;
-  }
-
   .provider-detail {
     flex: 1;
     min-width: 120px;
     font-size: 11px;
     color: #888;
-  }
-
-  .provider-toolbar {
-    flex-wrap: wrap;
   }
 
   .status-dot {
@@ -3740,79 +2974,6 @@
     color: #6eb6ff;
   }
 
-  .syntax-color-field .name {
-    display: block;
-  }
-
-  .syntax-color-hint {
-    display: block;
-    font-size: 11px;
-    color: #888;
-    margin-top: 2px;
-    font-family: var(--font-mono, ui-monospace, monospace);
-  }
-
-  .syntax-color-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-top: 6px;
-  }
-
-  .syntax-color-swatch {
-    width: 36px;
-    height: 32px;
-    padding: 2px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: #1e1e1e;
-    cursor: pointer;
-  }
-
-  .syntax-color-hex {
-    flex: 1;
-    min-width: 0;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    text-transform: lowercase;
-  }
-
-  .syntax-preview {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 12px;
-    border-radius: 6px;
-    background: var(--editor-bg, #1a1b26);
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .syntax-preview-line {
-    display: block;
-    white-space: pre;
-  }
-
-  .syntax-preview-label {
-    margin: 8px 0 2px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted-foreground);
-  }
-
-  .syntax-preview-label:first-child {
-    margin-top: 0;
-  }
-
-  .settings-subheading {
-    margin: 16px 0 8px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--foreground);
-  }
-
   .linkish {
     padding: 0;
     border: none;
@@ -3821,21 +2982,6 @@
     font: inherit;
     text-decoration: underline;
     cursor: pointer;
-  }
-
-  .editor-chrome-preview {
-    margin-top: 8px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  }
-
-  .editor-chrome-preview__selection {
-    padding: 0 2px;
-    border-radius: 2px;
   }
 
   .checkbox-field {
