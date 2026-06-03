@@ -38,7 +38,7 @@ See `src/lib/tools/toolDefinitions.ts` and `src/lib/tools/toolRunner.ts`.
 
 ## Custom Tools
 
-Defined in Settings or `.tinyllama/tools.json`:
+Defined in Settings or `.sidebar/tools.json`:
 
 ```json
 {
@@ -81,14 +81,14 @@ Paths resolved via `src/lib/tools/pathUtils.ts`:
 
 ### Resolution Order
 
-1. Custom tool rule (from `.tinyllama/tools.json`)
+1. Custom tool rule (from `.sidebar/tools.json`)
 2. Per-tool rule (from global settings)
 3. Default rule
 
 ### Policy Store
 
-- **Global:** `localStorage` `tinyllama.toolPolicy.v2` + Settings UI
-- **Project:** `.tinyllama/tools.json` merged via `effectiveToolPolicy`
+- **Global:** `localStorage` `sidebar.toolPolicy.v2` + Settings UI
+- **Project:** `.sidebar/tools.json` merged via `effectiveToolPolicy`
 
 ### Functions
 

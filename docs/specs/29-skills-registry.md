@@ -13,7 +13,7 @@
 
 Once the [skills system](23-skills-system.md) ships, a sharing mechanism compounds its value: organizations and the community can publish reusable skills that encode conventions, security policies, and domain knowledge. This spec is intentionally **deferred** — it exists to ensure the skill manifest format ([23](23-skills-system.md) §3) stays forward-compatible, not to be built now.
 
-The registry must preserve the local-first ethos: installing a skill drops files into `.tinyllama/skills/`; nothing about a project leaves the machine unless the user explicitly publishes.
+The registry must preserve the local-first ethos: installing a skill drops files into `.sidebar/skills/`; nothing about a project leaves the machine unless the user explicitly publishes.
 
 ### Goals
 
@@ -35,23 +35,23 @@ The registry must preserve the local-first ethos: installing a skill drops files
 | Model | Pros | Cons |
 |-------|------|------|
 | **GitHub-based** (skills are repos / a monorepo) | Zero infra; familiar; reviewable via PRs | Discovery weaker; rate limits |
-| **Hosted registry** (`registry.tinyllama.dev`) | Search, versioning, curation | Infra + moderation cost; central point |
+| **Hosted registry** (`registry.sidebar-editor.dev`) | Search, versioning, curation | Infra + moderation cost; central point |
 | **Hybrid** | GitHub source of truth + thin index for search | More moving parts |
 
-Recommendation: start **GitHub-based** in Phase 3; a hosted index is optional later. "Install" = clone/copy a skill directory into `.tinyllama/skills/`.
+Recommendation: start **GitHub-based** in Phase 3; a hosted index is optional later. "Install" = clone/copy a skill directory into `.sidebar/skills/`.
 
 ---
 
 ## 3. Conceptual CLI (future)
 
 ```bash
-tlama skill search rust
-tlama skill install rust-embedded         # → .tinyllama/skills/rust-embedded/
-tlama skill update                        # refresh installed skills
-tlama skill publish my-org-conventions    # push to a configured remote
+sidebar skill search rust
+sidebar skill install rust-embedded         # → .sidebar/skills/rust-embedded/
+sidebar skill update                        # refresh installed skills
+sidebar skill publish my-org-conventions    # push to a configured remote
 ```
 
-For Phase 3 launch, "install" can be entirely manual (drop a directory in `.tinyllama/skills/`). The CLI is sugar over that.
+For Phase 3 launch, "install" can be entirely manual (drop a directory in `.sidebar/skills/`). The CLI is sugar over that.
 
 ---
 
@@ -75,7 +75,7 @@ A future registry adds **metadata around** skills (author, downloads, signatures
 | Malicious skill content | Skills are prompt text, not code — but can socially engineer the agent; show diff on install, require explicit enable |
 | Supply-chain trust | Prefer signed/verified publishers; show source repo + author |
 | Prompt injection via shared skill | Same review surface as any prompt; skills are visible files the user can read |
-| Accidental publish of private conventions | Explicit `publish` step; never auto-sync `.tinyllama/skills/` anywhere |
+| Accidental publish of private conventions | Explicit `publish` step; never auto-sync `.sidebar/skills/` anywhere |
 
 Installing a skill must **never** auto-enable it without the user seeing its content (open `skill.md` for review).
 
@@ -85,13 +85,13 @@ Installing a skill must **never** auto-enable it without the user seeing its con
 
 ### Phase 3a — Manual sharing convention
 
-- [ ] Document "drop a directory into `.tinyllama/skills/`" install flow
+- [ ] Document "drop a directory into `.sidebar/skills/`" install flow
 - [ ] Publish a starter GitHub repo of community skills
 - [ ] In-app "Import skill from folder/URL" action (copy + review)
 
 ### Phase 3b — CLI (optional)
 
-- [ ] `tlama skill` subcommands (search/install/update/publish)
+- [ ] `sidebar skill` subcommands (search/install/update/publish)
 - [ ] Configurable remote (GitHub org / registry URL)
 
 ### Phase 3c — Hosted index (optional)
@@ -114,7 +114,7 @@ Installing a skill must **never** auto-enable it without the user seeing its con
 
 ## 8. Acceptance Criteria (when built)
 
-1. A user can install a published skill into `.tinyllama/skills/` and review its content before enabling.
+1. A user can install a published skill into `.sidebar/skills/` and review its content before enabling.
 2. Installed skills use the identical on-disk format as local skills ([23](23-skills-system.md)).
 3. Publishing requires an explicit action; nothing syncs automatically.
 4. The skill manifest format required no breaking migration from its [23](23-skills-system.md) v1 shape.

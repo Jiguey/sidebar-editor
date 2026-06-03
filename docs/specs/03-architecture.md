@@ -6,7 +6,7 @@
 
 ## Agent runtime model (current)
 
-Tiny Llama does **not** spawn a separate Node process for chat, tools, or provider streaming. That was an earlier design; it is **not** in the repo today (no `sidecar/` package, no harness Tauri commands).
+Sidebar Editor does **not** spawn a separate Node process for chat, tools, or provider streaming. That was an earlier design; it is **not** in the repo today (no `sidecar/` package, no harness Tauri commands).
 
 | Responsibility | Runtime | Key modules |
 |----------------|---------|-------------|
@@ -69,7 +69,7 @@ Legacy error mapping may still mention harness in `invokeSafe.ts` / `errors.ts`;
 | Boundary | Current State | Status | Planned |
 |----------|---------------|--------|---------|
 | Tool path sandboxing | Enforced in **TypeScript** (`pathUtils.ts`) | ✅ Complete | Canonicalize in Rust |
-| Secrets storage | API keys in **`localStorage`** (`tinyllama.settings.v3`) | 🔶 Partial | OS keychain via Stronghold |
+| Secrets storage | API keys in **`localStorage`** (`sidebar.settings.v3`) | 🔶 Partial | OS keychain via Stronghold |
 | LLM HTTP | Webview `fetch` | ✅ Working | Rust proxy + events |
 | CSP | `null` in `tauri.conf.json` | 🔶 Partial | Restrictive CSP for release |
 

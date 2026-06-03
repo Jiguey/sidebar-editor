@@ -2,7 +2,7 @@
 
 > **Status:** 🔶 Not started  
 > **Area:** Plan Mode · Persistence · Agent Integration  
-> **Depends on:** [08-ai-agent.md](08-ai-agent.md) (agent loop) · [09-tool-system.md](09-tool-system.md) (tool runner) · [06-state-management.md](06-state-management.md) (`.tinyllama/state.json`)
+> **Depends on:** [08-ai-agent.md](08-ai-agent.md) (agent loop) · [09-tool-system.md](09-tool-system.md) (tool runner) · [06-state-management.md](06-state-management.md) (`.sidebar/state.json`)
 
 > **Related:** [07-workspace.md](07-workspace.md) · [17-roadmap.md](17-roadmap.md) · [NOT-IMPLEMENTED.md](../../NOT-IMPLEMENTED.md)
 
@@ -17,7 +17,7 @@ This spec introduces **persistent, file-backed plans** stored under `plans/` at 
 ### Goals
 
 - Plans outlive chat sessions and survive mode switches
-- Plans are visible to teammates (git-trackable, not hidden in `.tinyllama/`)
+- Plans are visible to teammates (git-trackable, not hidden in `.sidebar/`)
 - The agent can read, create, and update plan files — not just chat about plans
 - Progress is human-readable (checkboxes) with minimal machine-readable frontmatter
 - The feature is buildable in a single focused sprint; no over-engineered schema on day one
@@ -148,7 +148,7 @@ draft → cancelled
 
 ### 4.1 `activePlanPath` in Session State
 
-Extend `ChatSession` (persisted in `.tinyllama/state.json` via `PersistedProjectState`) with one optional field:
+Extend `ChatSession` (persisted in `.sidebar/state.json` via `PersistedProjectState`) with one optional field:
 
 ```typescript
 interface ChatSession {
@@ -429,7 +429,7 @@ When starting work on an existing plan:
 
 ---
 
-## 10. `.tinyllama/state.json` Changes
+## 10. `.sidebar/state.json` Changes
 
 ```typescript
 // No changes to project-level state needed in v1.
@@ -545,7 +545,7 @@ These are explicitly deferred and should not be designed into v1:
 - Plan templates
 - Plan export (markdown is already portable)
 - OS-level file watcher for external edits to plan files
-- Plans stored in `.tinyllama/` (drafts not intended for git) — possible future addition
+- Plans stored in `.sidebar/` (drafts not intended for git) — possible future addition
 
 ---
 

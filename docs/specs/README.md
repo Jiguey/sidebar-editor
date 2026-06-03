@@ -1,8 +1,8 @@
-# Tiny Llama — Specifications
+# Sidebar Editor — Specifications
 
 > **Last aligned with codebase:** 2026-06-03 — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
 
-This directory contains the detailed engineering specifications for Tiny Llama, organized by domain.
+This directory contains the detailed engineering specifications for Sidebar Editor, organized by domain.
 
 ---
 
@@ -92,7 +92,7 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | [16-build.md](16-build.md) | ✅ Complete | Build commands |
 | [24-filesystem-watcher.md](24-filesystem-watcher.md) | ✅ Core implemented | `watcher.rs` → debounced `fs:changed` → tree + git refresh |
 | [33-rust-path-enforcement.md](33-rust-path-enforcement.md) | ❌ Not started | `canonicalize_workspace_path` in Rust, symlink escape hardening, `workspace_root` param on all filesystem commands |
-| [37-shortcut-rebinding.md](37-shortcut-rebinding.md) | ✅ Complete | Keybindings settings UI, `tinyllama.keybindings.v1` persistence, conflict detection |
+| [37-shortcut-rebinding.md](37-shortcut-rebinding.md) | ✅ Complete | Keybindings settings UI, `sidebar.keybindings.v1` persistence, conflict detection |
 
 ### Planning
 

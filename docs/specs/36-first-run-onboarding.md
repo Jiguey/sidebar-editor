@@ -9,7 +9,7 @@
 
 ## 1. Design Approach
 
-Tiny Llama has no onboarding wizard or modal walkthrough. Empty states are the onboarding. Every state where the user cannot yet use the app has a single clear call-to-action that unblocks them. This keeps the UI clean for users who know what they are doing and still guides new users.
+Sidebar Editor has no onboarding wizard or modal walkthrough. Empty states are the onboarding. Every state where the user cannot yet use the app has a single clear call-to-action that unblocks them. This keeps the UI clean for users who know what they are doing and still guides new users.
 
 Three empty states map to three sequential blockers:
 
@@ -26,7 +26,7 @@ These states are addressed independently. A user who already has a workspace and
 The first-run condition is detected by checking for the settings key in localStorage:
 
 ```typescript
-const isFirstRun = !localStorage.getItem('tinyllama.settings.v4')
+const isFirstRun = !localStorage.getItem('sidebar.settings.v4')
 ```
 
 If the key is absent, this is a new install or the user has cleared their storage. If the key exists (even partially populated), it is not first run.
@@ -177,7 +177,7 @@ After the assistant responds to the first message, a one-time dismissible hint a
 └─────────────────────────────────────────────────────────┘
 ```
 
-- "Got it" dismisses the hint permanently (stored in localStorage: `tinyllama.hints.agentModeHint = 'dismissed'`)
+- "Got it" dismisses the hint permanently (stored in localStorage: `sidebar.hints.agentModeHint = 'dismissed'`)
 - The hint is not shown again after dismissal, even on subsequent launches
 - The hint is not shown if the user is already in Plan or Agent mode
 - The hint is not shown if `isFirstRun` is false (existing users who know the modes)

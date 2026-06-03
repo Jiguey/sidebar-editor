@@ -1,4 +1,4 @@
-# Tiny Llama
+# Sidebar Editor
 
 A local-first desktop AI coding assistant built with **Tauri 2**, **Svelte 5**, and **CodeMirror 6**. Your code stays on your machine. You pick the model. Nothing phones home.
 
@@ -21,7 +21,7 @@ The privacy moat is real: run Ollama or llama.cpp locally and the only traffic l
 | Tool policy system (allow / ask / deny) | Shipped |
 | Parallel read-only tool execution | Shipped |
 | Git panel (stage, commit, diff, discard) | Shipped |
-| Per-project state persistence (`.tinyllama/`) | Shipped |
+| Per-project state persistence (`.sidebar/`) | Shipped |
 | Context budget tracking + breakdown popover | Shipped |
 | Context overflow warnings (amber / red bar) | Shipped |
 | Context compaction (manual + auto) + archive restore | Shipped — experimental |
@@ -35,7 +35,7 @@ The privacy moat is real: run Ollama or llama.cpp locally and the only traffic l
 | Agent error recovery (retries, continue after step limit) | Shipped |
 | Workspace lock (multi-window safety) | Shipped |
 | LSP (diagnostics, hover; user-installed servers) | Partial |
-| System prompts manager (`.tinyllama/prompts/`) | Shipped |
+| System prompts manager (`.sidebar/prompts/`) | Shipped |
 | Skills system | Placeholder wired; implementation pending |
 | Rust path sandbox (defense in depth) | Planned — TS layer enforces today |
 | Cmd+K inline edit | Planned |
@@ -103,7 +103,7 @@ Read-only tools (`read_file`, `list_directory`, `find_file`, `get_file_tree`, gi
 
 ### Tool policy
 
-Three policies apply per tool, configurable globally in Settings and per-project in `.tinyllama/tools.json`:
+Three policies apply per tool, configurable globally in Settings and per-project in `.sidebar/tools.json`:
 
 | Policy | Behavior |
 |--------|----------|
@@ -164,7 +164,7 @@ Three independent color systems:
 | **Syntax tokens** | Settings → Appearance → Syntax |
 | **File icons** | Settings → General → Icon theme (Seti, VS Code Icons, Codicons, custom pack) |
 
-**Presets:** VS Code Dark (default), Cursor Dark, Catppuccin Mocha, Tokyo Night, One Dark Pro, Tiny Llama, Dracula, GitHub Dark, **Rosé Pine** (VS Code Dark workbench + Rosé Pine editor/syntax).
+**Presets:** VS Code Dark (default), Cursor Dark, Catppuccin Mocha, Tokyo Night, One Dark Pro, Sidebar, Dracula, GitHub Dark, **Rosé Pine** (VS Code Dark workbench + Rosé Pine editor/syntax).
 
 Changing the workbench theme updates the editor surface and syntax colors automatically (clears stale inline overrides). Use **Sync from theme** under Appearance → Editor to refresh the settings pickers.
 
@@ -182,8 +182,8 @@ Skills are context fragments — small markdown documents injected into the syst
 - Skills panel in Settings → Agent Context → Skills
 - Auto-activation signals (file presence, package.json deps, config files)
 - Bundled starter pack (Node/TS, React, Svelte, Rust, Python, Docker, Git Conventions)
-- Per-project skills committed with the repo (`.tinyllama/skills/`)
-- Global skills (`~/.tinyllama/skills/`)
+- Per-project skills committed with the repo (`.sidebar/skills/`)
+- Global skills (`~/.sidebar/skills/`)
 - Variable interpolation: `{{workspace_name}}`, `{{git_branch}}`, `{{active_file}}`, etc.
 
 ---
@@ -207,31 +207,31 @@ Agent tools that mutate files (`write_file`, `create_file`, `delete_file`, `move
 
 ### Global settings
 
-Stored in `localStorage` under `tinyllama.settings.v4` (migrates from v1–v3):
+Stored in `localStorage` under `sidebar.settings.v4` (migrates from v1–v3):
 
 - Provider endpoints, API keys, model lists with per-model context window and tool call settings
 - Workbench theme, icon theme, editor/syntax/chat/explorer appearance
 - Tool policy defaults, agent limits, parallel execution, web fetch hostname allowlist
 - Compaction settings, model role assignments
 - Anthropic extended thinking and context budget cap
-- Shortcut overrides (`tinyllama.keybindings.v1`)
+- Shortcut overrides (`sidebar.keybindings.v1`)
 
 Optional environment variable fallbacks: see `.env.example`.
 
-**LSP server config** is stored separately in `tinyllama.lsp.v1` (Settings → LSP).
+**LSP server config** is stored separately in `sidebar.lsp.v1` (Settings → LSP).
 
-### Per-project files (`.tinyllama/`)
+### Per-project files (`.sidebar/`)
 
 | Path | Purpose |
 |------|---------|
-| `.tinyllama/state.json` | Chat sessions, history, editor tabs — autosaved |
-| `.tinyllama/.lock` | Workspace lock (PID) when another window has the folder open |
-| `.tinyllama/prompts/*.md` | Per-mode or shared system prompt files |
-| `.tinyllama/prompts.json` | Prompt manifest — enable/disable and mode scope |
-| `.tinyllama/tools.json` | Tool policy overrides and custom tool schemas |
-| `.tinyllama/skills/` | Project-scoped skill directories (planned) |
-| `.tinyllama/skills-config.json` | Per-workspace skill activation overrides (planned) |
-| `.tinyllama/prompt.md` | Legacy single prompt — auto-migrated to `prompts/agent.md` |
+| `.sidebar/state.json` | Chat sessions, history, editor tabs — autosaved |
+| `.sidebar/.lock` | Workspace lock (PID) when another window has the folder open |
+| `.sidebar/prompts/*.md` | Per-mode or shared system prompt files |
+| `.sidebar/prompts.json` | Prompt manifest — enable/disable and mode scope |
+| `.sidebar/tools.json` | Tool policy overrides and custom tool schemas |
+| `.sidebar/skills/` | Project-scoped skill directories (planned) |
+| `.sidebar/skills-config.json` | Per-workspace skill activation overrides (planned) |
+| `.sidebar/prompt.md` | Legacy single prompt — auto-migrated to `prompts/agent.md` |
 
 Secrets stay in local settings or environment variables — not committed to the repo. See [Security spec](docs/specs/14-security.md).
 

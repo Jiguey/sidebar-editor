@@ -38,7 +38,7 @@ Located at `src-tauri/src/modules/git.rs`, using **git2**:
 | `git_log` | Recent commits (up to 500) | ✅ |
 | `git_discard` | Restore tracked from HEAD; delete untracked | ✅ |
 | `git_file_at_head` | Content at HEAD for diff base | ✅ |
-| `git_create_checkpoint` | Snapshot as detached commit under `refs/tinyllama/checkpoints/` | ✅ |
+| `git_create_checkpoint` | Snapshot as detached commit under `refs/sidebar/checkpoints/` | ✅ |
 | `git_restore_checkpoint` | Restore worktree + index from checkpoint | ✅ |
 | `git_is_repo` | Check if path is a git repo | ✅ |
 

@@ -24,7 +24,7 @@
 | Monthly API usage tracking (Anthropic) | ✅ Done | `providerUsage` store |
 | Git panel redesign + discard + diff view | ✅ Done | Full implementation |
 | Expanded syntax grammars + custom syntax colors | ✅ Done | 15 languages |
-| Per-project `state.json` (chat + editor tabs) | ✅ Done | `.tinyllama/state.json` |
+| Per-project `state.json` (chat + editor tabs) | ✅ Done | `.sidebar/state.json` |
 | Parallel read-only tools | ✅ Done | [38-parallel-tool-execution.md](38-parallel-tool-execution.md) |
 | Context overflow warnings | ✅ Done | [34-context-overflow-warnings.md](34-context-overflow-warnings.md) |
 | Workspace search panel | ✅ Done | [26-search-panel.md](26-search-panel.md) |
@@ -69,7 +69,7 @@
 | Cmd+K inline edit | ❌ Spec ready | [28-inline-edit-autocomplete.md](28-inline-edit-autocomplete.md) — CodeMirror decorations |
 | DeepSeek | ✅ | `deepseek` chat backend; Settings → DeepSeek |
 | Mistral, Perplexity | ❌ Not started | OpenAI-compat + provider registry |
-| Custom tool shell executor | ❌ Not started | Optional `.tinyllama` command templates |
+| Custom tool shell executor | ❌ Not started | Optional `.sidebar` command templates |
 | Context compaction | ❌ Spec ready | [21-context-compaction.md](21-context-compaction.md) — not sliding window |
 | Full provider billing APIs | ❌ Not started | Beyond local monthly estimates |
 

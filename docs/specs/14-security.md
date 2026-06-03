@@ -22,7 +22,7 @@ See also: `docs/SECRETS.md` (if exists) · Hardening detail in [Enhancement Adde
 
 ### Current
 
-- Stored in `localStorage` under key `tinyllama.settings.v3`
+- Stored in `localStorage` under key `sidebar.settings.v3`
 - Accessible to any JavaScript in the webview
 - Cleared on localStorage clear
 

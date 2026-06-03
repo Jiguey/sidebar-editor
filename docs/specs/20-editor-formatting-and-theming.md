@@ -130,7 +130,7 @@ Markdown **is** loaded as a grammar (`language: "markdown"` from `getLanguageFro
 
 - Bundle Prettier in app or Tauri side process for projects without local install
 
-### Settings (`tinyllama.settings.v3` or `editor` subsection)
+### Settings (`sidebar.settings.v3` or `editor` subsection)
 
 | Setting | Default | Status |
 |---------|---------|--------|
@@ -177,7 +177,7 @@ EditorView.lineWrapping
 | `editor.wordWrap` | `"off"` \| `"on"` | ❌ |
 | `editor.wordWrapColumn` | optional (e.g. 80) — soft guide only, phase 2 | ❌ |
 
-Persist in `tinyllama.settings.v3`.
+Persist in `sidebar.settings.v3`.
 
 ### UX
 
@@ -229,7 +229,7 @@ Expose in Settings → Appearance → **Editor** (or combined “Editor & Syntax
 | `--editor-selection` | Selection | Preset |
 | Cursor | `borderLeftColor` on cursor | Preset |
 
-Store in `tinyllama.editorChrome.v1` or extend `tinyllama.syntaxColors.v2` with a nested `chrome` object.
+Store in `sidebar.editorChrome.v1` or extend `sidebar.syntaxColors.v2` with a nested `chrome` object.
 
 Apply via `applyEditorChromeToDocument()` alongside syntax colors.
 
@@ -257,7 +257,7 @@ Add unit test: `applySyntaxColorsToDocument` sets distinct `--syntax-heading` wh
 
 ### 3.5 Migration
 
-- Bump storage `tinyllama.syntaxColors.v1` → `v2` with expanded keys
+- Bump storage `sidebar.syntaxColors.v1` → `v2` with expanded keys
 - On load, merge v1 into v2 using current alias rules once, then save
 
 ---

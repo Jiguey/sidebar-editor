@@ -9,13 +9,13 @@
 
 ## 1. Problem Statement
 
-Tiny Llama persists per-project state to `.tinyllama/state.json` (autosaved on every change). If two Tiny Llama windows open the same project folder simultaneously, they will both read and write this file, causing:
+Sidebar Editor persists per-project state to `.sidebar/state.json` (autosaved on every change). If two Sidebar Editor windows open the same project folder simultaneously, they will both read and write this file, causing:
 
 - State overwrites — whichever window saves last wins; the other's changes are silently lost
 - Corrupt JSON — interleaved partial writes from concurrent saves
 - Diverged chat history — the two windows accumulate separate histories that cannot be reconciled
 
-There is currently no lock mechanism. This spec adds a **PID-based lock file** so at most one writable Tiny Llama instance owns a given workspace at a time.
+There is currently no lock mechanism. This spec adds a **PID-based lock file** so at most one writable Sidebar Editor instance owns a given workspace at a time.
 
 ---
 
@@ -24,7 +24,7 @@ There is currently no lock mechanism. This spec adds a **PID-based lock file** s
 ### 2.1 Location and Format
 
 ```
-.tinyllama/.lock
+.sidebar/.lock
 ```
 
 JSON content:
@@ -37,7 +37,7 @@ JSON content:
 }
 ```
 
-- `pid`: the OS process ID of the owning Tiny Llama window process
+- `pid`: the OS process ID of the owning Sidebar Editor window process
 - `timestamp`: ISO 8601, wall clock when the lock was acquired
 - `hostname`: `gethostname()` — used only for display in the conflict dialog; not used in stale detection
 
@@ -62,7 +62,7 @@ This check runs in Rust (see §4.1).
 On `applyWorkspaceFolder()` (when the user opens a folder):
 
 ```
-1. Check if .tinyllama/.lock exists
+1. Check if .sidebar/.lock exists
 2. If no lock file → write lock file with current PID → proceed normally
 3. If lock file exists:
    a. Read PID from lock file
@@ -71,7 +71,7 @@ On `applyWorkspaceFolder()` (when the user opens a folder):
    d. If live → show conflict dialog (§5)
 ```
 
-If writing the lock file fails (permissions error on `.tinyllama/`), log a warning and proceed without a lock — degraded behavior is better than blocking the user from their project.
+If writing the lock file fails (permissions error on `.sidebar/`), log a warning and proceed without a lock — degraded behavior is better than blocking the user from their project.
 
 ---
 
@@ -88,7 +88,7 @@ Add to `src-tauri/src/modules/filesystem.rs`:
 #[tauri::command]
 pub async fn acquire_workspace_lock(workspace_root: String) -> Result<LockResult, String>
 
-/// Releases the workspace lock (deletes .tinyllama/.lock).
+/// Releases the workspace lock (deletes .sidebar/.lock).
 /// No-op if the lock does not exist or belongs to another PID.
 #[tauri::command]
 pub async fn release_workspace_lock(workspace_root: String) -> Result<(), String>
@@ -162,7 +162,7 @@ When `acquire_workspace_lock` returns `ConflictLive`, the frontend shows a modal
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  This folder is already open in another Tiny Llama      │
+│  This folder is already open in another Sidebar Editor      │
 │  window (PID 12345, opened 10 minutes ago).             │
 │                                                         │
 │  Opening the same folder in two windows can corrupt     │
@@ -175,7 +175,7 @@ When `acquire_workspace_lock` returns `ConflictLive`, the frontend shows a modal
 - **Open read-only**: proceeds to open the workspace in read-only mode (§6). The lock file is not modified.
 - **Cancel**: closes the dialog; the folder is not opened.
 
-Note: there is no "Switch to that window" option because Tiny Llama windows are not addressable by the frontend (Tauri does not expose cross-window focus control in the webview layer without custom Rust commands). This can be added in a future iteration.
+Note: there is no "Switch to that window" option because Sidebar Editor windows are not addressable by the frontend (Tauri does not expose cross-window focus control in the webview layer without custom Rust commands). This can be added in a future iteration.
 
 ---
 
@@ -186,7 +186,7 @@ When a workspace is opened without acquiring the lock (conflict + "Open read-onl
 ### 6.1 What is Disabled
 
 - All agent write tools (`write_file`, `create_file`, `delete_file`, `rename_file`, `run_shell`, git stage/commit/discard)
-- State autosave to `.tinyllama/state.json` — the in-memory state is not written back to disk
+- State autosave to `.sidebar/state.json` — the in-memory state is not written back to disk
 - Manual compaction (produces state changes)
 
 ### 6.2 What Still Works

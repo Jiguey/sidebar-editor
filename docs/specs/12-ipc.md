@@ -69,10 +69,10 @@
 
 | Command | Purpose | Status |
 |---------|---------|--------|
-| `read_system_prompt` | Read `.tinyllama/prompt.md` | ✅ |
-| `write_system_prompt` | Write `.tinyllama/prompt.md` | ✅ |
-| `read_project_state` | Read `.tinyllama/state.json` | ✅ |
-| `write_project_state` | Write `.tinyllama/state.json` | ✅ |
+| `read_system_prompt` | Read `.sidebar/prompt.md` | ✅ |
+| `write_system_prompt` | Write `.sidebar/prompt.md` | ✅ |
+| `read_project_state` | Read `.sidebar/state.json` | ✅ |
+| `write_project_state` | Write `.sidebar/state.json` | ✅ |
 
 ### Window
 

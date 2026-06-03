@@ -1,4 +1,4 @@
-# Tiny Llama tests
+# Sidebar Editor tests
 
 ## Running
 
@@ -11,7 +11,7 @@ Watch mode: `pnpm test:watch`
 
 ## Architecture under test
 
-Tiny Llama uses a **two-tier** runtime—**no Node sidecar**:
+Sidebar Editor uses a **two-tier** runtime—**no Node sidecar**:
 
 | Layer | What tests cover |
 |-------|------------------|

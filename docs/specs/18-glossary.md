@@ -19,7 +19,7 @@
 | **Provider usage** | Local monthly token tallies from API responses |
 | **Context budget** | Maximum tokens for a conversation (model window or custom limit) |
 | **Tool policy** | Rules governing tool execution (`allow`, `ask`, `deny`) |
-| **Effective policy** | Merged result of global settings + project `.tinyllama/tools.json` |
+| **Effective policy** | Merged result of global settings + project `.sidebar/tools.json` |
 | **Mode** | Chat mode determining available tools (Chat, Plan, Agent) |
 | **Session** | A single chat conversation with message history |
 | **Checkpoint** | Git snapshot for potential rollback (detached commit) |
@@ -38,15 +38,15 @@
 
 | Path | Description |
 |------|-------------|
-| `.tinyllama/` | Project-local configuration directory |
-| `.tinyllama/prompt.md` | Custom system prompt additions |
-| `.tinyllama/tools.json` | Project tool rules and custom tools |
-| `.tinyllama/state.json` | Persisted chat sessions and editor tabs |
-| `tinyllama.settings.v3` | localStorage key for global settings |
-| `tinyllama.toolPolicy.v2` | localStorage key for global tool policy |
-| `tinyllama.iconTheme.v2` | localStorage key for icon theme selection |
-| `tinyllama.providerUsage.v1` | localStorage key for monthly usage |
-| `tinyllama.paneWidths.v1` | localStorage key for pane dimensions |
+| `.sidebar/` | Project-local configuration directory |
+| `.sidebar/prompt.md` | Custom system prompt additions |
+| `.sidebar/tools.json` | Project tool rules and custom tools |
+| `.sidebar/state.json` | Persisted chat sessions and editor tabs |
+| `sidebar.settings.v3` | localStorage key for global settings |
+| `sidebar.toolPolicy.v2` | localStorage key for global tool policy |
+| `sidebar.iconTheme.v2` | localStorage key for icon theme selection |
+| `sidebar.providerUsage.v1` | localStorage key for monthly usage |
+| `sidebar.paneWidths.v1` | localStorage key for pane dimensions |
 
 ---
 

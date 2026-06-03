@@ -10,18 +10,18 @@
 |-------|----------|-------------|--------|
 | `settings` | `src/lib/stores/settings.ts` | `localStorage` (v3) | ✅ |
 | `files` | `src/lib/stores/files.ts` | Runtime only | ✅ |
-| `chat` | `src/lib/stores/chat.ts` | `.tinyllama/state.json` | ✅ |
+| `chat` | `src/lib/stores/chat.ts` | `.sidebar/state.json` | ✅ |
 | `workbench` | `src/lib/stores/workbench.ts` | `localStorage` + per-project | ✅ |
 | `toolPolicy` | `src/lib/stores/toolPolicy.ts` | `localStorage` (v2) | ✅ |
 | `currentMode` | `src/lib/stores/mode.ts` | Runtime only | ✅ |
 | `iconTheme` | `src/lib/stores/iconTheme.ts` | `localStorage` (v2) | ✅ |
 | `providerUsage` | `src/lib/stores/providerUsage.ts` | `localStorage` (v1) | ✅ |
 | `syntaxTheme` | `src/lib/stores/syntaxTheme.ts` | `localStorage` | ✅ |
-| `systemPrompt` | `src/lib/stores/systemPrompt.ts` | `.tinyllama/prompt.md` | ✅ |
+| `systemPrompt` | `src/lib/stores/systemPrompt.ts` | `.sidebar/prompt.md` | ✅ |
 
 ---
 
-## Settings Store (`tinyllama.settings.v3`)
+## Settings Store (`sidebar.settings.v3`)
 
 | Field | Type | Description | Status |
 |-------|------|-------------|--------|
@@ -51,7 +51,7 @@ Paths normalized via `normalizeFilePath` (`src/lib/fsPath.ts`).
 
 ---
 
-## Workbench Store (`tinyllama.workbench.v1`)
+## Workbench Store (`sidebar.workbench.v1`)
 
 - Editor / terminal / preview tabs
 - Editor tab ids: `editor:<path>`
@@ -71,20 +71,20 @@ Paths normalized via `normalizeFilePath` (`src/lib/fsPath.ts`).
 
 ---
 
-## Tool Policy Store (`tinyllama.toolPolicy.v2`)
+## Tool Policy Store (`sidebar.toolPolicy.v2`)
 
-- Global rules + merge with `.tinyllama/tools.json` via `effectiveToolPolicy`
+- Global rules + merge with `.sidebar/tools.json` via `effectiveToolPolicy`
 - Settings UI edits global policy; project file on disk
 
 ---
 
-## Provider Usage Store (`tinyllama.providerUsage.v1`)
+## Provider Usage Store (`sidebar.providerUsage.v1`)
 
 Monthly input/output token totals per provider id (from API `usage` on responses). Used in Anthropic chat footer.
 
 ---
 
-## Project State (`.tinyllama/state.json`)
+## Project State (`.sidebar/state.json`)
 
 Managed by `src/lib/projectState.ts`:
 

@@ -1,10 +1,10 @@
-# Tiny Llama — Architecture Reference
+# Sidebar Editor — Architecture Reference
 
 > **Status:** ✅ **COMPLETE** — This document reflects the current implementation.
 >
 > See also: [Overview](../overview/OVERVIEW.md) · [Specifications](../specs/README.md) · [README](../../README.md)
 
-This document describes how **Tiny Llama** works end-to-end: UI layout, state management, AI agent loop, tool calling, theming, and Rust backend.
+This document describes how **Sidebar Editor** works end-to-end: UI layout, state management, AI agent loop, tool calling, theming, and Rust backend.
 
 ---
 
@@ -69,7 +69,7 @@ This document describes how **Tiny Llama** works end-to-end: UI layout, state ma
 
 ### No Node sidecar
 
-Tiny Llama **does not** run a separate Node process for the agent. An earlier design used `sidecar/dist/index.js` with harness Tauri IPC; that path was **removed**. Today:
+Sidebar Editor **does not** run a separate Node process for the agent. An earlier design used `sidecar/dist/index.js` with harness Tauri IPC; that path was **removed**. Today:
 
 - **Agent loop, streaming, tool policy, and provider `fetch()`** live in the Svelte webview (`ChatPane`, `streamTurn.ts`, `lib/providers/*`).
 - **Filesystem, git, terminal, grep, shell, HTTP fetch** live in Rust (`src-tauri/src/modules/*`).
@@ -125,7 +125,7 @@ See [specs/03-architecture.md](../specs/03-architecture.md#agent-runtime-model-c
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Resizable panes** (persisted in `localStorage` key `tinyllama.paneWidths.v1`):
+**Resizable panes** (persisted in `localStorage` key `sidebar.paneWidths.v1`):
 
 - Left chat pane: 200–560 px
 - Right explorer pane: 200–560 px (or collapsed to 34 px activity strip)
@@ -149,22 +149,22 @@ See [specs/03-architecture.md](../specs/03-architecture.md#agent-runtime-model-c
 
 > **Status:** ✅ Complete
 
-Tiny Llama uses **Svelte writable/derived stores** (not a global Redux-like framework).
+Sidebar Editor uses **Svelte writable/derived stores** (not a global Redux-like framework).
 
 ### Key Stores
 
 | Store | Location | Persistence |
 |-------|----------|-------------|
-| `chat` | `src/lib/stores/chat.ts` | `.tinyllama/state.json` |
+| `chat` | `src/lib/stores/chat.ts` | `.sidebar/state.json` |
 | `files` | `src/lib/stores/files.ts` | Runtime only |
-| `workbench` | `src/lib/stores/workbench.ts` | `localStorage` + `.tinyllama/state.json` |
+| `workbench` | `src/lib/stores/workbench.ts` | `localStorage` + `.sidebar/state.json` |
 | `settings` | `src/lib/stores/settings.ts` | `localStorage` (v4) |
 | `toolPolicy` | `src/lib/stores/toolPolicy.ts` | `localStorage` (v2) |
 | `currentMode` | `src/lib/stores/mode.ts` | Runtime only |
 | `iconTheme` | `src/lib/stores/iconTheme.ts` | `localStorage` (v2) |
 | `providerUsage` | `src/lib/stores/providerUsage.ts` | `localStorage` (v1) |
 
-### Settings Store (`tinyllama.settings.v4`)
+### Settings Store (`sidebar.settings.v4`)
 
 | Field | Description |
 |-------|-------------|
@@ -182,7 +182,7 @@ Tiny Llama uses **Svelte writable/derived stores** (not a global Redux-like fram
 
 ### Cross-store Coordination
 
-- `projectState.ts` snapshots chat + editor tabs to `.tinyllama/state.json` per workspace
+- `projectState.ts` snapshots chat + editor tabs to `.sidebar/state.json` per workspace
 - `filesystemSync.ts` updates `files` + `workbench` after agent filesystem tools
 - `workspace.ts` handles folder open, tree building, refresh
 
@@ -208,7 +208,7 @@ Built in `ChatPane.svelte` → `buildSystemPrompt()`:
 
 1. **Mode base prompt** (`MODE_CONFIG[mode].basePrompt`)
 2. **Workspace context** (`src/lib/agent/workspaceContext.ts`)
-3. **Custom instructions** from `.tinyllama/prompt.md`
+3. **Custom instructions** from `.sidebar/prompt.md`
 
 ### Providers
 
@@ -357,7 +357,7 @@ Three independent color systems:
 
 - Token sources: `globals.css`, `workbench-themes.css`
 - Applied via `data-workbench-theme` attribute on `<html>`
-- Presets: `vscode-dark` (default), `cursor-dark`, `catppuccin-mocha`, `tokyo-night`, `one-dark-pro`, `tiny-llama`, `dracula`, `github-dark`, `rose-pine`
+- Presets: `vscode-dark` (default), `cursor-dark`, `catppuccin-mocha`, `tokyo-night`, `one-dark-pro`, `sidebar-editor`, `dracula`, `github-dark`, `rose-pine`
 - Default `--editor-bg` matches `--background` (`#1e1e1e`); changing preset syncs editor + syntax colors from theme CSS
 
 ### Key CSS Variables
@@ -383,7 +383,7 @@ Three independent color systems:
 | **Codicons** | Single-tone VS Code icon font |
 | **Custom** | User-provided folder with manifest |
 
-Storage key: `tinyllama.iconTheme.v2`
+Storage key: `sidebar.iconTheme.v2`
 
 ---
 
@@ -456,7 +456,7 @@ Custom highlight via `syntaxTheme.ts` + `--syntax-*` CSS variables (Settings →
 ## 14. Directory Map
 
 ```
-tiny-llama/
+sidebar-editor/
 ├── docs/
 │   ├── architecture/ARCHITECTURE.md  ← this document
 │   ├── overview/OVERVIEW.md

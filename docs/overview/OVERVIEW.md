@@ -1,4 +1,4 @@
-# Tiny Llama — Application Overview
+# Sidebar Editor — Application Overview
 
 > **Status:** ✅ **COMPLETE** — Current product snapshot (summary).
 >
@@ -6,7 +6,7 @@
 >
 > See also: [Architecture](../architecture/ARCHITECTURE.md) · [Specifications](../specs/README.md)
 
-**Tiny Llama** is a minimal, local-first desktop IDE with an integrated AI coding agent. It targets developers who want a hackable Cursor-like shell without cloud lock-in: bring your own model (Ollama, llama.cpp, Anthropic, DeepSeek), keep code on disk, and control tool policy per project.
+**Sidebar Editor** is a minimal, local-first desktop IDE with an integrated AI coding agent. It targets developers who want a hackable Cursor-like shell without cloud lock-in: bring your own model (Ollama, llama.cpp, Anthropic, DeepSeek), keep code on disk, and control tool policy per project.
 
 **Platform:** Tauri 2 desktop only (Linux, macOS, Windows). Web-only `pnpm dev:web` is supported for UI work but cannot run tools, git, or PTY.
 
@@ -29,7 +29,7 @@
 | Workspace lock | ✅ Complete | Multi-window safety — [35](specs/35-workspace-lock.md) |
 | Shortcut rebinding | ✅ Complete | Settings → Keybindings — [37](specs/37-shortcut-rebinding.md) |
 | LSP | 🔶 Partial | Diagnostics + hover; user-installed servers — [25](specs/25-lsp-diagnostics.md) |
-| Persistence | ✅ Complete | Per-project `.tinyllama/state.json` |
+| Persistence | ✅ Complete | Per-project `.sidebar/state.json` |
 | Planning (`plans/`) | ❌ Not started | Plan mode is read-only + chat-only — [19](specs/19-planning-system.md) |
 | Skills | 🔶 Placeholder | Assembly slot wired — [30](specs/30-agent-context-and-model-settings.md) |
 | Security | 🔶 Partial | TS path sandbox; API keys in localStorage |
@@ -95,10 +95,10 @@ Opening a folder loads:
 
 | Path | Purpose |
 |------|---------|
-| `.tinyllama/prompts.json` + `prompts/*.md` | System prompt manifest and files |
-| `.tinyllama/tools.json` | Tool rules + custom tool schemas |
-| `.tinyllama/state.json` | Chat sessions, history, editor tabs (autosaved) |
-| `.tinyllama/.lock` | Workspace lock when another window owns the folder |
+| `.sidebar/prompts.json` + `prompts/*.md` | System prompt manifest and files |
+| `.sidebar/tools.json` | Tool rules + custom tool schemas |
+| `.sidebar/state.json` | Chat sessions, history, editor tabs (autosaved) |
+| `.sidebar/.lock` | Workspace lock when another window owns the folder |
 
 ---
 
@@ -133,9 +133,9 @@ There is **no Node sidecar**. The agent loop runs in the webview; OS integration
 ## Configuration (Global)
 
 **Storage keys:**
-- `tinyllama.settings.v4` — providers, themes, tool policy, agent limits, compaction
-- `tinyllama.keybindings.v1` — shortcut overrides
-- `tinyllama.lsp.v1` — LSP server commands per language
+- `sidebar.settings.v4` — providers, themes, tool policy, agent limits, compaction
+- `sidebar.keybindings.v1` — shortcut overrides
+- `sidebar.lsp.v1` — LSP server commands per language
 
 ---
 

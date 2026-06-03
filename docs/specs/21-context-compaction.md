@@ -249,7 +249,7 @@ The manual **Compact** button in the chat footer calls `triggerCompaction()` dir
 
 ## 6. Settings
 
-Extend agent-related settings in `tinyllama.settings.v3` (alongside `agentLimits` today). Suggested shape:
+Extend agent-related settings in `sidebar.settings.v3` (alongside `agentLimits` today). Suggested shape:
 
 ```typescript
 interface AgentCompactionSettings {
@@ -422,7 +422,7 @@ Ollama `GET /api/show` exposes `context_length`. Deferred from v1 — manual con
 
 ## 9. State Changes
 
-Extend `ChatSession` in `.tinyllama/state.json` (via `src/lib/stores/chat.ts` / `src/lib/projectState.ts`):
+Extend `ChatSession` in `.sidebar/state.json` (via `src/lib/stores/chat.ts` / `src/lib/projectState.ts`):
 
 ```typescript
 interface ChatSession {

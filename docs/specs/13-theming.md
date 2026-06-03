@@ -6,7 +6,7 @@
 
 ## Color Systems Overview
 
-Tiny Llama has **three independent color systems**:
+Sidebar Editor has **three independent color systems**:
 
 | System | Scope | Customizable | Status |
 |--------|-------|--------------|--------|
@@ -35,7 +35,7 @@ Tiny Llama has **three independent color systems**:
 | `catppuccin-mocha` | ✅ |
 | `tokyo-night` | ✅ |
 | `one-dark-pro` | ✅ |
-| `tiny-llama` | ✅ |
+| `sidebar-editor` | ✅ |
 | `dracula` | ✅ |
 | `github-dark` | ✅ |
 | `rose-pine` | ✅ |
@@ -69,7 +69,7 @@ Called from `WorkbenchShell.svelte` and the settings window when theme changes.
 | `--terminal-ansi-*` | xterm.js | ✅ |
 | `--workbench-tab-active-indicator` | Tab bar | ✅ |
 
-**Persistence:** `settings.workbenchTheme` in `localStorage` (`tinyllama.settings.v4`). Editor chrome and syntax colors are stored separately (`tinyllama.editorChrome.v1`, `tinyllama.syntaxColors.v2`) and sync from the active theme when the workbench preset changes.
+**Persistence:** `settings.workbenchTheme` in `localStorage` (`sidebar.settings.v4`). Editor chrome and syntax colors are stored separately (`sidebar.editorChrome.v1`, `sidebar.syntaxColors.v2`) and sync from the active theme when the workbench preset changes.
 
 ---
 
@@ -78,7 +78,7 @@ Called from `WorkbenchShell.svelte` and the settings window when theme changes.
 ### Icon Theme Store
 
 `src/lib/stores/iconTheme.ts`:
-- Storage key: `tinyllama.iconTheme.v2`
+- Storage key: `sidebar.iconTheme.v2`
 - Default theme: **`seti`** (Cursor-style)
 
 ### Available Themes

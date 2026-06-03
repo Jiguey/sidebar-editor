@@ -27,7 +27,7 @@ Everything in the rest of the Enhancement Program (filesystem watcher, search pa
 |-------|--------------|-----------|
 | Skill workspace config | `skills.json` with per-skill numeric `priority` + tri-state `manualOverride` ([23](23-skills-system.md) §3.3) | `skills-config.json` with `overrides[]` + canonical `order[]`; simple boolean override |
 | Skill ordering | numeric `priority` field | drag-reorder writing `order[]` |
-| Skill scope | bundled + project | adds **`global`** (`~/.tinyllama/skills/`) |
+| Skill scope | bundled + project | adds **`global`** (`~/.sidebar/skills/`) |
 | Skills UI surface | new **explorer sidebar tab** + status-bar icon ([23](23-skills-system.md) §7) | **Settings → Agent Context** panel (no explorer tab) |
 | Unknown variable handling | substitute empty string + warn ([23](23-skills-system.md) §3.2) | **leave literal `{{token}}`** so the model surfaces the bug (§10.3) |
 | Model adaptivity | **auto-inferred** capability flags via name heuristics ([27](27-local-model-ux.md) §3) | **user-owned** explicit settings; no auto-inference (§1.1) |
@@ -362,7 +362,7 @@ Signals are evaluated in order. A skill activates if its `requires` condition is
 - `"any"` — at least one signal must match
 - `"all"` — all signals must match
 
-Auto-detected skills appear in the "Active" list with the `⚡` badge. The user can disable them per-workspace; that preference persists in `.tinyllama/skills-config.json`.
+Auto-detected skills appear in the "Active" list with the `⚡` badge. The user can disable them per-workspace; that preference persists in `.sidebar/skills-config.json`.
 
 > **Integration note:** detection should consume the **filtered** workspace tree from [22-llm-file-interaction.md](22-llm-file-interaction.md) §2 (the `.gitignore`-aware tree shipped earlier in the Enhancement Program), not a raw recursive scan. Re-detection hooks into the filesystem-watcher tree-change event ([24](24-filesystem-watcher.md)).
 
@@ -373,8 +373,8 @@ Skills have a scope:
 | Scope | Location | Visibility |
 |-------|----------|------------|
 | `bundled` | `src/lib/skills/bundled/` | All workspaces, read-only |
-| `global` | `~/.tinyllama/skills/` | All workspaces, user-editable |
-| `project` | `.tinyllama/skills/` | Current workspace only |
+| `global` | `~/.sidebar/skills/` | All workspaces, user-editable |
+| `project` | `.sidebar/skills/` | Current workspace only |
 
 "New skill" prompts: "Save to this project" or "Save globally (available in all projects)".
 
@@ -382,7 +382,7 @@ Project skills are committed with the repo, making them shareable with teammates
 
 ### 5.6 Workspace Skills Config
 
-`.tinyllama/skills-config.json` — stores per-workspace overrides without modifying skill files:
+`.sidebar/skills-config.json` — stores per-workspace overrides without modifying skill files:
 
 ```json
 {
@@ -410,7 +410,7 @@ This is the existing system prompts UI, reorganized under Agent Context. The cor
 **What stays the same:**
 - Per-entry enable/disable toggle
 - Mode checkboxes per entry
-- File-backed `.md` files in `.tinyllama/prompts/`
+- File-backed `.md` files in `.sidebar/prompts/`
 - "Open in editor" behavior
 - `prompts.json` manifest format
 
@@ -529,7 +529,7 @@ Token count per section is shown on the right margin. Total token count shown in
 ### 8.1 Directory Structure
 
 ```
-.tinyllama/
+.sidebar/
   skills-config.json          ← workspace overrides and order
   skills/
     react-typescript/
@@ -689,7 +689,7 @@ If a skill references a variable not in the table above, the raw `{{variable_nam
 | `src/modules/settings/AgentContextSection.svelte` | Parent section with assembly preview |
 | `src/modules/settings/SkillsPanel.svelte` | Skills list, drag reorder, editor link |
 | `src/modules/settings/SkillEditor.svelte` | Metadata form alongside editor |
-| `.tinyllama/skills-config.json` | Per-workspace skill overrides and order |
+| `.sidebar/skills-config.json` | Per-workspace skill overrides and order |
 
 ### 11.2 Files to Modify
 
@@ -716,9 +716,9 @@ This derived value is what `buildSystemPrompt()` consumes — it never reads raw
 
 ### 11.4 Settings Version Bump
 
-`settings.ts` store key upgrades from `tinyllama.settings.v3` to `tinyllama.settings.v4`. Migration adds default per-model fields to existing model entries using provider defaults. This migration runs once on load if v3 key is detected.
+`settings.ts` store key upgrades from `sidebar.settings.v3` to `sidebar.settings.v4`. Migration adds default per-model fields to existing model entries using provider defaults. This migration runs once on load if v3 key is detected.
 
-> **Integration note (decision needed):** `src/lib/stores/settings.ts` currently pins `schemaVersion: 3` and key `tinyllama.settings.v3`, and `normalizeLoaded` force-sets `schemaVersion: 3`. The v4 migration must: (a) read the v3 blob, (b) backfill `toolCallFormat: 'native'`, `parallelToolCalls: true`, `promptVerbosity: 'standard'` (and `contextWindow` if absent) on every entry of the four model arrays, (c) write under the v4 key, and (d) leave the v3 key intact for one release as a rollback safety net. Confirm rollback policy before implementing.
+> **Integration note (decision needed):** `src/lib/stores/settings.ts` currently pins `schemaVersion: 3` and key `sidebar.settings.v3`, and `normalizeLoaded` force-sets `schemaVersion: 3`. The v4 migration must: (a) read the v3 blob, (b) backfill `toolCallFormat: 'native'`, `parallelToolCalls: true`, `promptVerbosity: 'standard'` (and `contextWindow` if absent) on every entry of the four model arrays, (c) write under the v4 key, and (d) leave the v3 key intact for one release as a rollback safety net. Confirm rollback policy before implementing.
 
 ### 11.5 Phase Boundary
 
@@ -738,7 +738,7 @@ This derived value is what `buildSystemPrompt()` consumes — it never reads raw
 
 **Phase 2:**
 - `{{active_file_contents}}` variable with warning
-- Global skill scope (`~/.tinyllama/skills/`)
+- Global skill scope (`~/.sidebar/skills/`)
 - Skill duplication from bundled
 - Per-signal UI in skill editor (currently JSON-edited)
 
@@ -764,13 +764,13 @@ This addendum covers the create, read, update, and delete operations for skills 
 
 1. A small inline form appears above the skill list prompting: "Skill ID (kebab-case)" and "Save to: [This project ▼ / Globally]".
 2. On confirm, the app:
-   - Scaffolds `.tinyllama/skills/<id>/skill.json` with minimum valid fields (`id`, `title`, `scope`, `modes: []`)
-   - Scaffolds `.tinyllama/skills/<id>/skill.md` with a comment header: `# <Title>\n\nAdd your skill content here.`
+   - Scaffolds `.sidebar/skills/<id>/skill.json` with minimum valid fields (`id`, `title`, `scope`, `modes: []`)
+   - Scaffolds `.sidebar/skills/<id>/skill.md` with a comment header: `# <Title>\n\nAdd your skill content here.`
    - Opens `skill.md` in the main editor
    - Opens the metadata form panel (see §A.3) alongside the editor
 3. The new skill appears at the bottom of the "Active in this workspace" list, enabled by default.
 
-For globally-scoped skills, files go to `~/.tinyllama/skills/<id>/`.
+For globally-scoped skills, files go to `~/.sidebar/skills/<id>/`.
 
 **ID validation:** IDs must match `^[a-z0-9-]+$`. If the ID already exists (same scope), the form shows an inline error: "A skill with this ID already exists."
 
@@ -782,7 +782,7 @@ For globally-scoped skills, files go to `~/.tinyllama/skills/<id>/`.
 - Opens `skill.md` in the main editor tab (same tab if already open, or a new tab)
 - Opens the metadata form panel (§A.3) as a side panel or as the skills panel content — the metadata panel and the main editor coexist
 
-For bundled skills (read-only), the editor tab opens in read-only mode with a banner: "Bundled skill — read-only. [Duplicate to edit]". Clicking "Duplicate to edit" copies the skill directory to `.tinyllama/skills/<id>-custom/` and opens the copy.
+For bundled skills (read-only), the editor tab opens in read-only mode with a banner: "Bundled skill — read-only. [Duplicate to edit]". Clicking "Duplicate to edit" copies the skill directory to `.sidebar/skills/<id>-custom/` and opens the copy.
 
 ### A.3 Inline Metadata Editing
 
@@ -827,10 +827,10 @@ The metadata form in the Skills panel replaces the skill list when a skill is be
 1. Show a confirmation dialog:
    ```
    Delete "React + TypeScript"?
-   This removes .tinyllama/skills/react-typescript/ permanently.
+   This removes .sidebar/skills/react-typescript/ permanently.
    [Delete]  [Cancel]
    ```
-2. On confirm: delete the directory from disk (or `~/.tinyllama/skills/` for global scope).
+2. On confirm: delete the directory from disk (or `~/.sidebar/skills/` for global scope).
 3. Remove the skill from `skills-config.json` (order and overrides).
 4. The skill disappears from the list immediately.
 

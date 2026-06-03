@@ -97,7 +97,7 @@ The dispatcher resolves conflicts by action registration order — the first reg
 ### 3.1 Key
 
 ```
-localStorage key: tinyllama.keybindings.v1
+localStorage key: sidebar.keybindings.v1
 ```
 
 ### 3.2 Format
@@ -118,7 +118,7 @@ At app startup, in `registry.ts`:
 
 ```typescript
 const stored: KeybindingsStore = JSON.parse(
-  localStorage.getItem('tinyllama.keybindings.v1') ?? '{}'
+  localStorage.getItem('sidebar.keybindings.v1') ?? '{}'
 )
 // Merge: stored values override defaults
 const activeBindings = { ...defaults, ...stored }

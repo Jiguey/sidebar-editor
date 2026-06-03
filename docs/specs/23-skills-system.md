@@ -5,7 +5,7 @@
 > **Phase:** Final — folded into [30](30-agent-context-and-model-settings.md) (implement LAST, discuss first)
 > **Depends on:** [08-ai-agent.md](08-ai-agent.md) (system prompt assembly) · system prompts subsystem (`src/lib/systemPrompts/`) · [07-workspace.md](07-workspace.md) (`applyWorkspaceFolder`) · [24-filesystem-watcher.md](24-filesystem-watcher.md) (re-detection on tree change)
 
-> **Related:** `extension.md` §3 · [29-skills-registry.md](29-skills-registry.md) (Phase 3 sharing) · existing `.tinyllama/prompts/` manifest pattern
+> **Related:** `extension.md` §3 · [29-skills-registry.md](29-skills-registry.md) (Phase 3 sharing) · existing `.sidebar/prompts/` manifest pattern
 
 ---
 
@@ -18,7 +18,7 @@ The skills design in this document was **revised** by [30-agent-context-and-mode
 | `skills.json` with numeric `priority` + tri-state `manualOverride` (§3.3) | `skills-config.json` with `overrides[]` + canonical `order[]`; boolean override ([30](30-agent-context-and-model-settings.md) §5.6) |
 | New **explorer sidebar tab** + status-bar icon (§7) | **Settings → Agent Context** panel, no explorer tab ([30](30-agent-context-and-model-settings.md) §5) |
 | Unknown variable → empty string + warn (§3.2) | Leave literal `{{token}}` so the model surfaces it ([30](30-agent-context-and-model-settings.md) §10.3) |
-| `bundled` + `project` scope only | adds **`global`** (`~/.tinyllama/skills/`) ([30](30-agent-context-and-model-settings.md) §5.5) |
+| `bundled` + `project` scope only | adds **`global`** (`~/.sidebar/skills/`) ([30](30-agent-context-and-model-settings.md) §5.5) |
 | Explicit `content` + `priority` fields in `skill.json` | dropped; `skill.md` implicit, ordering via `order[]` ([30](30-agent-context-and-model-settings.md) §8.2) |
 
 The §4 auto-activation engine, §5 variables, §8 bundled-pack, §9 coexistence, and §10–13 implementation/edge-case material below remain a useful reference, but where they conflict with [30](30-agent-context-and-model-settings.md), **spec 30 wins**. Skills are part of the "implement LAST / discuss first" group — see [30](30-agent-context-and-model-settings.md)'s discussion note.
@@ -27,9 +27,9 @@ The §4 auto-activation engine, §5 variables, §8 bundled-pack, §9 coexistence
 
 ## 1. Overview
 
-A **skill** is a composable, auto-activating system-prompt fragment that encodes conventions for a stack, framework, or organization. Skills are the **highest-leverage differentiator** for Tiny Llama: they let teams capture internal knowledge as version-controlled, local-only artifacts that shape agent behavior without anything leaving the machine.
+A **skill** is a composable, auto-activating system-prompt fragment that encodes conventions for a stack, framework, or organization. Skills are the **highest-leverage differentiator** for Sidebar Editor: they let teams capture internal knowledge as version-controlled, local-only artifacts that shape agent behavior without anything leaving the machine.
 
-The existing `.tinyllama/prompts/` multi-file prompt system is the right foundation. Skills extend it with three capabilities prompts lack:
+The existing `.sidebar/prompts/` multi-file prompt system is the right foundation. Skills extend it with three capabilities prompts lack:
 
 1. **Auto-activation** based on workspace signals (deps, config files, extensions).
 2. **Variable interpolation** (`{{workspace_name}}`, `{{git_branch}}`, …) resolved per turn.
@@ -41,7 +41,7 @@ Skills are **additive** — the existing prompts system is unchanged and continu
 
 - Skills activate automatically based on declarative signals; no manual setup for common stacks.
 - A bundled starter pack covers Node/TS, React, Svelte, Rust, Python, Docker, git, and testing.
-- Skills are plain files under `.tinyllama/skills/` — git-trackable, readable, hackable.
+- Skills are plain files under `.sidebar/skills/` — git-trackable, readable, hackable.
 - The manifest format is stable from day one so future registry installs are forward-compatible.
 - Variables interpolate at prompt-assembly time so context stays current.
 
@@ -57,7 +57,7 @@ Skills are **additive** — the existing prompts system is unchanged and continu
 ## 2. File Layout
 
 ```
-<workspace-root>/.tinyllama/
+<workspace-root>/.sidebar/
   prompts/                      # existing system-prompt files (unchanged)
   prompts.json                  # existing manifest (unchanged)
   skills/
@@ -70,7 +70,7 @@ Skills are **additive** — the existing prompts system is unchanged and continu
       skill.md
 ```
 
-Bundled skills ship read-only inside the app at `src/lib/skills/bundled/` and are **copied into** `.tinyllama/skills/` on first activation so users can edit them.
+Bundled skills ship read-only inside the app at `src/lib/skills/bundled/` and are **copied into** `.sidebar/skills/` on first activation so users can edit them.
 
 ---
 
@@ -216,7 +216,7 @@ Skills slot **after** the base mode prompt and workspace/tool blocks, **before**
 2. buildWorkspaceContextBlock()          (filtered tree — spec 22)
 3. TOOL_USE_INSTRUCTION                   (if tools enabled — spec 22 §4)
 4. Active skills (priority asc, variables interpolated)   ← NEW
-5. activeSystemPromptText                 (existing .tinyllama/prompts/)
+5. activeSystemPromptText                 (existing .sidebar/prompts/)
 6. TOOL_SUMMARY_INSTRUCTION               (if tools enabled)
 ```
 
@@ -255,7 +255,7 @@ Ship in `src/lib/skills/bundled/`:
 | `git-conventions` | any git repo (always active) |
 | `testing` | `vitest` / `jest` / `pytest` in deps |
 
-Each encodes framework conventions, common file structure, and stack-specific agent tool-use guidance. Bundled skills are copied into `.tinyllama/skills/` on first activation so they are editable and git-trackable.
+Each encodes framework conventions, common file structure, and stack-specific agent tool-use guidance. Bundled skills are copied into `.sidebar/skills/` on first activation so they are editable and git-trackable.
 
 ---
 
@@ -304,7 +304,7 @@ No migration is required. A user with no `skills/` directory sees identical beha
 ### Phase 4 — Bundled pack + re-detection
 
 - [ ] Ship 8 bundled skills in `src/lib/skills/bundled/`
-- [ ] Copy-on-first-activation into `.tinyllama/skills/`
+- [ ] Copy-on-first-activation into `.sidebar/skills/`
 - [ ] Re-run detection on FS watcher tree-change events ([24](24-filesystem-watcher.md))
 
 **Deliverable:** Zero-config conventions for common stacks.
@@ -333,7 +333,7 @@ No migration is required. A user with no `skills/` directory sees identical beha
 | `package.json` unreadable | `package_json_dep` signals evaluate false |
 | Conflicting priorities | Stable sort by `(priority, id)` |
 | Auto-detect flips a manually-disabled skill | `manualOverride: "off"` always wins |
-| Bundled skill edited by user | User copy in `.tinyllama/skills/` wins; bundled is only the seed |
+| Bundled skill edited by user | User copy in `.sidebar/skills/` wins; bundled is only the seed |
 | No workspace open | Skills inert (need workspace signals) |
 | Very many skills active | Cap total skill tokens (e.g. 4k); drop lowest priority with a note |
 
@@ -357,8 +357,8 @@ No migration is required. A user with no `skills/` directory sees identical beha
 2. `{{workspace_name}}` and `{{git_branch}}` resolve to current values at each turn.
 3. Disabling a skill via the sidebar (`manualOverride: "off"`) keeps it off even when its signal matches.
 4. Skills inject between the tool instruction and user prompts, ordered by priority.
-5. A user with no `.tinyllama/skills/` directory sees behavior identical to today.
-6. Bundled skills can be edited in the editor and the edits persist in `.tinyllama/skills/`.
+5. A user with no `.sidebar/skills/` directory sees behavior identical to today.
+6. Bundled skills can be edited in the editor and the edits persist in `.sidebar/skills/`.
 
 ---
 
