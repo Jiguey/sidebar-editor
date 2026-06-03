@@ -10,4 +10,8 @@ describe("normalizeWorkbenchTheme", () => {
   it("keeps cursor-dark as a selectable preset", () => {
     expect(normalizeWorkbenchTheme("cursor-dark")).toBe("cursor-dark");
   });
+
+  it("accepts rose-pine preset", () => {
+    expect(normalizeWorkbenchTheme("rose-pine")).toBe("rose-pine");
+  });
 });

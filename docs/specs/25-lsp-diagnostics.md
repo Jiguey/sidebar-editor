@@ -1,6 +1,6 @@
 # Spec 25 — LSP & Diagnostics
 
-> **Status:** ❌ Not started (stub: `editorErrorCountsByRel` in `src/lib/stores/editorDiagnostics.ts`)
+> **Status:** 🔶 **Partial** — Phase 1 shipped: Rust spawn/stdio bridge (`src-tauri/src/modules/lsp.rs`), `LspClient` in `src/lib/lsp/`, diagnostics squiggles + hover in `EditorSurface.svelte`, Settings → LSP (`tinyllama.lsp.v1`). Phase 2 (go-to-def, rename, more languages) not started.
 > **Area:** Rust Backend · IPC · Editor (CodeMirror) · Settings
 > **Phase:** 1–2 — Competitive parity ([17-roadmap.md](17-roadmap.md) Phase D)
 > **Depends on:** [10-editor.md](10-editor.md) (CodeMirror) · [12-ipc.md](12-ipc.md) (process spawn + events) · [04-entry-points.md](04-entry-points.md)

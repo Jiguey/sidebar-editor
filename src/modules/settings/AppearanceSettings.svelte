@@ -69,21 +69,27 @@
 
 {#if section === "appearance-editor"}
   <div class="stack">
-    <h3 class="provider-page-title">Editor</h3>
+    <div class="section-header">
+      <h3 class="provider-page-title">Editor</h3>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick={() => { applyWorkbenchTheme(workbenchTheme); editorColors = editorChrome.syncFromActiveTheme(); }}
+        >Sync from theme</button>
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick={() => { editorColors = editorChrome.resetToDefaults(); }}
+        >Reset to default</button>
+      </div>
+    </div>
     <p class="note">
-      Editor chrome colors. Theme, icons, wrap, tab width, and Prettier are under
-      <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
-      Syntax token colors are under
-      <button type="button" class="linkish" onclick={() => onNavigate("appearance-syntax")}>
-        Syntax
-      </button>.
-      Changing the workbench theme in General updates color pickers below (save to keep).
-    </p>
-    <p class="note muted">
-      Wrap, tab width, Prettier, and related options are under
+      Syntax tokens →
+      <button type="button" class="linkish" onclick={() => onNavigate("appearance-syntax")}>Syntax</button>.
+      Theme, wrap, tab width →
       <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
     </p>
-    <h4 class="settings-subheading">Editor colors</h4>
     {#each EDITOR_CHROME_FIELDS as field}
       <SettingsColorField
         label={field.label}
@@ -107,33 +113,22 @@
       </span>
       <span> {'}'}</span>
     </div>
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={() => {
-        applyWorkbenchTheme(workbenchTheme);
-        editorColors = editorChrome.syncFromActiveTheme();
-      }}
-    >
-      Sync editor colors from theme
-    </button>
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={() => {
-        editorColors = editorChrome.resetToDefaults();
-      }}
-    >
-      Reset editor color defaults
-    </button>
   </div>
 {:else if section === "appearance-explorer"}
   <div class="stack">
-    <h3 class="provider-page-title">Explorer</h3>
+    <div class="section-header">
+      <h3 class="provider-page-title">Explorer</h3>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick={() => { explorerColors = explorerAppearance.resetToDefaults(); }}
+        >Reset to default</button>
+      </div>
+    </div>
     <p class="note">
-      File tree selection and git status colors. Label and icon sizes are under
+      File tree selection and git status colors. Label and icon sizes →
       <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
-      Changes preview live; click Save to keep them.
     </p>
     {#each EXPLORER_COLOR_FIELDS as field}
       <SettingsColorField
@@ -143,23 +138,22 @@
         onChange={(v) => setExplorerColor(field.key, v)}
       />
     {/each}
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={() => {
-        explorerColors = explorerAppearance.resetToDefaults();
-      }}
-    >
-      Reset explorer defaults
-    </button>
   </div>
 {:else if section === "appearance-chat"}
   <div class="stack">
-    <h3 class="provider-page-title">Chat activity</h3>
+    <div class="section-header">
+      <h3 class="provider-page-title">Chat activity</h3>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick={() => { chatColors = chatAppearance.resetToDefaults(); }}
+        >Reset to default</button>
+      </div>
+    </div>
     <p class="note">
-      Agent feed colors for thoughts, tools, and badges. The waiting indicator style is under
+      Agent feed colors for thoughts, tools, and badges. Waiting indicator →
       <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
-      Changes preview live; click Save to keep them.
     </p>
     {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
       <SettingsColorField
@@ -169,23 +163,32 @@
         onChange={(v) => setChatColor(field.key, v)}
       />
     {/each}
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={() => {
-        chatColors = chatAppearance.resetToDefaults();
-      }}
-    >
-      Reset chat activity defaults
-    </button>
   </div>
 {:else if section === "appearance-syntax"}
   <div class="stack">
-    <h3 class="provider-page-title">Syntax highlighting</h3>
-    <p class="note">
-      Colors in the code editor for every language. Default palette: Tokyo Night.
-      Changes preview live; click Save to keep them.
-    </p>
+    <div class="section-header">
+      <h3 class="provider-page-title">Syntax highlighting</h3>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick={() => { syntaxColors = syntaxTheme.resetToDefaults(); }}
+        >Reset to default</button>
+      </div>
+    </div>
+    <div class="syntax-preview" aria-hidden="true">
+      <p class="syntax-preview-label">TypeScript</p>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// comment</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">count</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">42</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">MyClass</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
+      <span class="syntax-preview-line">  <span style="color: {syntaxColors.function}">render</span><span style="color: {syntaxColors.punctuation}">()</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span> <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.string}">"hello"</span><span style="color: {syntaxColors.punctuation}">;</span> <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+      <p class="syntax-preview-label">Markdown</p>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700"># Title</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.link}">[link](https://example.com)</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.emphasis}">*emphasis*</span> <span style="color: {syntaxColors.strong}; font-weight:700">**strong**</span></span>
+      <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```ts</span></span>
+    </div>
     <h4 class="settings-subheading">Code tokens</h4>
     {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group !== "markdown") as field}
       <SettingsColorField
@@ -204,28 +207,6 @@
         onChange={(v) => setSyntaxColor(field.key, v)}
       />
     {/each}
-    <div class="syntax-preview" aria-hidden="true">
-      <p class="syntax-preview-label">TypeScript</p>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// comment</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">count</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">42</span><span style="color: {syntaxColors.punctuation}">;</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">MyClass</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
-      <span class="syntax-preview-line">  <span style="color: {syntaxColors.function}">render</span><span style="color: {syntaxColors.punctuation}">()</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span> <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.string}">"hello"</span><span style="color: {syntaxColors.punctuation}">;</span> <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-      <p class="syntax-preview-label">Markdown</p>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700"># Title</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.link}">[link](https://example.com)</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.emphasis}">*emphasis*</span> <span style="color: {syntaxColors.strong}; font-weight:700">**strong**</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```ts</span></span>
-    </div>
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={() => {
-        syntaxColors = syntaxTheme.resetToDefaults();
-      }}
-    >
-      Reset to Monokai defaults
-    </button>
   </div>
 {/if}
 
@@ -233,32 +214,45 @@
   .stack {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .provider-page-title {
     margin: 0;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     color: #e8e8e8;
   }
 
   .note {
-    font-size: 12px;
-    line-height: 1.45;
-    color: #737373;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #5c5c5c;
     margin: 0;
   }
 
-  .note.muted {
-    color: #5c5c5c;
-  }
-
   .settings-subheading {
-    margin: 16px 0 8px;
-    font-size: 12px;
+    margin: 10px 0 4px;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #525252;
   }
 
   .linkish {
@@ -272,22 +266,22 @@
   }
 
   .btn {
-    padding: 7px 14px;
-    font-size: 12px;
-    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: 5px;
     cursor: pointer;
     border: 1px solid transparent;
   }
 
   .btn.ghost {
     background: transparent;
-    color: #a3a3a3;
-    border-color: #404040;
+    color: #737373;
+    border-color: #383838;
   }
 
   .btn.ghost:hover {
-    background: #333;
-    color: #e5e5e5;
+    background: #2a2a2a;
+    color: #d4d4d4;
   }
 
   .syntax-preview {

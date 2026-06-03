@@ -25,12 +25,15 @@
 | Git panel redesign + discard + diff view | ✅ Done | Full implementation |
 | Expanded syntax grammars + custom syntax colors | ✅ Done | 15 languages |
 | Per-project `state.json` (chat + editor tabs) | ✅ Done | `.tinyllama/state.json` |
-| Parallel read-only tools | ❌ Planned | Optimization |
-| Context overflow warnings + API usage in meter | ❌ Planned | UX improvement |
+| Parallel read-only tools | ✅ Done | [38-parallel-tool-execution.md](38-parallel-tool-execution.md) |
+| Context overflow warnings | ✅ Done | [34-context-overflow-warnings.md](34-context-overflow-warnings.md) |
+| Workspace search panel | ✅ Done | [26-search-panel.md](26-search-panel.md) |
+| Welcome screen + recent projects | ✅ Done | [36-first-run-onboarding.md](36-first-run-onboarding.md) |
+| Workbench themes (incl. Rosé Pine) + theme→editor sync | ✅ Done | [13-theming.md](13-theming.md) |
 | Filter custom tools without handlers | ❌ Planned | Tool system cleanup |
 | **Planning system** (`plans/` + file-backed Plan mode) | ❌ Spec ready | [19-planning-system.md](19-planning-system.md) |
-| **Editor wrap + syntax/markdown colors** | ❌ Spec ready | [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) |
-| **Prettier (format document / on save)** | ❌ Spec ready | [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) |
+| **Editor wrap + syntax/markdown colors** | ✅ Done | [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) |
+| **Prettier (format document / on save)** | ✅ Done | [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) |
 
 ---
 
@@ -38,12 +41,13 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Rust workspace path enforcement | ❌ Not started | All path-taking FS IPC |
-| Agent error recovery | ❌ Not started | Retry, cancel cleanup, Continue after max steps |
-| Workspace lock | ❌ Not started | Prevent two windows corrupting `state.json` |
-| File watcher → UI | ❌ Spec ready | [24-filesystem-watcher.md](24-filesystem-watcher.md) — wire `watcher.rs` to `filesystemSync` |
+| Rust workspace path enforcement | ❌ Not started | All path-taking FS IPC — [33](33-rust-path-enforcement.md) |
+| Agent error recovery | ✅ Done | [32-agent-error-recovery.md](32-agent-error-recovery.md) |
+| Workspace lock | ✅ Done | [35-workspace-lock.md](35-workspace-lock.md) |
+| File watcher → UI | ✅ Done | [24-filesystem-watcher.md](24-filesystem-watcher.md) |
+| Shortcut rebinding | ✅ Done | [37-shortcut-rebinding.md](37-shortcut-rebinding.md) |
 | Agent turn undo | ❌ Not started | Snapshot or git-based batch discard |
-| **Context compaction** | ❌ Spec ready | [21-context-compaction.md](21-context-compaction.md) — auto + manual, editable threshold % |
+| **Context compaction** | ✅ Done | [21-context-compaction.md](21-context-compaction.md) — experimental in Settings |
 
 ---
 
@@ -61,7 +65,7 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| LSP | ❌ Spec ready | [25-lsp-diagnostics.md](25-lsp-diagnostics.md) — spawn language servers from Rust |
+| LSP Phase 1 | 🔶 Partial | [25-lsp-diagnostics.md](25-lsp-diagnostics.md) — transport, diagnostics, hover shipped |
 | Cmd+K inline edit | ❌ Spec ready | [28-inline-edit-autocomplete.md](28-inline-edit-autocomplete.md) — CodeMirror decorations |
 | DeepSeek | ✅ | `deepseek` chat backend; Settings → DeepSeek |
 | Mistral, Perplexity | ❌ Not started | OpenAI-compat + provider registry |
@@ -81,12 +85,13 @@ Small, high-visibility fixes that immediately raise confidence in the tool.
 
 | Item | Spec | Status |
 |------|------|--------|
-| Filesystem watcher → tree + git refresh | [24-filesystem-watcher.md](24-filesystem-watcher.md) | ❌ Spec ready |
-| `read_file` size cap + pagination | [22-llm-file-interaction.md](22-llm-file-interaction.md) §3 | ❌ Spec ready |
-| Tool schema trimming by mode | [22](22-llm-file-interaction.md) §4 | ❌ Spec ready |
-| `.gitignore` respect + depth caps in file tree | [22](22-llm-file-interaction.md) §2 | ❌ Spec ready |
-| Search panel wired up | [26-search-panel.md](26-search-panel.md) | ❌ Spec ready |
-| Compaction visual divider | [21-context-compaction.md](21-context-compaction.md) §15.1 | ❌ Spec ready |
+| Filesystem watcher → tree + git refresh | [24-filesystem-watcher.md](24-filesystem-watcher.md) | ✅ Done |
+| Search panel wired up | [26-search-panel.md](26-search-panel.md) | ✅ Done |
+| Compaction visual divider + archive/restore | [21-context-compaction.md](21-context-compaction.md) | ✅ Done |
+| Context overflow bar states | [34-context-overflow-warnings.md](34-context-overflow-warnings.md) | ✅ Done |
+| `read_file` size cap + pagination | [22-llm-file-interaction.md](22-llm-file-interaction.md) §3 | 🔶 Partial |
+| Tool schema trimming by mode | [22](22-llm-file-interaction.md) §4 | 🔶 Partial |
+| `.gitignore` respect + depth caps in file tree | [22](22-llm-file-interaction.md) §2 | 🔶 Partial |
 | Preview iframe sandbox | [14-security.md](14-security.md) §B | ❌ Spec ready |
 
 ### Phase 1 — Core Differentiators (4–8 weeks)
@@ -97,7 +102,7 @@ Close the gap with Cursor and lean into the local-first power-user position.
 |------|------|--------|
 | Skills system (detection, variables, sidebar, bundled pack) | [23-skills-system.md](23-skills-system.md) | ❌ Spec ready |
 | Stall detection + tool-call error surfacing | [22](22-llm-file-interaction.md) §5–6 | ❌ Spec ready |
-| LSP Phase 1 — TypeScript diagnostics + hover | [25-lsp-diagnostics.md](25-lsp-diagnostics.md) | ❌ Spec ready |
+| LSP Phase 1 — diagnostics + hover | [25-lsp-diagnostics.md](25-lsp-diagnostics.md) | 🔶 Partial |
 | Autocomplete inference hook (Ollama FIM) | [28-inline-edit-autocomplete.md](28-inline-edit-autocomplete.md) §2 | ❌ Spec ready |
 | Enhanced tool instructions + capability flags | [27-local-model-ux.md](27-local-model-ux.md) §2–3 | ❌ Spec ready |
 | Context window auto-detection | [21](21-context-compaction.md) §15.3 | ❌ Spec ready |
@@ -113,7 +118,7 @@ Retain developers coming from Cursor.
 | LSP Phase 2 — go-to-def, rename, Rust/Python/Go | [25-lsp-diagnostics.md](25-lsp-diagnostics.md) §6 | ❌ Spec ready |
 | OS keychain for API keys | [14-security.md](14-security.md) §A | ❌ Spec ready |
 | Ollama model pull UI + recommendations | [27-local-model-ux.md](27-local-model-ux.md) §4 | ❌ Spec ready |
-| Shortcut rebinding | — | ❌ Not started |
+| Shortcut rebinding | [37-shortcut-rebinding.md](37-shortcut-rebinding.md) | ✅ Done |
 
 ### Phase 3 — Ecosystem (16+ weeks)
 

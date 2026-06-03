@@ -53,7 +53,8 @@ This document describes how **Tiny Llama** works end-to-end: UI layout, state ma
 │  pty.rs          create/write/resize/close + event emit                  │
 │  commands.rs     Tauri command handlers + settings window                │
 │  icon_pack.rs    bundled icon pack paths                                 │
-│  watcher.rs      file system watching (infrastructure, not wired)        │
+│  watcher.rs      file system watching → debounced `fs:changed` events      │
+│  lsp.rs          language server spawn + JSON-RPC stdio bridge             │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,7 +64,8 @@ This document describes how **Tiny Llama** works end-to-end: UI layout, state ma
 2. Each turn calls `streamOneTurn()` → provider streams text + tool call deltas
 3. Tool calls pass through policy gates → `executeTool()` → `ipc.ts` → Rust commands
 4. Tool results appended to provider message history → next turn
-5. Filesystem mutations trigger `filesystemSync.ts` to refresh explorer and editor tabs
+5. Filesystem mutations trigger `filesystemSync.ts` to refresh explorer and editor tabs; `fs:changed` events from `watcher.rs` do the same for external edits
+6. Optional LSP: `EditorSurface` notifies language servers; diagnostics flow back via `lsp:*` Tauri events
 
 ### No Node sidecar
 
@@ -156,25 +158,27 @@ Tiny Llama uses **Svelte writable/derived stores** (not a global Redux-like fram
 | `chat` | `src/lib/stores/chat.ts` | `.tinyllama/state.json` |
 | `files` | `src/lib/stores/files.ts` | Runtime only |
 | `workbench` | `src/lib/stores/workbench.ts` | `localStorage` + `.tinyllama/state.json` |
-| `settings` | `src/lib/stores/settings.ts` | `localStorage` (v3) |
+| `settings` | `src/lib/stores/settings.ts` | `localStorage` (v4) |
 | `toolPolicy` | `src/lib/stores/toolPolicy.ts` | `localStorage` (v2) |
 | `currentMode` | `src/lib/stores/mode.ts` | Runtime only |
 | `iconTheme` | `src/lib/stores/iconTheme.ts` | `localStorage` (v2) |
 | `providerUsage` | `src/lib/stores/providerUsage.ts` | `localStorage` (v1) |
 
-### Settings Store (`tinyllama.settings.v3`)
+### Settings Store (`tinyllama.settings.v4`)
 
 | Field | Description |
 |-------|-------------|
-| `apiKeys.anthropic`, `apiKeys.openai` | API keys |
-| `chatBackend` | `"anthropic"` \| `"ollama"` \| `"llamacpp"` |
+| `apiKeys.anthropic`, `apiKeys.openai`, `apiKeys.deepseek` | API keys |
+| `chatBackend` | `"anthropic"` \| `"ollama"` \| `"llamacpp"` \| `"deepseek"` |
 | `ollamaEndpoint`, `llamacppEndpoint`, `llamacppApiKey` | Local server URLs |
-| `selectedModel`, `ollamaModels`, `llamacppModels` | Active model + discovered lists |
+| `selectedModel`, `ollamaModels`, `llamacppModels`, … | Active model + discovered lists |
 | `anthropicExtendedThinking` | Claude extended thinking stream |
 | `anthropicContextBudget` | Optional cap (`null` = full model window) |
-| `workbenchTheme` | Theme id |
+| `workbenchTheme` | Theme id (9 presets) |
+| `editor` | `wordWrap`, `formatOnSave`, tab width |
 | `webFetchAllowedHosts` | Hostname allowlist for `web_fetch` |
-| `agentLimits` | `maxAgentSteps`, `maxToolCallsPerRun`, `maxToolsPerTurn` |
+| `agentLimits` | Steps, tool caps, `parallelExecution`, `maxConcurrentTools` |
+| `compaction` | Auto/manual compaction settings |
 
 ### Cross-store Coordination
 
@@ -353,7 +357,8 @@ Three independent color systems:
 
 - Token sources: `globals.css`, `workbench-themes.css`
 - Applied via `data-workbench-theme` attribute on `<html>`
-- Presets: `vscode-dark` (default), `cursor-dark`, `catppuccin-mocha`, `tokyo-night`, `one-dark-pro`, `tiny-llama`, `dracula`, `github-dark`
+- Presets: `vscode-dark` (default), `cursor-dark`, `catppuccin-mocha`, `tokyo-night`, `one-dark-pro`, `tiny-llama`, `dracula`, `github-dark`, `rose-pine`
+- Default `--editor-bg` matches `--background` (`#1e1e1e`); changing preset syncs editor + syntax colors from theme CSS
 
 ### Key CSS Variables
 

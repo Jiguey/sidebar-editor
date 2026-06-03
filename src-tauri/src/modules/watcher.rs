@@ -12,7 +12,7 @@ const DEBOUNCE_MS: u64 = 250;
 const IGNORED_SEGMENTS: &[&str] = &[
     "node_modules",
     ".git",
-    ".tinyllama",
+    ".sidebar",
     "target",
     "dist",
     "build",

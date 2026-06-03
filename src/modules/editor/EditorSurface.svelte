@@ -12,6 +12,13 @@
   import { gitDiffHighlightExtension } from "$lib/editor/diffDecorations";
   import { formatWithPrettier } from "$lib/editor/formatDocument";
   import { EditorState } from "@codemirror/state";
+  import { ensureLspServer, getDiagnosticsForUri } from "$lib/lsp/lspStore";
+  import { applyLspDiagnostics, lspHoverExtension } from "$lib/lsp/lspCodeMirror";
+  import {
+    isLspEnabledForLanguage,
+    getLspConfigForLanguage,
+    resolvedLanguageForLsp,
+  } from "$lib/lsp/lspSettings";
 
   interface Props {
     editorTab: WorkbenchTab | null;
@@ -30,6 +37,11 @@
   const langAppliedByPath = new Set<string>();
   const wrapCompartment = new Compartment();
   const languageCompartment = new Compartment();
+  const lspHoverCompartment = new Compartment();
+  /** Debounce timer for LSP didChange notifications. */
+  let lspChangeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Currently active LSP file URI (for change/close notifications). */
+  let activeLspUri: string | null = null;
   let kit: CodeMirrorKit | null = $state(null);
   let resizeObserver: ResizeObserver | null = null;
   /** 1-indexed line to scroll to once the matching path becomes active. */
@@ -137,10 +149,12 @@
         cm.syntaxHighlighting,
         cm.scrollPastEnd(),
         wrapExtension(wordWrap),
+        lspHoverCompartment.of([]),
         cm.EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             files.updateFileContent(file.path, update.state.doc.toString());
             states.set(file.path, update.state);
+            scheduleLspDidChange(file.path, update.state.doc.toString());
           }
         }),
         editorTheme(cm),
@@ -228,12 +242,84 @@
     (editorView as unknown as { __tinyPath?: string }).__tinyPath = path;
     reconfigureWrap(wordWrap);
     applyLanguage(kit, path, activeFile.language);
+    void openLspForFile(activeFile.path, activeFile.language, activeFile.content);
 
     void tick().then(() => {
       editorView?.requestMeasure();
       applyGoto(path);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // LSP integration
+  // -------------------------------------------------------------------------
+
+  function pathToUri(path: string): string {
+    return `file://${path}`;
+  }
+
+  function scheduleLspDidChange(path: string, text: string) {
+    if (!activeLspUri || activeLspUri !== pathToUri(path)) return;
+    if (lspChangeTimer) clearTimeout(lspChangeTimer);
+    lspChangeTimer = setTimeout(async () => {
+      lspChangeTimer = null;
+      const lang = resolvedLanguageForLsp(
+        props.editorFile?.language ?? ""
+      );
+      const cfg = getLspConfigForLanguage(lang);
+      if (!cfg?.enabled) return;
+      const ws = $files.workspacePath;
+      if (!ws) return;
+      const client = await ensureLspServer(lang, ws, cfg.command, cfg.args);
+      client?.didChange(activeLspUri!, text, Date.now()).catch(() => {});
+    }, 400);
+  }
+
+  async function openLspForFile(path: string, language: string, content: string) {
+    const lang = resolvedLanguageForLsp(language);
+    if (!isLspEnabledForLanguage(lang)) return;
+    const ws = $files.workspacePath;
+    if (!ws) return;
+    const cfg = getLspConfigForLanguage(lang);
+    if (!cfg) return;
+
+    const uri = pathToUri(path);
+
+    // Notify previous file close if switching.
+    if (activeLspUri && activeLspUri !== uri) {
+      const prevLang = resolvedLanguageForLsp(language);
+      const prevCfg = getLspConfigForLanguage(prevLang);
+      if (prevCfg?.enabled) {
+        const prevClient = await ensureLspServer(prevLang, ws, prevCfg.command, prevCfg.args).catch(() => null);
+        prevClient?.didClose(activeLspUri).catch(() => {});
+      }
+    }
+    activeLspUri = uri;
+
+    const client = await ensureLspServer(lang, ws, cfg.command, cfg.args).catch(() => null);
+    if (!client) return;
+
+    await client.didOpen(uri, content, lang, 1).catch(() => {});
+
+    // Apply any cached diagnostics immediately.
+    if (editorView) {
+      const diags = getDiagnosticsForUri(uri);
+      if (diags.length) await applyLspDiagnostics(editorView, diags).catch(() => {});
+    }
+
+    // Wire up diagnostics subscription for this file.
+    client.onDiagnostics = async (dUri, diags) => {
+      if (dUri === uri && editorView) {
+        await applyLspDiagnostics(editorView, diags).catch(() => {});
+      }
+    };
+
+    // Install hover extension into the live compartment.
+    const hoverExt = await lspHoverExtension(client, uri).catch(() => null);
+    if (hoverExt && editorView) {
+      editorView.dispatch({ effects: lspHoverCompartment.reconfigure(hoverExt) });
+    }
+  }
 
   function relayoutEditor() {
     if (!editorView || !editorContainer) return;
@@ -261,7 +347,7 @@
     });
     files.updateFileContent(activeFile.path, formatted);
     states.set(activeFile.path, editorView.state);
-    window.dispatchEvent(new CustomEvent("tinyllama:format-document-done"));
+    window.dispatchEvent(new CustomEvent("sidebar:format-document-done"));
     return true;
   }
 
@@ -276,7 +362,7 @@
       const content = editorView.state.doc.toString();
       await writeFile(activeFile.path, content);
       files.markSaved(activeFile.path);
-      window.dispatchEvent(new CustomEvent("tinyllama:editor-saved"));
+      window.dispatchEvent(new CustomEvent("sidebar:editor-saved"));
     } catch (e) {
       console.error(e);
     }
@@ -306,8 +392,8 @@
       relayoutEditor();
     });
 
-    window.addEventListener("tinyllama:format-document", onFormatDocumentEvent);
-    window.addEventListener("tinyllama:goto-line", onGotoLineEvent);
+    window.addEventListener("sidebar:format-document", onFormatDocumentEvent);
+    window.addEventListener("sidebar:goto-line", onGotoLineEvent);
   });
 
   $effect(() => {
@@ -317,8 +403,8 @@
   });
 
   onDestroy(() => {
-    window.removeEventListener("tinyllama:format-document", onFormatDocumentEvent);
-    window.removeEventListener("tinyllama:goto-line", onGotoLineEvent);
+    window.removeEventListener("sidebar:format-document", onFormatDocumentEvent);
+    window.removeEventListener("sidebar:goto-line", onGotoLineEvent);
     resizeObserver?.disconnect();
     resizeObserver = null;
     editorView?.destroy();

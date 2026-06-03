@@ -5,7 +5,7 @@ import {
 } from "./streamingStatusWord";
 import { SELF_EXPLANATORY_MUTATION_TOOLS } from "./synthesis";
 
-export type ToolActivityStatus = "pending" | "running" | "done" | "error";
+export type ToolActivityStatus = "pending" | "running" | "done" | "error" | "stopped";
 
 export type ToolActivityItem = {
   id: string;

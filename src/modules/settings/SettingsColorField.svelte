@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** One labelled color row: a swatch + hex input that report edits via `onChange`. */
+  /** One labelled color row: name left, swatch + hex value right, all on one line. */
   interface Props {
     label: string;
     hint: string;
@@ -12,64 +12,44 @@
   const emit = (e: Event) => onChange((e.currentTarget as HTMLInputElement).value);
 </script>
 
-<label class="field syntax-color-field">
-  <span class="name">{label}</span>
-  <span class="syntax-color-hint">{hint}</span>
-  <div class="syntax-color-row">
-    <input type="color" class="syntax-color-swatch" {value} oninput={emit} />
-    <input type="text" class="input syntax-color-hex" {value} spellcheck={false} oninput={emit} />
+<label class="color-row" title={hint}>
+  <span class="color-name">{label}</span>
+  <div class="color-controls">
+    <input type="color" class="color-swatch" {value} oninput={emit} />
+    <input type="text" class="color-hex" {value} spellcheck={false} oninput={emit} />
   </div>
 </label>
 
 <style>
-  .field {
+  .color-row {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 0;
+    cursor: pointer;
   }
 
-  .name {
+  .color-name {
     font-size: 12px;
     color: #a3a3a3;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .input {
-    width: 100%;
-    padding: 8px 10px;
-    font-size: 13px;
-    color: #e5e5e5;
-    background: #1c1c1c;
-    border: 1px solid #404040;
-    border-radius: 6px;
-  }
-
-  .input:focus {
-    outline: none;
-    border-color: #525252;
-  }
-
-  .syntax-color-field .name {
-    display: block;
-  }
-
-  .syntax-color-hint {
-    display: block;
-    font-size: 11px;
-    color: #888;
-    margin-top: 2px;
-    font-family: var(--font-mono, ui-monospace, monospace);
-  }
-
-  .syntax-color-row {
+  .color-controls {
     display: flex;
-    gap: 8px;
     align-items: center;
-    margin-top: 6px;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
-  .syntax-color-swatch {
-    width: 36px;
-    height: 32px;
+  .color-swatch {
+    width: 28px;
+    height: 24px;
     padding: 2px;
     border: 1px solid #444;
     border-radius: 4px;
@@ -77,10 +57,20 @@
     cursor: pointer;
   }
 
-  .syntax-color-hex {
-    flex: 1;
-    min-width: 0;
+  .color-hex {
+    width: 76px;
+    padding: 3px 7px;
+    font-size: 12px;
     font-family: var(--font-mono, ui-monospace, monospace);
+    color: #e5e5e5;
+    background: #1c1c1c;
+    border: 1px solid #404040;
+    border-radius: 5px;
     text-transform: lowercase;
+  }
+
+  .color-hex:focus {
+    outline: none;
+    border-color: #525252;
   }
 </style>

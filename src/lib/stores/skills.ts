@@ -33,7 +33,7 @@ export interface SkillsState {
   initialized: boolean;
 }
 
-const SKILLS_SUBDIR = ".tinyllama/skills";
+const SKILLS_SUBDIR = ".sidebar/skills";
 const SKILL_JSON = "skill.json";
 const SKILL_MD = "skill.md";
 const ALL_MODES: ChatMode[] = ["chat", "plan", "agent"];

@@ -9,8 +9,8 @@ import {
 import { clearSetiManifestCache, loadBundledSetiManifest } from "../icon-packs/setiBundled";
 import { iconPackGetDir, iconPackRefreshBundled, isTauriAvailable, readFile } from "../ipc";
 
-const STORAGE_KEY = "tinyllama.iconTheme.v2";
-const LEGACY_STORAGE_KEY = "tinyllama.iconTheme.v1";
+const STORAGE_KEY = "sidebar.iconTheme.v2";
+const LEGACY_STORAGE_KEY = "sidebar.iconTheme.v1";
 
 type IconThemeState = {
   themeId: IconThemeId;

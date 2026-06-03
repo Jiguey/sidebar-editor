@@ -11,6 +11,7 @@ import {
 } from "./ipc";
 import { reloadProjectTools } from "./stores/toolPolicy";
 import { systemPrompts } from "./stores/systemPrompts";
+import { skills } from "./stores/skills";
 import { buildWorkspaceTree, normalizeFileEntry } from "./workspace";
 import type { FileEntry } from "./stores/files";
 import { listDir } from "./ipc";
@@ -200,6 +201,10 @@ export function initProjectStateAutosave(): void {
 async function teardownWorkspaceUi(): Promise<void> {
   workbench.closeAllTabs();
   files.clearOpenFiles();
+  if (activeWorkspace) {
+    const { stopLspForWorkspace } = await import("./lsp/lspStore");
+    stopLspForWorkspace(activeWorkspace);
+  }
 }
 
 async function applyLoadedState(state: PersistedProjectState): Promise<void> {
@@ -220,7 +225,7 @@ async function loadWorkspaceTree(workspacePath: string): Promise<void> {
 
 /**
  * Switch the open project folder: save previous project UI state, clear tabs/chats
- * from other projects, load `.tinyllama/state.json` for the new folder.
+ * from other projects, load `.sidebar/state.json` for the new folder.
  */
 export async function switchProjectWorkspace(path: string): Promise<void> {
   const normalized = normalizeFilePath(path.trim());
@@ -247,6 +252,7 @@ export async function switchProjectWorkspace(path: string): Promise<void> {
 
   if (isTauriAvailable()) {
     void systemPrompts.load(normalized);
+    void skills.load(normalized);
     await reloadProjectTools(normalized);
   }
 }

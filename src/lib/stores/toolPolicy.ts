@@ -14,8 +14,8 @@ import {
   type ToolEditorPayload,
 } from "../toolPolicy";
 
-const STORAGE_KEY = "tinyllama.toolPolicy.v2";
-const LEGACY_KEY = "tinyllama.toolPolicy.v1";
+const STORAGE_KEY = "sidebar.toolPolicy.v2";
+const LEGACY_KEY = "sidebar.toolPolicy.v1";
 
 const BUILTIN_SET = new Set(ALL_TOOL_NAMES);
 

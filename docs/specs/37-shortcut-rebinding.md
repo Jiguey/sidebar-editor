@@ -1,6 +1,6 @@
 # Spec 37 — Shortcut Rebinding
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented — filter, edit/capture mode, conflict detection, per-row and reset-all, localStorage persistence via `shortcutOverrides`; `dispatchWithOverrides` makes rebindings live immediately.
 > **Area:** Settings · UX · Shortcuts
 > **Phase:** C — Enhancement
 > **Depends on:** [05-workbench.md](05-workbench.md) · [30-agent-context-and-model-settings.md](30-agent-context-and-model-settings.md)

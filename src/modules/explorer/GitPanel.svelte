@@ -30,9 +30,9 @@
   import Minus from "@lucide/svelte/icons/minus";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 
-  const STAGED_OPEN_KEY = "tinyllama.git.stagedOpen";
-  const CHANGES_OPEN_KEY = "tinyllama.git.changesOpen";
-  const LOG_OPEN_KEY = "tinyllama.git.logOpen";
+  const STAGED_OPEN_KEY = "sidebar.git.stagedOpen";
+  const CHANGES_OPEN_KEY = "sidebar.git.changesOpen";
+  const LOG_OPEN_KEY = "sidebar.git.logOpen";
 
   let rows = $state<GitPathStatus[]>([]);
   let log = $state<GitLogEntry[]>([]);

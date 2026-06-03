@@ -27,7 +27,7 @@ export const EDITOR_CHROME_FIELDS: {
   { key: "cursor", label: "Cursor", hint: "Caret color (falls back to text if unset)", cssVar: "--editor-cursor" },
 ];
 
-const STORAGE_KEY = "tinyllama.editorChrome.v1";
+const STORAGE_KEY = "sidebar.editorChrome.v1";
 
 function normalizeHex(raw: string, fallback: string): string {
   const t = raw.trim();
@@ -81,6 +81,15 @@ export function applyEditorChromeToDocument(colors: EditorChromeMap): void {
   const root = document.documentElement;
   for (const field of EDITOR_CHROME_FIELDS) {
     root.style.setProperty(field.cssVar, colors[field.key]);
+  }
+}
+
+/** Remove persisted inline overrides so workbench theme CSS variables take effect. */
+export function clearEditorChromeInlineOverrides(): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  for (const field of EDITOR_CHROME_FIELDS) {
+    root.style.removeProperty(field.cssVar);
   }
 }
 

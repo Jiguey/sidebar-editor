@@ -1,6 +1,6 @@
 # Spec 35 — Workspace Lock
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented — PID-based lock file, stale detection, conflict dialog (Open read-only / Cancel), read-only banner, write-tool guard in toolRunner, CloseRequested release handler.
 > **Area:** Workspace · IPC · Security
 > **Phase:** C — Hardening
 > **Depends on:** [07-workspace.md](07-workspace.md) · [12-ipc.md](12-ipc.md) · [06-state-management.md](06-state-management.md)

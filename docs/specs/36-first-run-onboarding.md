@@ -1,6 +1,6 @@
 # Spec 36 — First-Run / Onboarding
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented (custom scope) — welcome screen with "Open project" button + up to 8 recent projects; CLI file-open mode (`tinyllama <file>` opens file with all panes collapsed, `tinyllama <dir>` opens as workspace); `add_recent_project` / `get_recent_projects` Rust commands; `layoutOverride` store for one-shot panel collapse.
 > **Area:** UX · Settings · Providers
 > **Phase:** B — Enhancement
 > **Depends on:** [05-workbench.md](05-workbench.md) · [08-ai-agent.md](08-ai-agent.md) · [07-workspace.md](07-workspace.md)

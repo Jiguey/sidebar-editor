@@ -1,6 +1,6 @@
 # Spec 34 — Context Overflow Warnings
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented
 > **Area:** Chat UI · Context Budget · UX
 > **Phase:** B — Enhancement
 > **Depends on:** [21-context-compaction.md](21-context-compaction.md) · [08-ai-agent.md](08-ai-agent.md) · [39-context-ui-enhancements.md](39-context-ui-enhancements.md)

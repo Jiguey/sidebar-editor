@@ -76,7 +76,8 @@
 
   let activityLabel = $derived(turn.statusLabel);
 
-  function toolChipState(tool: ToolActivityItem): "running" | "failed" | "success" {
+  function toolChipState(tool: ToolActivityItem): "running" | "failed" | "success" | "stopped" {
+    if (tool.status === "stopped") return "stopped";
     const failed =
       tool.status === "error" ||
       (tool.content != null && toolResultIsError(tool.content));
@@ -180,6 +181,7 @@
                 class:success={state === "success"}
                 class:failed={state === "failed"}
                 class:running={state === "running"}
+                class:stopped={state === "stopped"}
               >
                 {toolCompactLabel(tool.name)}
               </span>
@@ -391,6 +393,10 @@
 
   .activity-tool-chip.running {
     color: var(--chat-activity-tool-running, #9ec9b8);
+  }
+
+  .activity-tool-chip.stopped {
+    color: #707070;
   }
 
   .activity-tool-text {

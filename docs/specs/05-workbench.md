@@ -41,6 +41,7 @@ Implemented in `src/modules/workbench/WorkbenchShell.svelte`.
 | Explorer | `RightSidebar.svelte`, `FileTree.svelte`, `FileTreeRow.svelte` | `src/modules/explorer/` | ✅ |
 | Search | `SearchPanel.svelte` | `src/modules/explorer/` | ✅ |
 | Git | `GitPanel.svelte`, `SourceControl.svelte` | `src/modules/explorer/` | ✅ |
+| Welcome | `WelcomeScreen.svelte` | `src/modules/workspace/` | ✅ |
 | Settings | `SettingsPane.svelte` | `src/modules/settings/` | ✅ |
 | Status bar | `StatusBar.svelte` | `src/modules/workbench/` | ✅ |
 | Bottom dock | `BottomDock.svelte` | `src/modules/workbench/` | ✅ |
@@ -53,6 +54,7 @@ Handled by `src/modules/shortcuts/dispatcher.ts`:
 
 | Shortcut | Action | Status |
 |----------|--------|--------|
+| `Mod+Shift+F` | Focus workspace search | ✅ |
 | `Mod+B` | Toggle chat pane | ✅ |
 | `Mod+Shift+E` | Toggle explorer | ✅ |
 | `Mod+J` | Toggle bottom dock | ✅ |

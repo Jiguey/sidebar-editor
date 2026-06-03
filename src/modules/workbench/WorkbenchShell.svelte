@@ -13,11 +13,15 @@
   import WindowControls from "./WindowControls.svelte";
   import SettingsPane from "../settings/SettingsPane.svelte";
   import FeedbackDialog from "../feedback/FeedbackDialog.svelte";
+  import WorkspaceLockDialog from "../workspace/WorkspaceLockDialog.svelte";
+  import WorkspaceReadOnlyBanner from "../workspace/WorkspaceReadOnlyBanner.svelte";
+  import WelcomeScreen from "../workspace/WelcomeScreen.svelte";
   import BottomDock from "./BottomDock.svelte";
   import { workbench } from "$lib/stores/workbench";
+  import { layoutOverride } from "$lib/stores/layoutOverride";
   import { files } from "$lib/stores/files";
   import { settings } from "$lib/stores/settings";
-  import { applyWorkbenchTheme } from "$lib/workbench-theme";
+  import { applyWorkbenchTheme, type WorkbenchThemeId } from "$lib/workbench-theme";
   import { iconTheme } from "$lib/stores/iconTheme";
   import {
     isTauriAvailable,
@@ -26,17 +30,28 @@
     ptyCreate,
     pickWorkspaceFolder,
   } from "$lib/ipc";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { applyWorkspaceFolder } from "$lib/workspace";
   import { initProjectStateAutosave, persistCurrentProjectState } from "$lib/projectState";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { editorChrome } from "$lib/stores/editorChrome";
-  import { dispatchWorkbenchShortcut } from "../shortcuts/dispatcher";
+  import { dispatchWithOverrides } from "../shortcuts/dispatcher";
+  import { shortcutOverrides } from "../shortcuts/registry";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
+  import {
+    setWorkbenchModalScrollLock,
+    setWorkbenchAuxiliaryScrollLock,
+    isWorkbenchScrollLocked,
+  } from "$lib/workbenchScrollLock";
+  import {
+    bindSettingsPopoutScrollLock,
+    syncAuxiliaryScrollLockWithSettingsWindow,
+  } from "$lib/settingsPopoutScrollLock";
   import type { ExplorerPanelTab } from "$lib/explorerPanel";
 
-  const PANE_WIDTH_KEY = "tinyllama.paneWidths.v1";
+  const PANE_WIDTH_KEY = "sidebar.paneWidths.v1";
   const LEFT_MIN = 200;
   const LEFT_MAX = 560;
   const RIGHT_MIN = 200;
@@ -183,8 +198,31 @@
     window.addEventListener("mouseup", onResizeUp);
   }
 
+  let lastSyncedWorkbenchTheme = $state<WorkbenchThemeId | null>(null);
+
   $effect(() => {
-    applyWorkbenchTheme($settings.workbenchTheme);
+    const theme = $settings.workbenchTheme;
+    applyWorkbenchTheme(theme);
+    if (lastSyncedWorkbenchTheme !== null && lastSyncedWorkbenchTheme !== theme) {
+      editorChrome.syncFromActiveTheme();
+      syntaxTheme.syncFromActiveTheme();
+    }
+    lastSyncedWorkbenchTheme = theme;
+  });
+
+  $effect(() => {
+    setWorkbenchModalScrollLock(settingsOpen || feedbackOpen);
+  });
+
+  // Consume one-shot layout override (e.g. from CLI file-open mode).
+  $effect(() => {
+    const override = $layoutOverride;
+    if (!override) return;
+    showLeftPanel = override.showLeftPanel;
+    showRightPanel = override.showRightPanel;
+    showBottomPanel = override.showBottomPanel;
+    showTabStrip = override.showTabStrip;
+    layoutOverride.set(null);
   });
 
   onMount(() => {
@@ -213,9 +251,24 @@
         window.removeEventListener("beforeunload", onBeforeUnload);
       };
     }
+
+    let unlistenFocus: (() => void) | undefined;
+    void syncAuxiliaryScrollLockWithSettingsWindow();
+
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused && !document.querySelector(".backdrop")) {
+          void syncAuxiliaryScrollLockWithSettingsWindow();
+        }
+      })
+      .then((fn) => {
+        unlistenFocus = fn;
+      });
+
     return () => {
       window.removeEventListener("resize", clampPanesToWindow);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      unlistenFocus?.();
       void persistCurrentProjectState();
     };
   });
@@ -242,9 +295,11 @@
     try {
       const path = await pickWorkspaceFolder();
       if (!path) return;
-      await applyWorkspaceFolder(path);
-      const name = path.split(/[/\\]/).pop() ?? path;
-      toast.success(`Workspace: ${name}`);
+      const opened = await applyWorkspaceFolder(path);
+      if (opened) {
+        const name = path.split(/[/\\]/).pop() ?? path;
+        toast.success(`Workspace: ${name}`);
+      }
     } catch (e) {
       toast.error(String(e));
     }
@@ -266,28 +321,37 @@
   }
 
   function openSettingsModal() {
+    setWorkbenchModalScrollLock(true);
     settingsOpen = true;
   }
 
   function openFeedbackModal() {
+    setWorkbenchModalScrollLock(true);
     feedbackOpen = true;
   }
 
   async function openSettingsPopout() {
     try {
       if (!isTauriAvailable()) {
+        setWorkbenchModalScrollLock(true);
         settingsOpen = true;
         return;
       }
+      setWorkbenchAuxiliaryScrollLock(true);
       await openSettingsWindow();
+      await bindSettingsPopoutScrollLock();
     } catch (e) {
+      if (!isWorkbenchScrollLocked()) {
+        setWorkbenchAuxiliaryScrollLock(false);
+      }
       toast.error(String(e));
+      setWorkbenchModalScrollLock(true);
       settingsOpen = true;
     }
   }
 
   function onGlobalKeydown(ev: KeyboardEvent) {
-    dispatchWorkbenchShortcut(ev, {
+    dispatchWithOverrides(ev, {
       toggleChat: () => (showLeftPanel = !showLeftPanel),
       toggleExplorer: () => (showRightPanel = !showRightPanel),
       toggleBottom: () => (showBottomPanel = !showBottomPanel),
@@ -295,7 +359,13 @@
       newTerminal: () => void newTerminalTab(),
       newPreview: newPreviewTab,
       closeAllWorkbench: () => void closeAllWindowsAndTabs(),
-    });
+      focusSearch: () => {
+        if (!showRightPanel) showRightPanel = true;
+        rightExplorerOpen = true;
+        explorerActiveTab = "search";
+        window.dispatchEvent(new CustomEvent("sidebar:focus-search"));
+      },
+    }, $shortcutOverrides);
   }
 </script>
 
@@ -304,7 +374,7 @@
 <ModeWatcher />
 <Toaster richColors position="bottom-right" />
 
-<div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+<div class="workbench-root flex h-screen flex-col overflow-hidden bg-background text-foreground">
   <header class="workbench-titlebar">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -312,7 +382,7 @@
       data-tauri-drag-region
       ondblclick={() => void toggleMaximizeAppWindow()}
     >
-      <span class="workbench-titlebar__title">Tiny Llama</span>
+      <span class="workbench-titlebar__title">Sidebar Editor</span>
     </div>
     <WindowControls />
   </header>
@@ -331,6 +401,10 @@
     </div>
   {/if}
 
+  {#if !$files.workspacePath}
+    <WelcomeScreen />
+  {:else}
+  <WorkspaceReadOnlyBanner />
   <div class="workbench-body flex min-h-0 flex-1 overflow-hidden">
     {#if showLeftPanel}
       <aside
@@ -417,10 +491,12 @@
     onOpenSettings={openSettingsModal}
     onOpenFeedback={openFeedbackModal}
   />
+  {/if}
 </div>
 
 <SettingsPane open={settingsOpen} onClose={() => (settingsOpen = false)} />
 <FeedbackDialog open={feedbackOpen} onClose={() => (feedbackOpen = false)} />
+<WorkspaceLockDialog />
 
 <style>
   .workbench-titlebar {

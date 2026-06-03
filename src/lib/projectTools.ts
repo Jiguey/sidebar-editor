@@ -14,7 +14,7 @@ export type ProjectToolsFile = {
 
 export function projectToolsPath(workspacePath: string): string {
   const base = workspacePath.replace(/\/$/, "");
-  return `${base}/.tinyllama/tools.json`;
+  return `${base}/.sidebar/tools.json`;
 }
 
 export async function loadProjectToolsFile(

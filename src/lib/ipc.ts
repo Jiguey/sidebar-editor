@@ -316,16 +316,33 @@ export interface GrepMatch {
   line_content: string;
 }
 
+export interface GrepOptions {
+  fileGlob?: string;
+  /** When true, match case exactly. When false, ignore case. Omit for smart-case (default). */
+  caseSensitive?: boolean;
+  /** When true, treat pattern as a regex. Default false (fixed string). */
+  isRegex?: boolean;
+  /** When true, only match whole words. */
+  wholeWord?: boolean;
+}
+
 export async function grepWorkspace(
   workspacePath: string,
   pattern: string,
-  fileGlob?: string
+  fileGlobOrOptions?: string | GrepOptions
 ): Promise<GrepMatch[]> {
   await ensureTauriApi();
+  const opts: GrepOptions =
+    typeof fileGlobOrOptions === "string"
+      ? { fileGlob: fileGlobOrOptions }
+      : (fileGlobOrOptions ?? {});
   return invoke<GrepMatch[]>("grep_workspace", {
     workspacePath,
     pattern,
-    fileGlob: fileGlob ?? null,
+    fileGlob: opts.fileGlob ?? null,
+    caseSensitive: opts.caseSensitive ?? null,
+    isRegex: opts.isRegex ?? null,
+    wholeWord: opts.wholeWord ?? null,
   });
 }
 
@@ -431,4 +448,94 @@ export async function iconPackRefreshBundled(): Promise<string> {
 export async function pickIconPackFolder(): Promise<string | null> {
   await ensureTauriApi();
   return invoke<string | null>("pick_icon_pack_folder");
+}
+
+// Recent projects + launch args (onboarding / CLI — spec 36 custom)
+
+export async function getRecentProjects(): Promise<string[]> {
+  await ensureTauriApi();
+  return invoke<string[]>("get_recent_projects");
+}
+
+export async function addRecentProject(path: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("add_recent_project", { path });
+}
+
+export interface LaunchArgs {
+  /** Absolute path passed as the first CLI argument, or null if none. */
+  path: string | null;
+  /** True when the path points to a file (not a directory). */
+  is_file: boolean;
+}
+
+export async function getLaunchArgs(): Promise<LaunchArgs> {
+  await ensureTauriApi();
+  return invoke<LaunchArgs>("get_launch_args");
+}
+
+// LSP transport (spec 25) ------------------------------------------------
+
+export async function spawnLsp(
+  serverCmd: string,
+  args: string[],
+  workspace: string,
+): Promise<string> {
+  await ensureTauriApi();
+  return invoke<string>("spawn_lsp", { serverCmd, args, workspace });
+}
+
+export async function lspSend(lspId: string, message: unknown): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("lsp_send", { lspId, message });
+}
+
+export async function lspStop(lspId: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("lsp_stop", { lspId });
+}
+
+export async function listenLspMessage(
+  callback: (lspId: string, message: unknown) => void,
+): Promise<() => void> {
+  await ensureTauriApi();
+  return listen<{ lspId: string; message: unknown }>("lsp:message", (e) =>
+    callback(e.payload.lspId, e.payload.message),
+  );
+}
+
+export async function listenLspExit(
+  callback: (lspId: string, code: number | null) => void,
+): Promise<() => void> {
+  await ensureTauriApi();
+  return listen<{ lspId: string; code: number | null }>("lsp:exit", (e) =>
+    callback(e.payload.lspId, e.payload.code),
+  );
+}
+
+// Workspace lock (spec 35) -----------------------------------------------
+
+export interface LockInfo {
+  pid: number;
+  timestamp: string;
+  hostname: string;
+}
+
+export type LockResult =
+  | { kind: "Acquired" }
+  | { kind: "ConflictLive"; lock_info: LockInfo };
+
+export async function acquireWorkspaceLock(workspacePath: string): Promise<LockResult> {
+  await ensureTauriApi();
+  return invoke<LockResult>("acquire_workspace_lock", { workspacePath });
+}
+
+export async function releaseWorkspaceLock(workspacePath: string): Promise<void> {
+  await ensureTauriApi();
+  return invoke<void>("release_workspace_lock", { workspacePath });
+}
+
+export async function readWorkspaceLock(workspacePath: string): Promise<LockInfo | null> {
+  await ensureTauriApi();
+  return invoke<LockInfo | null>("read_workspace_lock", { workspacePath });
 }

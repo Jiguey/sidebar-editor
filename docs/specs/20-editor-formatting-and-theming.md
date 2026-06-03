@@ -1,6 +1,6 @@
 # Editor Formatting, Wrapping, and Syntax Theming
 
-> **Status:** ❌ **NOT STARTED** (spec only) — Tracks gaps found in the current editor; implementation planned.
+> **Status:** ✅ **COMPLETE** — Line wrap, Prettier, full syntax + editor chrome in Appearance settings. Remaining gaps: in-file search replace, richer LSP completions.
 
 > **Related:** [10-editor.md](10-editor.md) · [13-theming.md](13-theming.md) · [06-state-management.md](06-state-management.md)
 
@@ -24,10 +24,11 @@ Improve the **main IDE text editor** (CodeMirror in `EditorSurface.svelte`) with
 |-------|----------|--------|
 | CodeMirror 6 | `src/lib/editor/loadCodeMirror.ts` | ✅ |
 | Language grammars incl. **markdown** | `@codemirror/lang-markdown` | ✅ Loaded |
-| Syntax highlight | `src/lib/editor/syntaxTheme.ts` + `styles/editor-syntax.css` | 🔶 Partial |
-| Syntax settings | Settings → **Appearance → Syntax** | 🔶 Partial (9 fields only) |
-| Editor chrome colors | `--editor-bg`, `--editor-fg`, etc. from workbench theme | 🔶 Preset-only, not in Syntax settings |
-| Line wrap | — | ❌ Not implemented (long lines scroll horizontally) |
+| Syntax highlight | `src/lib/stores/syntaxTheme.ts` + `styles/editor-syntax.css` | ✅ |
+| Syntax settings | Settings → **Appearance → Syntax** | ✅ (code + markdown fields) |
+| Editor chrome colors | Settings → **Appearance → Editor** + workbench presets | ✅ |
+| Line wrap | `settings.editor.wordWrap` | ✅ |
+| Prettier | Format command + `formatOnSave` | ✅ |
 | Prettier | — | ❌ Not in project |
 
 ### Settings → Appearance → Syntax (today)

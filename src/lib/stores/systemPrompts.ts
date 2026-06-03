@@ -62,7 +62,7 @@ function createSystemPromptsStore() {
   }
 
   if (typeof window !== "undefined") {
-    window.addEventListener("tinyllama:editor-saved", () => {
+    window.addEventListener("sidebar:editor-saved", () => {
       const ws = lastWorkspacePath ?? get(files).workspacePath;
       if (!ws) return;
       const active = get(files).activeFilePath;

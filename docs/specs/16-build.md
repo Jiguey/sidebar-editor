@@ -8,7 +8,9 @@
 
 ```bash
 pnpm install          # Install dependencies
-pnpm tauri dev        # Development mode (hot reload)
+pnpm dev              # Vite + Tauri desktop (default)
+pnpm dev:desktop      # Tauri desktop only (starts Vite via beforeDevCommand)
+pnpm dev:web          # Vite only — browser UI, no Rust IPC
 pnpm tauri build      # Release bundle
 pnpm test             # Run unit tests
 ```
@@ -36,7 +38,9 @@ pkg-config --modversion javascriptcoregtk-4.1   # verify
 ### Dev Server
 
 - Default port: **14200** (configurable in `vite.config.ts`)
-- Use `pnpm dev` for frontend-only UI work (no tools/git/PTY)
+- `pnpm dev` — Vite + Tauri desktop (shared dev server; use browser or app window)
+- `pnpm dev:desktop` — Tauri only (still starts Vite internally)
+- `pnpm dev:web` — frontend-only UI work (no tools/git/PTY)
 
 ---
 

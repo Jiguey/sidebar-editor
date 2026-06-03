@@ -55,7 +55,7 @@ export const CHAT_APPEARANCE_COLOR_FIELDS: {
   { key: "fileLinkColor", label: "File chips", hint: "Paths opened from tool rows" },
 ];
 
-const STORAGE_KEY = "tinyllama.chatAppearance.v1";
+const STORAGE_KEY = "sidebar.chatAppearance.v1";
 
 function normalizeHex(raw: string, fallback: string): string {
   const t = raw.trim();

@@ -248,7 +248,7 @@
     <div class="prompt-header">
       <div class="prompt-title">
         <h3>System Prompts</h3>
-        <span class="prompt-path">.tinyllama/prompts/</span>
+        <span class="prompt-path">.sidebar/prompts/</span>
       </div>
     </div>
   {/if}
@@ -375,7 +375,7 @@
       <div class="prompt-section-bar">
         <span class="prompt-hint">
           {#if $systemPrompts.initialized}
-            {enabledCount} enabled · stored in <code>.tinyllama/prompts/</code>
+            {enabledCount} enabled · stored in <code>.sidebar/prompts/</code>
           {:else}
             Create prompt files to add custom instructions.
           {/if}

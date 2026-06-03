@@ -113,8 +113,8 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
   ...DEEPSEEK_MODEL_FALLBACKS,
 ];
 
-const SETTINGS_STORAGE_KEY = "tinyllama.settings.v4";
-const LEGACY_SETTINGS_KEYS = ["tinyllama.settings.v3", "tinyllama.settings.v2", "tinyllama.settings.v1"];
+const SETTINGS_STORAGE_KEY = "sidebar.settings.v4";
+const LEGACY_SETTINGS_KEYS = ["sidebar.settings.v3", "sidebar.settings.v2", "sidebar.settings.v1"];
 
 export type SettingsState = {
   schemaVersion: 4;

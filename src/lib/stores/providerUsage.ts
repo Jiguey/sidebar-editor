@@ -10,7 +10,7 @@ type UsageState = {
   providers: Record<string, ProviderUsageTotals>;
 };
 
-const STORAGE_KEY = "tinyllama.providerUsage.v1";
+const STORAGE_KEY = "sidebar.providerUsage.v1";
 
 function currentMonthKey(): string {
   const d = new Date();

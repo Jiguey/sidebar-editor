@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tiny Llama",
-  "identifier": "dev.tinyllama.app",
+  "productName": "Sidebar Editor",
+  "identifier": "dev.sidebar.editor",
   "version": "0.1.0",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm dev:web",
     "devUrl": "http://127.0.0.1:14200",
     "beforeBuildCommand": "pnpm build:skip-tests",
     "frontendDist": "../dist"
@@ -28,7 +28,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Tiny Llama",
+        "title": "Sidebar Editor",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

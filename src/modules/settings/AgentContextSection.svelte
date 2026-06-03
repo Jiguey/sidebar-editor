@@ -3,6 +3,9 @@
   import { files } from "$lib/stores/files";
   import { currentMode, MODE_CONFIG } from "$lib/stores/mode";
   import { systemPrompts } from "$lib/stores/systemPrompts";
+  import { skills } from "$lib/stores/skills";
+  import { buildActiveSkillBlocks } from "$lib/skills/activeSkills";
+  import { emptyVariableContext } from "$lib/skills/skillVariables";
   import { combinePromptContents } from "$lib/systemPrompts/config";
   import { buildAssemblyPreview } from "$lib/agent/systemPrompt/assemble";
   import { resolveActiveModelSettings } from "$lib/modelSettings";
@@ -38,7 +41,10 @@
       ),
       toolsEnabled: MODE_CONFIG[mode].tools.length > 0,
       modelSettings: resolveActiveModelSettings($settings),
-      skillBlocks: [],
+      skillBlocks: buildActiveSkillBlocks($skills, mode, {
+        ...emptyVariableContext(),
+        workspacePath: $files.workspacePath,
+      }),
     });
   });
 
@@ -125,7 +131,7 @@
     <p class="note muted">
       Skills inject workspace-aware context fragments into the system prompt. Enable per skill,
       choose which modes they apply to, and edit the markdown content with the gear icon.
-      Stored in <code class="inline-code">.tinyllama/skills/</code>.
+      Stored in <code class="inline-code">.sidebar/skills/</code>.
     </p>
     <SkillsManager />
   </div>

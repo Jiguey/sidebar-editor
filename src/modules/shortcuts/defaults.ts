@@ -4,6 +4,7 @@ export const SHORTCUT_DEFAULTS = [
   { id: "openSettings", keys: "Mod+,", category: "Workbench", description: "Open settings" },
   { id: "toggleChat", keys: "Mod+B", category: "View", description: "Toggle chat pane" },
   { id: "toggleExplorer", keys: "Mod+Shift+E", category: "View", description: "Toggle explorer sidebar" },
+  { id: "focusSearch", keys: "Mod+Shift+F", category: "View", description: "Focus search panel (when editor is not focused)" },
   { id: "toggleBottom", keys: "Mod+J", category: "View", description: "Toggle bottom panel" },
   {
     id: "newTerminal",

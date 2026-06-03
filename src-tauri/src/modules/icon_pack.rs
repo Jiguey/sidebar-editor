@@ -9,7 +9,7 @@ const VSCONS_MARKETPLACE_URL: &str =
 
 fn icon_pack_root() -> Result<PathBuf, String> {
     let base = dirs::data_dir().ok_or("Could not resolve app data directory")?;
-    Ok(base.join("tiny-llama").join("icon-packs").join("vscode-icons"))
+    Ok(base.join("sidebar").join("icon-packs").join("vscode-icons"))
 }
 
 pub fn icon_pack_dir() -> Option<String> {

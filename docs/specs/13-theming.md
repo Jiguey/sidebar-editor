@@ -12,7 +12,7 @@ Tiny Llama has **three independent color systems**:
 |--------|-------|--------------|--------|
 | Workbench theme | Global UI chrome | Yes (presets) | ✅ |
 | File icons | Explorer icons | Yes (theme packs) | ✅ |
-| Syntax colors | Editor tokens | Yes (Settings) — **partial** (9 fields; markdown weak) | 🔶 |
+| Syntax colors | Editor tokens | Yes (Settings → Appearance → Syntax) | ✅ |
 
 ---
 
@@ -38,6 +38,9 @@ Tiny Llama has **three independent color systems**:
 | `tiny-llama` | ✅ |
 | `dracula` | ✅ |
 | `github-dark` | ✅ |
+| `rose-pine` | ✅ |
+
+**Rosé Pine** uses VS Code Dark workbench chrome (`--background` `#1e1e1e`) with Rosé Pine editor surface, syntax tokens, and terminal ANSI (from [rose-pine/vscode](https://github.com/rose-pine/vscode)).
 
 ### Application Mechanism
 
@@ -51,7 +54,11 @@ applyWorkbenchTheme(id) {
 }
 ```
 
-Called from `WorkbenchShell.svelte` and settings window when theme changes.
+Called from `WorkbenchShell.svelte` and the settings window when theme changes.
+
+**Editor/syntax sync:** changing the workbench theme clears persisted inline `--editor-*` / `--syntax-*` overrides and reads colors from the active theme CSS (`editorChrome.syncFromActiveTheme()`, `syntaxTheme.syncFromActiveTheme()`). This runs on theme change in Settings → General and when `$settings.workbenchTheme` updates after save.
+
+**Default theme:** `globals.css` sets `--editor-bg: var(--background)` (`#1e1e1e`) so the code editor and welcome screen share the same base fill. Syntax token defaults remain Monokai-style in `editor-syntax.css` until overridden in Appearance or by a workbench preset.
 
 ### Key CSS Variables
 
@@ -62,7 +69,7 @@ Called from `WorkbenchShell.svelte` and settings window when theme changes.
 | `--terminal-ansi-*` | xterm.js | ✅ |
 | `--workbench-tab-active-indicator` | Tab bar | ✅ |
 
-**Persistence:** `settings.workbenchTheme` in `localStorage` (`tinyllama.settings.v3`).
+**Persistence:** `settings.workbenchTheme` in `localStorage` (`tinyllama.settings.v4`). Editor chrome and syntax colors are stored separately (`tinyllama.editorChrome.v1`, `tinyllama.syntaxColors.v2`) and sync from the active theme when the workbench preset changes.
 
 ---
 
@@ -114,26 +121,45 @@ User picks folder via Tauri dialog. Expects `manifest.json` or `icons.json` + `i
 
 ## Syntax Colors
 
-> **Planned improvements:** full token list (heading, link, emphasis, …), editor chrome colors, markdown preview — [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md).
-
 ### Configuration
 
-`src/lib/editor/syntaxTheme.ts`:
-- Uses `--syntax-*` CSS variables
-- Configurable in Settings → Syntax
+`src/lib/stores/syntaxTheme.ts` + `src/lib/editor/syntaxColors.ts`:
+- Uses `--syntax-*` CSS variables on `:root`
+- Configurable in **Settings → Appearance → Syntax** (code + markdown token groups)
+- **Sync from theme:** workbench preset change updates runtime colors; use Appearance pickers to persist custom overrides
 
-### CSS Variables
+### CSS Variables (representative)
 
 | Variable | Purpose |
 |----------|---------|
 | `--syntax-keyword` | Keywords |
 | `--syntax-string` | Strings |
-| `--syntax-number` | Numbers |
+| `--syntax-number` | Numbers / bools |
 | `--syntax-comment` | Comments |
 | `--syntax-function` | Functions |
-| `--syntax-variable` | Variables |
-| `--syntax-type` | Types |
+| `--syntax-variable` | Variables / parameters |
+| `--syntax-type` | Types / classes |
 | `--syntax-operator` | Operators |
+| `--syntax-property` | Properties / attributes |
+| `--syntax-heading` | Markdown headings |
+| `--syntax-link` | Markdown links |
+| `--syntax-emphasis` / `--syntax-strong` | Markdown emphasis |
+| `--syntax-tag` / `--syntax-regexp` | Tags, regex |
+
+## Editor Chrome
+
+Separate from syntax tokens — **Settings → Appearance → Editor**:
+
+| Variable | Purpose |
+|----------|---------|
+| `--editor-bg` | Editor pane background |
+| `--editor-fg` | Default text |
+| `--editor-gutter-fg` | Line numbers |
+| `--editor-line-hl` | Active line highlight |
+| `--editor-selection` | Selection background |
+| `--editor-cursor` | Caret |
+
+Defaults in `EDITOR_CHROME_DEFAULTS` (`src/lib/editor/editorChrome.ts`) match VS Code Dark (`#1e1e1e` background).
 
 ---
 

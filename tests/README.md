@@ -19,7 +19,7 @@ Tiny Llama uses a **two-tier** runtime—**no Node sidecar**:
 | **Rust** | Exercised at runtime via Tauri in the app; not a separate Rust test crate in this repo yet |
 | **Live Ollama** | `tests/integration/ollama.test.ts` — HTTP to local Ollama, same protocol as `openaiCompat.ts` |
 
-The agent loop (`ChatPane` → `streamOneTurn` → `executeTool` → IPC) is validated with **unit tests** and manual `pnpm tauri dev`. There is no harness process to integration-test.
+The agent loop (`ChatPane` → `streamOneTurn` → `executeTool` → IPC) is validated with **unit tests** and manual `pnpm dev` / `pnpm dev:desktop`. There is no harness process to integration-test.
 
 ## Ollama integration
 
@@ -96,7 +96,7 @@ If a model fails, the test prints a response preview. Weak models should use **T
 
 2. **Providers** — `src/lib/providers/anthropic.ts` and `openaiCompat.ts` stream via **`fetch`** in the webview (not a sidecar). Settings supply API keys, endpoints, and model id.
 
-3. **Tools** — When the model returns tool calls, `executeToolCallsWithApproval()` runs `executeTool()` in `toolRunner.ts`, which calls Tauri commands (`read_file`, `grep_workspace`, `run_shell`, etc.). Policy `allow` / `ask` / `deny` is enforced in the UI.
+3. **Tools** — When the model returns tool calls, `executeToolCallsWithApproval()` runs `executeTool()` in `toolRunner.ts` (read-only tools may batch in parallel). Policy `allow` / `ask` / `deny` is enforced in the UI.
 
 4. **Ollama / llama.cpp** — OpenAI-compatible chat completions with tools when the server supports them (see `openaiCompat.test.ts` and optional live Ollama test).
 

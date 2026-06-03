@@ -1,10 +1,12 @@
 import { writable, get } from "svelte/store";
 import {
   applySyntaxColorsToDocument,
+  clearSyntaxInlineOverrides,
   defaultSyntaxColors,
   loadSyntaxColors,
+  readSyntaxColorsFromDocument,
   saveSyntaxColors,
-  MONOKAI_SYNTAX_DEFAULTS,
+  TOKYO_NIGHT_SYNTAX_DEFAULTS,
   type SyntaxColorMap,
 } from "../editor/syntaxColors";
 
@@ -40,7 +42,15 @@ function createSyntaxThemeStore() {
       return colors;
     },
 
-    defaults: MONOKAI_SYNTAX_DEFAULTS,
+    /** After workbench theme changes: drop inline overrides and read colors from theme CSS. */
+    syncFromActiveTheme(): SyntaxColorMap {
+      clearSyntaxInlineOverrides();
+      const colors = readSyntaxColorsFromDocument();
+      set(colors);
+      return colors;
+    },
+
+    defaults: TOKYO_NIGHT_SYNTAX_DEFAULTS,
   };
 }
 

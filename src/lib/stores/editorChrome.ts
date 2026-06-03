@@ -1,6 +1,7 @@
 import { writable, get } from "svelte/store";
 import {
   applyEditorChromeToDocument,
+  clearEditorChromeInlineOverrides,
   defaultEditorChrome,
   loadEditorChrome,
   readEditorChromeFromDocument,
@@ -40,11 +41,11 @@ function createEditorChromeStore() {
       return colors;
     },
 
-    /** After workbench theme changes: read theme editor colors and apply (updates settings pickers when called from UI). */
+    /** After workbench theme changes: drop inline overrides and read colors from theme CSS. */
     syncFromActiveTheme(): EditorChromeMap {
+      clearEditorChromeInlineOverrides();
       const colors = readEditorChromeFromDocument();
       set(colors);
-      applyEditorChromeToDocument(colors);
       return colors;
     },
   };

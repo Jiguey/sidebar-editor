@@ -1,5 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
+  import { toast } from "svelte-sonner";
   import { chat, activeSession } from "$lib/stores/chat";
   import { settings, type ModelConfig, type SettingsState } from "$lib/stores/settings";
   import {
@@ -19,6 +20,12 @@
   import { currentMode, MODE_CONFIG, type ChatMode } from "$lib/stores/mode";
   import { activeSystemPromptText, systemPrompts } from "$lib/stores/systemPrompts";
   import { files } from "$lib/stores/files";
+  import { workbench, activeWorkbenchTab, activeEditorFile } from "$lib/stores/workbench";
+  import { skills } from "$lib/stores/skills";
+  import { buildActiveSkillBlocks } from "$lib/skills/activeSkills";
+  import type { VariableContext } from "$lib/skills/skillVariables";
+  import { gitCurrentBranch } from "$lib/ipc";
+  import { normalizeFilePath } from "$lib/fsPath";
   import {
     countTokens,
     estimateChatContextTokens,
@@ -37,6 +44,7 @@
   import { onMount, onDestroy } from "svelte";
   import { floatingPanel, portal } from "$lib/actions/floatingPanel";
   import { isTauriAvailable } from "$lib/ipc";
+  import { workspaceReadOnly } from "$lib/workspace";
   import {
     buildProviderMessages,
     appendAssistantToolCalls,
@@ -96,7 +104,9 @@ import {
     type AgentLimits,
   } from "$lib/agentLimits";
   import {
+    contextBudgetLimit,
     contextBudgetStopMessage,
+    contextUsageLevel,
     effectiveReserveTokens,
     estimateProviderMessagesTokens,
     isAgentContextBudgetExceeded,
@@ -159,6 +169,8 @@ import {
   let editingUserMessageId = $state<string | null>(null);
   let rewindNotice = $state<string | null>(null);
   let compactionNotice = $state<string | null>(null);
+  /** Set when the agent loop hits maxAgentSteps; cleared on Continue or Stop here. */
+  let stepLimitNotice = $state<{ limit: number } | null>(null);
   let compactionNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let compacting = $state(false);
   let messagesContainer: HTMLDivElement;
@@ -404,6 +416,50 @@ import {
               "Anthropic")
   );
 
+  // --- Skills (spec 30 §5, §10) -------------------------------------------
+  /** Git branch cached per workspace for skill variable interpolation. */
+  let cachedGitBranch = $state<string | null>(null);
+  $effect(() => {
+    const ws = $files.workspacePath;
+    if (!ws || !isTauriAvailable()) {
+      cachedGitBranch = null;
+      return;
+    }
+    void gitCurrentBranch(ws)
+      .then((b) => { cachedGitBranch = b; })
+      .catch(() => { cachedGitBranch = null; });
+  });
+
+  function relToWorkspace(p: string, ws: string | null): string {
+    if (!ws) return normalizeFilePath(p);
+    const root = normalizeFilePath(ws).replace(/\/$/, "");
+    const np = normalizeFilePath(p);
+    return np.startsWith(`${root}/`) ? np.slice(root.length + 1) : np;
+  }
+
+  let skillVariableContext = $derived((): VariableContext => {
+    const ws = $files.workspacePath;
+    const activeTab = $activeWorkbenchTab;
+    const editorTabs = $workbench.tabs.filter(
+      (t): t is Extract<typeof t, { kind: "editor"; path: string }> => t.kind === "editor"
+    );
+    return {
+      workspacePath: ws,
+      activeFilePath:
+        activeTab?.kind === "editor" ? relToWorkspace(activeTab.path, ws) : null,
+      activeFileContents: $activeEditorFile?.content ?? null,
+      openFilePaths: editorTabs.map((t) => relToWorkspace(t.path, ws)),
+      gitBranch: cachedGitBranch,
+      fileTree: null,
+      today: new Date().toISOString().slice(0, 10),
+      projectType: null,
+    };
+  });
+
+  let activeSkillBlocks = $derived(() =>
+    buildActiveSkillBlocks($skills, $currentMode, skillVariableContext())
+  );
+
   /** System prompt sections + tool schema tokens — recomputed only when settings/mode change. */
   let systemBreakdown = $derived(() => {
     const st = $settings;
@@ -418,6 +474,7 @@ import {
       userPromptText: $activeSystemPromptText,
       toolsEnabled: toolObjects.length > 0,
       modelSettings,
+      skillBlocks: activeSkillBlocks(),
     });
     const toolSchemaTokens = usesNativeToolCalls(modelSettings) && toolObjects.length
       ? countTokens(JSON.stringify(toolObjects))
@@ -470,6 +527,23 @@ import {
   let contextPct = $derived(() => {
     const { total, contextWindow } = contextBreakdown();
     return contextWindow > 0 ? Math.min(100, (total / contextWindow) * 100) : 0;
+  });
+
+  let usageLevel = $derived(() => {
+    const { total, contextWindow } = contextBreakdown();
+    return contextUsageLevel(total, contextBudgetLimit(contextWindow));
+  });
+
+  let overflowWarningDismissed = $state(false);
+  let lastDismissedAtLevel = $state<"critical" | null>(null);
+  $effect(() => {
+    const level = usageLevel();
+    if (level !== "critical") {
+      lastDismissedAtLevel = null;
+      overflowWarningDismissed = false;
+    } else if (lastDismissedAtLevel !== "critical") {
+      overflowWarningDismissed = false;
+    }
   });
 
   let footerProfile = $derived(() => chatFooterProfile($settings.chatBackend));
@@ -857,6 +931,7 @@ import {
       userPromptText: get(activeSystemPromptText),
       toolsEnabled,
       modelSettings: resolveActiveModelSettings(st),
+      skillBlocks: activeSkillBlocks(),
     });
     return prompt;
   }
@@ -883,6 +958,8 @@ import {
     const result = await executeTool(tc.name, args, workspacePath, {
       webFetchAllowedHosts,
       readFileMaxLines,
+      onNetworkRetryExhausted: (msg) => toast.error(msg, { duration: 5000 }),
+      readOnly: get(workspaceReadOnly),
     });
     await syncUiAfterFilesystemTool(workspacePath, tc.name, args, result.success);
     const toolResult: ToolExecResult = {
@@ -1094,7 +1171,7 @@ import {
     });
   }
 
-  async function runAgentLoop() {
+  async function runAgentLoop(stepOverride?: number) {
     const st = get(settings);
     const mode = get(currentMode);
     const modeConfig = MODE_CONFIG[mode];
@@ -1117,7 +1194,10 @@ import {
 
     let providerMessages = buildProviderMessages(systemPromptText, history);
     abortController = new AbortController();
-    const agentLimits = st.agentLimits;
+    stepLimitNotice = null;
+    const agentLimits = stepOverride != null && stepOverride > 0
+      ? { ...st.agentLimits, maxAgentSteps: stepOverride }
+      : st.agentLimits;
     const toolRunCounter = { executed: 0 };
     const executedToolOutcomes: Array<{ name: string; success: boolean }> = [];
     let deliveredSummary = false;
@@ -1429,10 +1509,7 @@ import {
           content: `Stopped: maximum tool calls (${agentLimits.maxToolCallsPerRun}) reached for this turn.`,
         });
       } else if (!deliveredSummary && hitStepLimit) {
-        chat.addMessage({
-          role: "assistant",
-          content: "Stopped: maximum agent steps reached for this turn.",
-        });
+        stepLimitNotice = { limit: agentLimits.maxAgentSteps };
       }
     } catch (e) {
       const err = e as Error;
@@ -1441,7 +1518,24 @@ import {
       }
     } finally {
       streamingContent = "";
+      // Mark any tool still showing "running" as "stopped" before clearing the live turn.
+      if (abortController?.signal.aborted && liveTurn) {
+        liveTurn = {
+          ...liveTurn,
+          tools: liveTurn.tools.map((t) =>
+            t.status === "running" ? { ...t, status: "stopped" as const } : t
+          ),
+        };
+      }
       liveTurn = null;
+      // Ensure no tool card stays stuck in "running" state after an abort.
+      if (abortController?.signal.aborted) {
+        const cur = get(chat).currentToolCall;
+        if (cur?.status === "running") {
+          chat.setToolCall({ ...cur, status: "pending" });
+        }
+        chat.setToolCall(null);
+      }
       chat.setStreaming(false);
       abortController = null;
     }
@@ -1624,6 +1718,7 @@ import {
     stopDictation();
     e.preventDefault();
     if ($chat.isStreaming) return;
+    stepLimitNotice = null;
 
     const editingId = editingUserMessageId;
     const message = editingId
@@ -1964,6 +2059,44 @@ import {
   {#if rewindNotice || compactionNotice}
     <p class="rewind-notice" role="status">{rewindNotice ?? compactionNotice}</p>
   {/if}
+  {#if stepLimitNotice && !$chat.isStreaming}
+    <div class="step-limit-notice" role="status">
+      <span>Agent paused — reached the limit of {stepLimitNotice.limit} steps.</span>
+      <button
+        type="button"
+        class="step-limit-continue"
+        onclick={() => {
+          const limit = stepLimitNotice!.limit;
+          stepLimitNotice = null;
+          chat.setStreaming(true);
+          void runAgentLoop(limit);
+        }}
+      >Continue for {stepLimitNotice.limit} more steps</button>
+      <button
+        type="button"
+        class="step-limit-stop"
+        onclick={() => { stepLimitNotice = null; }}
+      >Stop here</button>
+    </div>
+  {/if}
+  {#if usageLevel() === "critical" && !overflowWarningDismissed}
+    <div class="context-overflow-warning" role="alert">
+      <span>⚠ Context almost full — consider compacting or starting a new chat.</span>
+      <button
+        type="button"
+        class="compact-now"
+        onclick={requestManualCompaction}
+        disabled={compactButtonInactive}
+        title={compactButtonTitle}
+      >{$settings.agentCompaction.enabled ? "Compact now" : "Compaction off"}</button>
+      <button
+        type="button"
+        class="dismiss"
+        aria-label="Dismiss"
+        onclick={() => { overflowWarningDismissed = true; lastDismissedAtLevel = "critical"; }}
+      >×</button>
+    </div>
+  {/if}
   <form
     class="input-area composer-form"
     onsubmit={handleSubmit}
@@ -2243,8 +2376,11 @@ import {
       {@const bd = contextBreakdown()}
       {@const cw = bd.contextWindow}
       {@const seg = (n: number) => cw > 0 ? Math.min(100, (n / cw) * 100) : 0}
+      {@const level = usageLevel()}
       <div
         class="context-bar"
+        class:context-bar--warning={level === "warning"}
+        class:context-bar--critical={level === "critical"}
         role="button"
         tabindex="0"
         aria-label="Context usage breakdown"
@@ -2253,9 +2389,15 @@ import {
         onfocus={() => (showBreakdown = true)}
         onblur={() => (showBreakdown = false)}
       >
-        <div class="context-seg context-seg--system" style="width: {seg(bd.systemTokens)}%"></div>
-        <div class="context-seg context-seg--tools" style="width: {seg(bd.toolSchemaTokens)}%"></div>
-        <div class="context-seg context-seg--history" style="width: {seg(bd.historyTokens)}%"></div>
+        <div class="context-bar-track">
+          {#if level === "healthy"}
+            <div class="context-seg context-seg--system" style="width: {seg(bd.systemTokens)}%"></div>
+            <div class="context-seg context-seg--tools" style="width: {seg(bd.toolSchemaTokens)}%"></div>
+            <div class="context-seg context-seg--history" style="width: {seg(bd.historyTokens)}%"></div>
+          {:else}
+            <div class="context-bar-fill" style="width: {Math.min(100, contextPct())}%"></div>
+          {/if}
+        </div>
       </div>
       {#if showBreakdown}
         <div class="context-breakdown-popover" role="tooltip">
@@ -2327,6 +2469,8 @@ import {
             <button
               type="button"
               class="context-numbers"
+              class:context-numbers--warning={usageLevel() === "warning"}
+              class:context-numbers--critical={usageLevel() === "critical"}
               onclick={toggleContextBudgetMenu}
               aria-expanded={contextBudgetMenuOpen}
               aria-haspopup="listbox"
@@ -2357,6 +2501,8 @@ import {
           {:else}
             <span
               class="context-numbers context-numbers--static"
+              class:context-numbers--warning={usageLevel() === "warning"}
+              class:context-numbers--critical={usageLevel() === "critical"}
             title={footerProfile().showMonthlyUsage
               ? cloudContextBudgetTitle(maxContextTokens())
               : contextBudgetTitle(footerProfile(), $settings.chatBackend)}
@@ -3552,13 +3698,118 @@ import {
   }
 
   .context-bar {
+    padding: 10px 0;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+
+  .context-bar-track {
+    width: 100%;
     height: 3px;
     background: #3c3c3c;
     border-radius: 2px;
     overflow: hidden;
-    margin-bottom: 4px;
     display: flex;
+  }
+
+  .context-bar--warning .context-bar-track { background: #3c3c3c; }
+  .context-bar--critical .context-bar-track { background: #3c3c3c; }
+
+  .context-bar-fill {
+    height: 100%;
+    flex-shrink: 0;
+    transition: width 0.2s ease;
+  }
+
+  .context-bar--warning .context-bar-fill { background: #d4a017; }
+  .context-bar--critical .context-bar-fill { background: #f44747; }
+
+  .step-limit-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    background: rgba(86, 156, 214, 0.08);
+    border-top: 1px solid rgba(86, 156, 214, 0.2);
+    font-size: 12px;
+    color: #a3a3a3;
+    flex-shrink: 0;
+  }
+
+  .step-limit-continue {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid rgba(86, 156, 214, 0.4);
+    border-radius: 3px;
+    background: transparent;
+    color: #569cd6;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .step-limit-continue:hover {
+    background: rgba(86, 156, 214, 0.1);
+  }
+
+  .step-limit-stop {
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid #404040;
+    border-radius: 3px;
+    background: transparent;
+    color: #707070;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .step-limit-stop:hover {
+    color: #a3a3a3;
+    border-color: #555;
+  }
+
+  .context-overflow-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(244, 71, 71, 0.08);
+    border-top: 1px solid rgba(244, 71, 71, 0.25);
+    font-size: 12px;
+    color: #f44747;
+    flex-shrink: 0;
+  }
+
+  .context-overflow-warning .compact-now {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid rgba(244, 71, 71, 0.4);
+    border-radius: 3px;
+    background: transparent;
+    color: #f44747;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .context-overflow-warning .compact-now:disabled {
+    opacity: 0.4;
     cursor: default;
+  }
+
+  .context-overflow-warning .dismiss {
+    margin-left: 4px;
+    font-size: 16px;
+    line-height: 1;
+    opacity: 0.6;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+    padding: 0;
   }
 
   .context-seg {
@@ -3574,7 +3825,8 @@ import {
   .context-breakdown-popover {
     position: absolute;
     bottom: calc(100% + 6px);
-    right: 10px;
+    left: 50%;
+    transform: translateX(-50%);
     min-width: 240px;
     background: #1e1e1e;
     border: 1px solid #3c3c3c;
@@ -3778,6 +4030,9 @@ import {
     cursor: default;
     pointer-events: none;
   }
+
+  .context-numbers--warning { color: #d4a017; }
+  .context-numbers--critical { color: #f44747; }
 
   .context-hint {
     color: #858585;

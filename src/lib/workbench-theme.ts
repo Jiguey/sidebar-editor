@@ -5,9 +5,10 @@ export const WORKBENCH_THEME_OPTIONS = [
   { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
   { id: "tokyo-night", label: "Tokyo Night" },
   { id: "one-dark-pro", label: "One Dark Pro" },
-  { id: "tiny-llama", label: "Tiny Llama" },
+  { id: "sidebar", label: "Sidebar" },
   { id: "dracula", label: "Dracula" },
   { id: "github-dark", label: "GitHub Dark" },
+  { id: "rose-pine", label: "Rosé Pine" },
 ] as const;
 
 export type WorkbenchThemeId = (typeof WORKBENCH_THEME_OPTIONS)[number]["id"];

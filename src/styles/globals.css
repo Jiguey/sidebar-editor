@@ -53,13 +53,13 @@
   /** Bottom status bar (matches tab row for visual rhythm). */
   --workbench-shell-header-height: 36px;
 
-  /* Editor / workbench — Monokai */
-  --editor-bg: #272822;
-  --editor-fg: #f8f8f2;
-  --editor-gutter-fg: #75715e;
-  --editor-line-hl: #3e3d32;
-  --editor-selection: #49483e;
-  --editor-cursor: #f8f8f2;
+  /* Editor surface — matches welcome / workbench background (VS Code Dark) */
+  --editor-bg: var(--background);
+  --editor-fg: #d4d4d4;
+  --editor-gutter-fg: #858585;
+  --editor-line-hl: #2a2d2e;
+  --editor-selection: #264f78;
+  --editor-cursor: #d4d4d4;
 
   --background: #1e1e1e;
   --foreground: #d4d4d4;
@@ -123,12 +123,12 @@
 }
 
 .dark {
-  --editor-bg: #272822;
-  --editor-fg: #f8f8f2;
-  --editor-gutter-fg: #75715e;
-  --editor-line-hl: #3e3d32;
-  --editor-selection: #49483e;
-  --editor-cursor: #f8f8f2;
+  --editor-bg: var(--background);
+  --editor-fg: #d4d4d4;
+  --editor-gutter-fg: #858585;
+  --editor-line-hl: #2a2d2e;
+  --editor-selection: #264f78;
+  --editor-cursor: #d4d4d4;
 
   --background: #1e1e1e;
   --foreground: #d4d4d4;
@@ -262,6 +262,19 @@
     background: var(--editor-bg);
   }
 
+  /* LSP hover tooltip (spec 25). */
+  .cm-lsp-hover {
+    max-width: 480px;
+    max-height: 320px;
+    overflow: auto;
+    padding: 6px 9px;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    color: var(--foreground, #d4d4d4);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
   /* Tab strips: native scrollbars hidden; fixed 3px custom thumb via tabStripScroll action. */
   .tab-strip-scroll-native-hidden {
     scrollbar-width: none;
@@ -309,6 +322,19 @@
 
   .tab-strip-scroll-wrap:hover .tab-strip-scroll-thumb {
     background: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+  }
+
+  /*
+   * WebKitGTK (Tauri/Linux): hover overlay scrollbars linger and paint above modals /
+   * sibling windows until fade-out. scrollbar-width/display:none is not enough —
+   * hide the workbench from the paint tree while settings or feedback is open.
+   */
+  html.workbench-overlay-open .workbench-root {
+    visibility: hidden;
+  }
+
+  html.workbench-overlay-open .tab-strip-scroll-track {
+    visibility: hidden;
   }
 
   body {

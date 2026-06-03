@@ -12,25 +12,33 @@ The privacy moat is real: run Ollama or llama.cpp locally and the only traffic l
 
 | Area | Status |
 |------|--------|
-| Workbench shell (editor, terminal, explorer, git, sidebar) | Shipped |
+| Workbench shell (editor, terminal, explorer, git, search, sidebar) | Shipped |
+| Welcome screen + recent projects (no folder open) | Shipped |
 | Multi-tab chat with session history | Shipped |
 | Agent loop with streaming + tool calling | Shipped |
 | Ollama, llama.cpp, Anthropic, DeepSeek providers | Shipped |
-| 16 built-in agent tools | Shipped |
+| 16 built-in agent tools + custom tools | Shipped |
 | Tool policy system (allow / ask / deny) | Shipped |
+| Parallel read-only tool execution | Shipped |
 | Git panel (stage, commit, diff, discard) | Shipped |
 | Per-project state persistence (`.tinyllama/`) | Shipped |
 | Context budget tracking + breakdown popover | Shipped |
-| Context compaction (manual + auto) | Shipped — experimental |
-| Compaction archive with restore | Shipped |
-| Segmented context bar (system/tools/history) | Shipped |
-| Workspace text search (ripgrep) | Shipped |
+| Context overflow warnings (amber / red bar) | Shipped |
+| Context compaction (manual + auto) + archive restore | Shipped — experimental |
+| Workspace text search (ripgrep, `Cmd+Shift+F`) | Shipped |
 | Filesystem watcher (explorer + git refresh) | Shipped |
-| Editor formatting (wrap, Prettier) | Partial |
+| Editor line wrap + Prettier format / format-on-save | Shipped |
+| Workbench themes (9 presets incl. Rosé Pine) | Shipped |
+| Editor + syntax colors (Appearance settings) | Shipped |
+| Theme → editor/syntax sync on theme change | Shipped |
+| Shortcut rebinding UI | Shipped |
+| Agent error recovery (retries, continue after step limit) | Shipped |
+| Workspace lock (multi-window safety) | Shipped |
+| LSP (diagnostics, hover; user-installed servers) | Partial |
+| System prompts manager (`.tinyllama/prompts/`) | Shipped |
 | Skills system | Placeholder wired; implementation pending |
 | Rust path sandbox (defense in depth) | Planned — TS layer enforces today |
-| Workspace lock (multi-window safety) | Planned |
-| LSP, inline edit (Cmd+K) | Planned |
+| Cmd+K inline edit | Planned |
 | OS keychain for API keys | Planned |
 
 ---
@@ -56,7 +64,7 @@ Data flow:
 ```
 Svelte UI  →  lib/providers/*  →  HTTP fetch to LLM APIs
            →  lib/tools/toolRunner.ts  →  lib/ipc.ts  →  Tauri invoke
-Rust       →  filesystem, git, grep, shell, web_fetch, PTY
+Rust       →  filesystem, git, grep, shell, web_fetch, PTY, LSP transport
 ```
 
 There is no Node.js sidecar at runtime. Node is used only during build (Vite, Vitest, Tauri CLI).
@@ -84,12 +92,14 @@ All providers stream tokens into the chat pane in real time. Local providers (Ol
 
 | Category | Tools |
 |----------|-------|
-| **Files** | `read_file` — read a file's contents; `write_file` — overwrite a file; `create_file` — create a new file; `delete_file` — delete a file; `rename_file` — rename or move a file; `list_directory` — list directory contents; `find_file` — find files by name pattern; `get_file_tree` — get the workspace file tree (gitignore-filtered) |
-| **Git** | `get_git_status` — staged/unstaged changes; `get_git_log` — recent commit history; `get_git_diff` — file or workspace diff |
-| **Shell** | `run_shell` — run a shell command; `run_tests` — run the project's test suite; `run_script` — run a named script from `package.json` |
-| **Network** | `web_fetch` — fetch a URL (hostname allowlist enforced) |
+| **Files** | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_directory`, `find_file`, `get_file_tree` |
+| **Git** | `get_git_status`, `get_git_log`, `get_git_diff` |
+| **Shell** | `run_shell`, `run_tests`, `run_script` |
+| **Network** | `web_fetch` (hostname allowlist enforced) |
 
 All tools run inside the opened workspace. Paths are sandboxed by `pathUtils.ts` — `..` traversal and paths outside the project root are rejected before reaching Rust.
+
+Read-only tools (`read_file`, `list_directory`, `find_file`, `get_file_tree`, git reads, etc.) can run in parallel when **Settings → Tools → Parallel execution** is enabled.
 
 ### Tool policy
 
@@ -105,13 +115,14 @@ Defaults lean toward **allow** for reads and **ask** for writes and shell. The e
 
 ### Agent limits
 
-Configurable in Settings (0 = unlimited):
+Configurable in Settings → Tools (0 = unlimited):
 
 | Setting | Meaning |
 |---------|---------|
 | `maxAgentSteps` | Max model ↔ tool round trips per message |
 | `maxToolCallsPerRun` | Total tool executions per message |
 | `maxToolsPerTurn` | Tool calls allowed in a single model response |
+| `parallelExecution` / `maxConcurrentTools` | Concurrent read-only tool batches |
 
 ---
 
@@ -125,7 +136,7 @@ The chat footer shows a 3px bar divided into three segments:
 - **Orange** — tool schemas (native tool call mode only)
 - **Blue** — chat history
 
-Hover the bar to see a breakdown popover with per-section token counts, total used, context window size, and reply reserve.
+Hover the bar to see a breakdown popover with per-section token counts, total used, context window size, and reply reserve. Usage states turn **amber** (70–90%) and **red** (>90%) as the budget fills.
 
 ### Compaction
 
@@ -139,6 +150,25 @@ When the context fills up, compaction summarizes old messages into a compact blo
 **Archive and restore:** the full pre-compaction message list is saved as `preCompactionMessages` on the session. The compaction divider in the chat shows "N archived messages · Restore full context". Clicking "Restore full context" reverts the session to its pre-compaction state — one level of undo.
 
 **Settings** (Settings → Compaction): master switch, summary model picker, auto-compaction threshold (50–95%, default 85%), keep-last-N raw turns (2–20).
+
+---
+
+## Theming
+
+Three independent color systems:
+
+| System | Where to configure |
+|--------|-------------------|
+| **Workbench theme** | Settings → General → Color theme (UI chrome, terminal ANSI, default editor/syntax tokens) |
+| **Editor chrome** | Settings → Appearance → Editor (background, gutter, selection, cursor) |
+| **Syntax tokens** | Settings → Appearance → Syntax |
+| **File icons** | Settings → General → Icon theme (Seti, VS Code Icons, Codicons, custom pack) |
+
+**Presets:** VS Code Dark (default), Cursor Dark, Catppuccin Mocha, Tokyo Night, One Dark Pro, Tiny Llama, Dracula, GitHub Dark, **Rosé Pine** (VS Code Dark workbench + Rosé Pine editor/syntax).
+
+Changing the workbench theme updates the editor surface and syntax colors automatically (clears stale inline overrides). Use **Sync from theme** under Appearance → Editor to refresh the settings pickers.
+
+Default editor background matches the welcome screen (`--background`, `#1e1e1e`). See [docs/specs/13-theming.md](docs/specs/13-theming.md).
 
 ---
 
@@ -167,7 +197,7 @@ The git panel is the primary surface for reviewing what the agent changed:
 - Stage, unstage, commit with a message, discard changes
 - Hover actions on file rows for quick stage/discard
 
-Agent tools that mutate files (`write_file`, `create_file`, `delete_file`, `rename_file`) trigger an automatic git panel refresh. Git tools (`get_git_status`, `get_git_log`, `get_git_diff`) are read-only and available in Plan and Agent modes.
+Agent tools that mutate files (`write_file`, `create_file`, `delete_file`, `move_file`) trigger an automatic git panel refresh. Git tools (`get_git_status`, `get_git_log`, `get_git_diff`) are read-only and available in Plan and Agent modes.
 
 **Chat rewind:** before sending a message, the app can snapshot the git tree (checkpoint). Rewinding a message restores the workspace to that checkpoint and truncates chat history from that point.
 
@@ -177,21 +207,25 @@ Agent tools that mutate files (`write_file`, `create_file`, `delete_file`, `rena
 
 ### Global settings
 
-Stored in `localStorage` under `tinyllama.settings.v4`:
+Stored in `localStorage` under `tinyllama.settings.v4` (migrates from v1–v3):
 
 - Provider endpoints, API keys, model lists with per-model context window and tool call settings
-- Workbench theme, icon theme, syntax/editor/chat appearance
-- Tool policy defaults and web fetch hostname allowlist
-- Agent limits, compaction settings, model role assignments
+- Workbench theme, icon theme, editor/syntax/chat/explorer appearance
+- Tool policy defaults, agent limits, parallel execution, web fetch hostname allowlist
+- Compaction settings, model role assignments
 - Anthropic extended thinking and context budget cap
+- Shortcut overrides (`tinyllama.keybindings.v1`)
 
 Optional environment variable fallbacks: see `.env.example`.
+
+**LSP server config** is stored separately in `tinyllama.lsp.v1` (Settings → LSP).
 
 ### Per-project files (`.tinyllama/`)
 
 | Path | Purpose |
 |------|---------|
 | `.tinyllama/state.json` | Chat sessions, history, editor tabs — autosaved |
+| `.tinyllama/.lock` | Workspace lock (PID) when another window has the folder open |
 | `.tinyllama/prompts/*.md` | Per-mode or shared system prompt files |
 | `.tinyllama/prompts.json` | Prompt manifest — enable/disable and mode scope |
 | `.tinyllama/tools.json` | Tool policy overrides and custom tool schemas |
@@ -223,11 +257,14 @@ sudo pacman -S webkit2gtk-4.1 base-devel curl wget openssl gtk3 libayatana-appin
 ```bash
 pnpm install
 
-# Full desktop app (Tauri + Svelte — required for tools, git, terminal)
-pnpm tauri dev
-
-# Frontend only (UI work without Rust — tools, git, PTY will not work)
+# Full dev: Vite dev server + Tauri desktop window (default)
 pnpm dev
+
+# Desktop app only (Tauri starts Vite internally)
+pnpm dev:desktop
+
+# Frontend only in the browser (no tools, git, or PTY)
+pnpm dev:web
 ```
 
 Dev server port: **14200** (set in `vite.config.ts`).
@@ -266,11 +303,12 @@ The eval harness (`tests/llm/`) runs all three modes (Chat, Plan, Agent) against
 │  Stores: chat, files, settings, toolPolicy, mode, ...        │
 │  lib/providers/*  →  fetch() to LLM APIs                     │
 │  lib/tools/*      →  ipc.ts → Tauri commands                 │
+│  lib/lsp/*        →  LSP client (JSON-RPC over Tauri events) │
 └────────────────────────────┬─────────────────────────────────┘
-                             │ invoke() + events (pty:data, fs:changed, ...)
+                             │ invoke() + events (pty:data, fs:changed, lsp:*, ...)
 ┌────────────────────────────▼─────────────────────────────────┐
 │ Rust backend (src-tauri/src/)                                 │
-│  filesystem · git · pty · grep · shell · web_fetch           │
+│  filesystem · git · pty · grep · shell · web_fetch · lsp     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -289,16 +327,10 @@ What is not built yet, in rough priority order:
 | Area | Status | Spec |
 |------|--------|------|
 | Skills system (bundled pack + UI) | Planned | [30](docs/specs/30-agent-context-and-model-settings.md) |
-| Agent error recovery (retries, continue after step limit) | Planned | [32](docs/specs/32-agent-error-recovery.md) |
 | Rust path enforcement (symlink escape hardening) | Planned | [33](docs/specs/33-rust-path-enforcement.md) |
-| Context overflow warnings (amber/red bar states) | Planned | [34](docs/specs/34-context-overflow-warnings.md) |
-| Workspace lock (multi-window safety) | Planned | [35](docs/specs/35-workspace-lock.md) |
-| First-run / onboarding empty states | Planned | [36](docs/specs/36-first-run-onboarding.md) |
-| Shortcut rebinding UI | Planned | [37](docs/specs/37-shortcut-rebinding.md) |
-| Parallel tool execution | Planned | [38](docs/specs/38-parallel-tool-execution.md) |
 | File-backed planning system (`plans/`) | Planned | [19](docs/specs/19-planning-system.md) |
 | Inline edit / Cmd+K | Planned | [28](docs/specs/28-inline-edit-autocomplete.md) |
-| LSP diagnostics (TypeScript, etc.) | Planned | [25](docs/specs/25-lsp-diagnostics.md) |
+| LSP Phase 2 (go-to-def, rename, more languages) | Planned | [25](docs/specs/25-lsp-diagnostics.md) |
 | OS keychain for API keys | Planned | [14](docs/specs/14-security.md) |
 
 Full roadmap with phasing: [docs/specs/17-roadmap.md](docs/specs/17-roadmap.md).

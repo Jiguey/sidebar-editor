@@ -1,5 +1,7 @@
 import { get } from "svelte/store";
 import { workbench } from "$lib/stores/workbench";
+import type { ShortcutId } from "./defaults";
+import { normalizeKeyEvent, buildActiveBindings, invertBindings } from "./keybindingHelpers";
 
 export type ShortcutHandlers = {
   toggleChat: () => void;
@@ -9,6 +11,7 @@ export type ShortcutHandlers = {
   newTerminal: () => void | Promise<void>;
   newPreview: () => void;
   closeAllWorkbench: () => void | Promise<void>;
+  focusSearch: () => void;
 };
 
 function ignoreTarget(ev: EventTarget | null): boolean {
@@ -89,5 +92,45 @@ export function dispatchWorkbenchShortcut(ev: KeyboardEvent, h: ShortcutHandlers
     return true;
   }
 
+  // Cmd/Ctrl+Shift+F — focus search panel.
+  // EditorSurface also handles Cmd+Shift+F for format-document, but only when
+  // the cm-editor is focused; ignoreTarget returns true for that case and we
+  // short-circuit here, leaving format-document to the editor handler.
+  if ((key === "f" || key === "F") && mod && ev.shiftKey) {
+    if (ignoreTarget(ev.target)) return false;
+    ev.preventDefault();
+    h.focusSearch();
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * Checks user overrides first, then falls through to the hardcoded dispatcher.
+ * Call this from WorkbenchShell instead of `dispatchWorkbenchShortcut` when
+ * `overrides` is non-empty, so rebindings take effect without a reload.
+ */
+export function dispatchWithOverrides(
+  ev: KeyboardEvent,
+  h: ShortcutHandlers,
+  overrides: Partial<Record<ShortcutId, string>>
+): boolean {
+  if (Object.keys(overrides).length > 0) {
+    const keyStr = normalizeKeyEvent(ev);
+    if (keyStr) {
+      const active = buildActiveBindings(overrides);
+      const byKey = invertBindings(active);
+      const actionId = byKey.get(keyStr);
+      if (actionId && actionId in h) {
+        // Only intercept if the key differs from the hardcoded default.
+        if (ignoreTarget(ev.target)) return false;
+        ev.preventDefault();
+        const fn = h[actionId as keyof ShortcutHandlers];
+        void (fn as () => void)();
+        return true;
+      }
+    }
+  }
+  return dispatchWorkbenchShortcut(ev, h);
 }

@@ -203,7 +203,7 @@
     {#if !$skills.initialized}
       <div class="skill-setup">
         <p class="skill-setup-text">
-          Skills are stored in <code>.tinyllama/skills/</code> — one subdirectory per skill, each
+          Skills are stored in <code>.sidebar/skills/</code> — one subdirectory per skill, each
           with a <code>skill.json</code> manifest and a <code>skill.md</code> content file.
         </p>
         <button
@@ -268,7 +268,7 @@
                       {#if entry.description}
                         <span class="skill-row-desc">{entry.description}</span>
                       {/if}
-                      <span class="skill-row-file">.tinyllama/skills/{entry.id}/</span>
+                      <span class="skill-row-file">.sidebar/skills/{entry.id}/</span>
                     </td>
                     {#each ALL_SKILL_MODES as mode (mode)}
                       <td class="cell-mode">
@@ -316,7 +316,7 @@
 
         <div class="skill-section-bar">
           <span class="skill-hint">
-            {enabledCount} enabled · stored in <code>.tinyllama/skills/</code>
+            {enabledCount} enabled · stored in <code>.sidebar/skills/</code>
           </span>
           <button
             type="button"
@@ -434,7 +434,7 @@
         <button type="button" class="skill-modal-close" onclick={closeEditor} aria-label="Close">×</button>
       </header>
       <p class="skill-modal-file">
-        <code>.tinyllama/skills/{editorEntry.id}/skill.md</code>
+        <code>.sidebar/skills/{editorEntry.id}/skill.md</code>
       </p>
       <textarea
         class="skill-textarea"

@@ -1,6 +1,6 @@
 # Spec 32 — Agent Error Recovery
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented — web_fetch retry (1 attempt, 500ms backoff, retryable detection), "Continue for N more steps" notice UI, "stopped" badge on aborted tool chips, toast on exhausted retries. Shell process kill (§6.4) deferred — run_shell already has a 30s timeout.
 > **Area:** Agent Loop · Tool Execution · UX
 > **Phase:** B — Enhancement
 > **Depends on:** [08-ai-agent.md](08-ai-agent.md) · [09-tool-system.md](09-tool-system.md) · [12-ipc.md](12-ipc.md)

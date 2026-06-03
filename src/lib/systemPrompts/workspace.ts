@@ -91,7 +91,7 @@ async function migrateLegacyPromptContent(workspacePath: string): Promise<string
   }
 }
 
-/** Create `.tinyllama/prompts/` layout, default files, and prompts.json if missing. */
+/** Create `.sidebar/prompts/` layout, default files, and prompts.json if missing. */
 export async function initializePromptFiles(workspacePath: string): Promise<PromptsWorkspaceSnapshot> {
   if (!isTauriAvailable()) {
     throw new Error("Prompt files can only be created in the desktop app.");

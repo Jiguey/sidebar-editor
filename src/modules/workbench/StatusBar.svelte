@@ -132,7 +132,7 @@
   }
 
   function formatDocument() {
-    window.dispatchEvent(new CustomEvent("tinyllama:format-document"));
+    window.dispatchEvent(new CustomEvent("sidebar:format-document"));
   }
 
   function toggleWordWrap() {
@@ -143,15 +143,15 @@
   onMount(() => {
     void tick();
     timer = setInterval(() => void tick(), POLL_MS);
-    window.addEventListener("tinyllama:editor-saved", schedulePrettierCheck);
-    window.addEventListener("tinyllama:format-document-done", schedulePrettierCheck);
+    window.addEventListener("sidebar:editor-saved", schedulePrettierCheck);
+    window.addEventListener("sidebar:format-document-done", schedulePrettierCheck);
   });
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (prettierTimer) clearTimeout(prettierTimer);
-    window.removeEventListener("tinyllama:editor-saved", schedulePrettierCheck);
-    window.removeEventListener("tinyllama:format-document-done", schedulePrettierCheck);
+    window.removeEventListener("sidebar:editor-saved", schedulePrettierCheck);
+    window.removeEventListener("sidebar:format-document-done", schedulePrettierCheck);
   });
 
   $effect(() => {

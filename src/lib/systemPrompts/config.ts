@@ -1,8 +1,8 @@
 import type { ChatMode } from "../stores/mode";
 import type { SystemPromptEntry, SystemPromptsConfig } from "./types";
 
-export const PROMPTS_CONFIG_REL = ".tinyllama/prompts.json";
-export const PROMPTS_DIR_REL = ".tinyllama/prompts";
+export const PROMPTS_CONFIG_REL = ".sidebar/prompts.json";
+export const PROMPTS_DIR_REL = ".sidebar/prompts";
 
 const MODES: ChatMode[] = ["chat", "plan", "agent"];
 

@@ -92,6 +92,16 @@ export function isAgentContextBudgetExceeded(
   return used >= contextBudgetLimit(contextWindow);
 }
 
+export type ContextUsageLevel = "healthy" | "warning" | "critical";
+
+export function contextUsageLevel(used: number, budgetLimit: number): ContextUsageLevel {
+  if (budgetLimit <= 0) return "healthy";
+  const ratio = used / budgetLimit;
+  if (ratio >= 0.9) return "critical";
+  if (ratio >= 0.7) return "warning";
+  return "healthy";
+}
+
 export function contextBudgetStopMessage(contextWindow: number, tokensUsed: number): string {
   const limit = contextBudgetLimit(contextWindow);
   return (

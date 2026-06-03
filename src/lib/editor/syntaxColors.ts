@@ -1,4 +1,27 @@
-/** Monokai–style defaults for the code editor. */
+/** Tokyo Night syntax token colors. */
+export const TOKYO_NIGHT_SYNTAX_DEFAULTS = {
+  keyword: "#bb9af7",
+  function: "#7aa2f7",
+  variable: "#c0caf5",
+  number: "#ff9e64",
+  string: "#9ece6a",
+  type: "#2ac3de",
+  operator: "#89ddff",
+  property: "#73daca",
+  comment: "#565f89",
+  default: "#c0caf5",
+  invalid: "#f7768e",
+  heading: "#7aa2f7",
+  link: "#73daca",
+  emphasis: "#bb9af7",
+  strong: "#c0caf5",
+  meta: "#565f89",
+  punctuation: "#89ddff",
+  tag: "#f7768e",
+  regexp: "#b4f9f8",
+} as const;
+
+/** Monokai–style token colors (kept as a selectable preset). */
 export const MONOKAI_SYNTAX_DEFAULTS = {
   keyword: "#f92672",
   function: "#a6e22e",
@@ -52,8 +75,8 @@ export const SYNTAX_COLOR_FIELDS: {
   { key: "meta", label: "Markdown meta", hint: "Frontmatter · code fence info", group: "markdown" },
 ];
 
-const STORAGE_KEY = "tinyllama.syntaxColors.v2";
-const STORAGE_KEY_V1 = "tinyllama.syntaxColors.v1";
+const STORAGE_KEY = "sidebar.syntaxColors.v2";
+const STORAGE_KEY_V1 = "sidebar.syntaxColors.v1";
 
 function normalizeHex(raw: string, fallback: string): string {
   const t = raw.trim();
@@ -66,7 +89,7 @@ function normalizeHex(raw: string, fallback: string): string {
 }
 
 export function defaultSyntaxColors(): SyntaxColorMap {
-  return { ...MONOKAI_SYNTAX_DEFAULTS };
+  return { ...TOKYO_NIGHT_SYNTAX_DEFAULTS };
 }
 
 export function normalizeSyntaxColors(parsed: Partial<SyntaxColorMap> | null | undefined): SyntaxColorMap {
@@ -142,6 +165,14 @@ const CSS_VAR_BY_KEY: Record<SyntaxColorKey, string> = {
   regexp: "--syntax-regexp",
 };
 
+const SYNTAX_CSS_VARS = [
+  ...Object.values(CSS_VAR_BY_KEY),
+  "--syntax-bool",
+  "--syntax-class",
+  "--syntax-parameter",
+  "--syntax-attribute",
+] as const;
+
 /** Push syntax token colors to CSS variables (CodeMirror reads `var(--syntax-*)`). */
 export function applySyntaxColorsToDocument(colors: SyntaxColorMap): void {
   if (typeof document === "undefined") return;
@@ -153,4 +184,29 @@ export function applySyntaxColorsToDocument(colors: SyntaxColorMap): void {
   root.style.setProperty("--syntax-class", colors.type);
   root.style.setProperty("--syntax-parameter", colors.variable);
   root.style.setProperty("--syntax-attribute", colors.property);
+}
+
+/** Remove persisted inline overrides so workbench theme CSS variables take effect. */
+export function clearSyntaxInlineOverrides(): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  for (const cssVar of SYNTAX_CSS_VARS) {
+    root.style.removeProperty(cssVar);
+  }
+}
+
+/** Read active workbench theme syntax colors from computed styles (after inline overrides are cleared). */
+export function readSyntaxColorsFromDocument(): SyntaxColorMap {
+  if (typeof document === "undefined") return defaultSyntaxColors();
+  const s = getComputedStyle(document.documentElement);
+  const pick = (varName: string, fallback: string) => {
+    const v = s.getPropertyValue(varName).trim();
+    return v || fallback;
+  };
+  const base = defaultSyntaxColors();
+  const out = { ...base };
+  for (const key of Object.keys(CSS_VAR_BY_KEY) as SyntaxColorKey[]) {
+    out[key] = pick(CSS_VAR_BY_KEY[key], base[key]);
+  }
+  return out;
 }

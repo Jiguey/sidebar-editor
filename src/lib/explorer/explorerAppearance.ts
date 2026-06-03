@@ -43,8 +43,8 @@ export const EXPLORER_SIZE_FIELDS = EXPLORER_APPEARANCE_FIELDS.filter(
 /** Git/status colors and selection — Settings → Explorer. */
 export const EXPLORER_COLOR_FIELDS = EXPLORER_APPEARANCE_FIELDS.filter((f) => f.kind === "color");
 
-const STORAGE_KEY = "tinyllama.explorerAppearance.v2";
-const STORAGE_KEY_V1 = "tinyllama.explorerAppearance.v1";
+const STORAGE_KEY = "sidebar.explorerAppearance.v2";
+const STORAGE_KEY_V1 = "sidebar.explorerAppearance.v1";
 const LEGACY_ICON_SIZE_PX = 15;
 
 function normalizeHex(raw: string, fallback: string): string {

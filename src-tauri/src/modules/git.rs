@@ -128,7 +128,7 @@ pub fn git_commit(repo_path: &str, message: &str) -> Result<String, String> {
     let tree = repo.find_tree(tree_id).map_err(|e| e.to_string())?;
     let sig = repo
         .signature()
-        .or_else(|_| Signature::now("Tiny Llama", "tinyllama@localhost"))
+        .or_else(|_| Signature::now("Sidebar Editor", "sidebar@localhost"))
         .map_err(|e| e.to_string())?;
     let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
     let oid = if let Some(p) = parent {
@@ -214,7 +214,7 @@ pub fn git_discard(repo_path: &str, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Snapshot index + worktree as a detached commit; store under `refs/tinyllama/checkpoints/{ref_suffix}`.
+/// Snapshot index + worktree as a detached commit; store under `refs/sidebar/checkpoints/{ref_suffix}`.
 pub fn git_create_checkpoint(repo_path: &str, ref_suffix: &str) -> Result<String, String> {
     let repo = open_repo(repo_path)?;
     let mut index = repo.index().map_err(|e| e.to_string())?;
@@ -227,11 +227,11 @@ pub fn git_create_checkpoint(repo_path: &str, ref_suffix: &str) -> Result<String
     let tree = repo.find_tree(tree_id).map_err(|e| e.to_string())?;
     let sig = repo
         .signature()
-        .or_else(|_| Signature::now("Tiny Llama", "tinyllama@localhost"))
+        .or_else(|_| Signature::now("Sidebar Editor", "sidebar@localhost"))
         .map_err(|e| e.to_string())?;
 
     let oid = repo
-        .commit(None, &sig, &sig, "tinyllama checkpoint", &tree, &[])
+        .commit(None, &sig, &sig, "sidebar checkpoint", &tree, &[])
         .map_err(|e| e.to_string())?;
 
     let safe_suffix: String = ref_suffix
@@ -244,8 +244,8 @@ pub fn git_create_checkpoint(repo_path: &str, ref_suffix: &str) -> Result<String
             }
         })
         .collect();
-    let ref_name = format!("refs/tinyllama/checkpoints/{}", safe_suffix);
-    repo.reference(&ref_name, oid, true, "tinyllama checkpoint")
+    let ref_name = format!("refs/sidebar/checkpoints/{}", safe_suffix);
+    repo.reference(&ref_name, oid, true, "sidebar checkpoint")
         .map_err(|e| e.to_string())?;
 
     Ok(oid.to_string())

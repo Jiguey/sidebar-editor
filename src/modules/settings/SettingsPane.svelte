@@ -4,8 +4,6 @@
     settings,
     type ModelConfig,
     type ChatBackend,
-    AGENT_LIMIT_BOUNDS,
-    READ_FILE_CAP_BOUNDS,
   } from "$lib/stores/settings";
   import {
     fetchAnthropicModelCatalog,
@@ -33,12 +31,9 @@
     type OllamaLibraryModel,
     type OllamaPullProgress,
   } from "$lib/ollamaLibrary";
-  import GearIcon from "phosphor-svelte/lib/GearIcon";
   import { toolPolicy as toolPolicyStore } from "$lib/stores/toolPolicy";
   import {
-    listManagedTools,
     getEditorPayloadForTool,
-    type ToolRule,
     type ToolEditorPayload,
   } from "$lib/toolPolicy";
   import { EMPTY_PARAMETERS_JSON } from "$lib/toolSchema";
@@ -52,6 +47,9 @@
   import AppearanceSettings from "./AppearanceSettings.svelte";
   import ExperimentalSettings from "./ExperimentalSettings.svelte";
   import KeybindingsSettings from "./KeybindingsSettings.svelte";
+  import LspSettings from "./LspSettings.svelte";
+  import ToolsSettings from "./ToolsSettings.svelte";
+  import GeneralSettings from "./GeneralSettings.svelte";
   import {
     probeOllama,
     probeLlamacpp,
@@ -61,35 +59,15 @@
     stopLlamacppServerCommand,
     type ProviderHealth,
   } from "$lib/providerHealth";
-  import {
-    WORKBENCH_THEME_OPTIONS,
-    applyWorkbenchTheme,
-    type WorkbenchThemeId,
-  } from "$lib/workbench-theme";
-  import { iconTheme } from "$lib/stores/iconTheme";
+  import { applyWorkbenchTheme, type WorkbenchThemeId } from "$lib/workbench-theme";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { editorChrome } from "$lib/stores/editorChrome";
   import { type SyntaxColorMap } from "$lib/editor/syntaxColors";
   import { type EditorChromeMap } from "$lib/editor/editorChrome";
-  import {
-    DEFAULT_TAB_UNIFORM_WIDTH_PX,
-    TAB_UNIFORM_WIDTH_MAX,
-    TAB_UNIFORM_WIDTH_MIN,
-    normalizeUniformTabWidthPx,
-  } from "$lib/editor/tabWidth";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
-  import {
-    EXPLORER_SIZE_FIELDS,
-    type ExplorerAppearanceMap,
-  } from "$lib/explorer/explorerAppearance";
-  import {
-    CHAT_WAITING_STYLE_OPTIONS,
-    type ChatAppearanceMap,
-    type ChatWaitingStyle,
-  } from "$lib/chat/chatAppearance";
-  import { VSCODE_ICONS_ATTRIBUTION } from "$lib/icon-packs/types";
-  import { pickIconPackFolder, isTauriAvailable as isTauri } from "$lib/ipc";
+  import { type ExplorerAppearanceMap } from "$lib/explorer/explorerAppearance";
+  import { type ChatAppearanceMap } from "$lib/chat/chatAppearance";
   import ProviderServerGuide from "./ProviderServerGuide.svelte";
   import {
     type LlamacppServerTemplate,
@@ -122,6 +100,7 @@
     | "appearance-syntax"
     | "appearance-explorer"
     | "appearance-chat"
+    | "lsp"
     | "keybindings";
 
   const backendToSection: Record<ChatBackend, Section> = {
@@ -177,7 +156,6 @@
   let loadingLlamacpp = $state(false);
   let llamacppEndpoint = $state(DEFAULT_LLAMACPP_ENDPOINT);
   let llamacppApiKey = $state("");
-  let toolPolicyDefaultRule = $state<ToolRule>("ask");
   let toolEditorOpen = $state(false);
   let toolEditorIsNew = $state(false);
   let toolEditorError = $state("");
@@ -216,25 +194,8 @@
   });
   let workbenchTheme = $state<WorkbenchThemeId>("vscode-dark");
   let webFetchAllowedHostsText = $state("");
-  let maxAgentSteps = $state(0);
-  let maxToolCallsPerRun = $state(0);
-  let maxToolsPerTurn = $state(0);
-  let parallelExecution = $state(false);
-  let maxConcurrentTools = $state(4);
-  let includeWorkspaceInChat = $state(false);
-  let readFileCapMode = $state<"lines" | "percent">("lines");
-  let readFileCapMaxLines = $state(500);
-  let readFileCapMaxPercent = $state(5);
-  let iconThemeId = $state<"seti" | "vscode-icons" | "codicons" | "custom">("seti");
-  let iconPackCustomPath = $state("");
-  let iconRefreshStatus = $state("");
-  let iconRefreshing = $state(false);
   let syntaxColors = $state<SyntaxColorMap>(syntaxTheme.get());
   let editorColors = $state<EditorChromeMap>(editorChrome.get());
-  let editorWordWrap = $state(false);
-  let editorFormatOnSave = $state(false);
-  let editorUniformTabWidth = $state(false);
-  let editorUniformTabWidthPx = $state(96);
   let explorerColors = $state<ExplorerAppearanceMap>(explorerAppearance.get());
   let chatColors = $state<ChatAppearanceMap>(chatAppearance.get());
 
@@ -285,6 +246,7 @@
     { id: "appearance-syntax", label: "Syntax", group: "Appearance" },
     { id: "appearance-explorer", label: "Explorer", group: "Appearance" },
     { id: "appearance-chat", label: "Chat activity", group: "Appearance" },
+    { id: "lsp", label: "LSP" },
     { id: "keybindings", label: "Keybindings" },
   ];
 
@@ -314,28 +276,12 @@
     deepseekModels = $settings.deepseekModels;
     anthropicCatalogError = "";
     deepseekCatalogError = "";
-    toolPolicyDefaultRule = $toolPolicyStore.defaultRule;
     chatBackend = $settings.chatBackend;
     anthropicExtendedThinking = $settings.anthropicExtendedThinking;
     workbenchTheme = $settings.workbenchTheme;
     webFetchAllowedHostsText = $settings.webFetchAllowedHosts.join("\n");
-    maxAgentSteps = $settings.agentLimits.maxAgentSteps;
-    maxToolCallsPerRun = $settings.agentLimits.maxToolCallsPerRun;
-    maxToolsPerTurn = $settings.agentLimits.maxToolsPerTurn;
-    parallelExecution = $settings.agentLimits.parallelExecution;
-    maxConcurrentTools = $settings.agentLimits.maxConcurrentTools;
-    includeWorkspaceInChat = $settings.includeWorkspaceInChat;
-    readFileCapMode = $settings.readFileCap.mode;
-    readFileCapMaxLines = $settings.readFileCap.maxLines;
-    readFileCapMaxPercent = $settings.readFileCap.maxPercent;
-    iconThemeId = $iconTheme.themeId;
-    iconPackCustomPath = $iconTheme.customPackPath ?? "";
     syntaxColors = { ...syntaxTheme.get() };
     editorColors = { ...editorChrome.get() };
-    editorWordWrap = $settings.editor.wordWrap;
-    editorFormatOnSave = $settings.editor.formatOnSave;
-    editorUniformTabWidth = $settings.editor.uniformTabWidth;
-    editorUniformTabWidthPx = $settings.editor.uniformTabWidthPx;
     explorerColors = { ...explorerAppearance.get() };
     chatColors = { ...chatAppearance.get() };
     llamacppModels = $settings.llamacppModels;
@@ -345,40 +291,6 @@
     void connectOllama();
     void connectLlamacpp();
   });
-
-  function persistReadFileCap() {
-    settings.setReadFileCap({
-      mode: readFileCapMode,
-      maxLines: readFileCapMaxLines,
-      maxPercent: readFileCapMaxPercent,
-    });
-    const cap = get(settings).readFileCap;
-    readFileCapMode = cap.mode;
-    readFileCapMaxLines = cap.maxLines;
-    readFileCapMaxPercent = cap.maxPercent;
-  }
-
-  function persistAgentLimits() {
-    settings.setAgentLimits({
-      maxAgentSteps,
-      maxToolCallsPerRun,
-      maxToolsPerTurn,
-      parallelExecution,
-      maxConcurrentTools,
-    });
-    const saved = get(settings).agentLimits;
-    maxAgentSteps = saved.maxAgentSteps;
-    maxToolCallsPerRun = saved.maxToolCallsPerRun;
-    maxToolsPerTurn = saved.maxToolsPerTurn;
-    parallelExecution = saved.parallelExecution;
-    maxConcurrentTools = saved.maxConcurrentTools;
-  }
-
-  function persistHeaderTabWidthPx() {
-    const px = normalizeUniformTabWidthPx(editorUniformTabWidthPx);
-    editorUniformTabWidthPx = px;
-    settings.setEditorSettings({ uniformTabWidthPx: px });
-  }
 
   function setAsChatProvider(backend: ChatBackend) {
     chatBackend = backend;
@@ -671,7 +583,7 @@
     toolEditorDraft = {
       name: "",
       description: "",
-      rule: toolPolicyDefaultRule,
+      rule: get(toolPolicyStore).defaultRule,
       parametersJson: EMPTY_PARAMETERS_JSON,
       builtin: false,
     };
@@ -705,7 +617,6 @@
       return;
     }
     toolPolicyStore.reset();
-    toolPolicyDefaultRule = "allow";
     closeToolEditor();
   }
 
@@ -718,9 +629,14 @@
     settings.setLlamacppEndpoint(llamacppEndpoint);
     settings.setLlamacppApiKey(llamacppApiKey);
     settings.setSelectedModel(selectedModel);
-    toolPolicyStore.setDefaultRule(toolPolicyDefaultRule);
     settings.setChatBackend(chatBackend);
     settings.setAnthropicExtendedThinking(anthropicExtendedThinking);
+    const previousWorkbenchTheme = get(settings).workbenchTheme;
+    if (workbenchTheme !== previousWorkbenchTheme) {
+      applyWorkbenchTheme(workbenchTheme);
+      editorColors = editorChrome.syncFromActiveTheme();
+      syntaxColors = { ...syntaxTheme.syncFromActiveTheme() };
+    }
     settings.setWorkbenchTheme(workbenchTheme);
     settings.setWebFetchAllowedHosts(
       webFetchAllowedHostsText
@@ -728,18 +644,8 @@
         .map((h) => h.trim())
         .filter(Boolean)
     );
-    iconTheme.setThemeId(iconThemeId);
-    if (iconThemeId === "custom" && iconPackCustomPath) {
-      iconTheme.setCustomPackPath(iconPackCustomPath);
-    }
     syntaxTheme.persist(syntaxColors);
     editorChrome.persist(editorColors);
-    settings.setEditorSettings({
-      wordWrap: editorWordWrap,
-      formatOnSave: editorFormatOnSave,
-      uniformTabWidth: editorUniformTabWidth,
-      uniformTabWidthPx: normalizeUniformTabWidthPx(editorUniformTabWidthPx),
-    });
     explorerAppearance.persist(explorerColors);
     chatAppearance.persist(chatColors);
 
@@ -819,235 +725,12 @@
 
         <div class="modal-body">
         {#if activeSection === "general"}
-          <div class="stack">
-            <h3 class="provider-page-title">General</h3>
-            <p class="note">
-              Editor, chat, explorer, theme, and icon options. Changes preview live where noted.
-            </p>
-
-            <p class="group-label">Editor</p>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={editorWordWrap}
-                onchange={() => settings.setEditorSettings({ wordWrap: editorWordWrap })}
-              />
-              <span class="name">Wrap lines</span>
-            </label>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={editorFormatOnSave}
-                onchange={() => settings.setEditorSettings({ formatOnSave: editorFormatOnSave })}
-              />
-              <span class="name">Format on save (Prettier)</span>
-            </label>
-            <label class="field">
-              <span class="name">Header tab width</span>
-              <span class="syntax-color-hint">{TAB_UNIFORM_WIDTH_MIN}–{TAB_UNIFORM_WIDTH_MAX} px</span>
-              <input
-                type="number"
-                class="input tab-width-input"
-                min={TAB_UNIFORM_WIDTH_MIN}
-                max={TAB_UNIFORM_WIDTH_MAX}
-                step="4"
-                bind:value={editorUniformTabWidthPx}
-                onchange={persistHeaderTabWidthPx}
-              />
-            </label>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                bind:checked={editorUniformTabWidth}
-                onchange={() =>
-                  settings.setEditorSettings({
-                    uniformTabWidth: editorUniformTabWidth,
-                    uniformTabWidthPx: normalizeUniformTabWidthPx(editorUniformTabWidthPx),
-                  })}
-              />
-              <span class="name">Uniform tab width in header</span>
-            </label>
-            <p class="note muted">
-              Default {DEFAULT_TAB_UNIFORM_WIDTH_PX} px. With uniform on, chat and workbench tabs use this
-              width; off, tabs size to their titles. Scroll the tab row with the mouse wheel.
-            </p>
-            <p class="note muted">
-              Manual format:
-              <kbd class="inline-code">Shift</kbd>+<kbd class="inline-code">Alt</kbd>+<kbd class="inline-code">F</kbd>
-              or the Prettier icon in the status bar.
-            </p>
-
-            <p class="group-label">Chat</p>
-            <label class="field checkbox-field">
-              <input
-                type="checkbox"
-                checked={includeWorkspaceInChat}
-                onchange={(e) => {
-                  includeWorkspaceInChat = (e.currentTarget as HTMLInputElement).checked;
-                  settings.setIncludeWorkspaceInChat(includeWorkspaceInChat);
-                }}
-              />
-              <span class="name">Include workspace context in chat mode</span>
-            </label>
-            <p class="note muted">
-              Plan and Agent modes always include workspace context. Chat mode omits it unless this
-              is enabled.
-            </p>
-            <p class="group-label">Chat appearance</p>
-            <label class="field">
-              <span class="name">While waiting for the model</span>
-              <span class="syntax-color-hint">Before tools or reasoning appear</span>
-              <select
-                class="input"
-                value={chatColors.waitingStyle}
-                onchange={(e) => {
-                  chatColors = {
-                    ...chatColors,
-                    waitingStyle: (e.currentTarget as HTMLSelectElement)
-                      .value as ChatWaitingStyle,
-                  };
-                  chatAppearance.apply(chatColors);
-                }}
-              >
-                {#each CHAT_WAITING_STYLE_OPTIONS as opt}
-                  <option value={opt.id}>{opt.label}</option>
-                {/each}
-              </select>
-            </label>
-
-            <p class="group-label">Explorer</p>
-            {#each EXPLORER_SIZE_FIELDS as field}
-              <label class="field">
-                <span class="name">{field.label}</span>
-                <span class="syntax-color-hint">{field.hint}</span>
-                <input
-                  type="number"
-                  class="input"
-                  min={field.min}
-                  max={field.max}
-                  value={explorerColors[field.key] as number}
-                  oninput={(e) => {
-                    const v = Number((e.currentTarget as HTMLInputElement).value);
-                    explorerColors = { ...explorerColors, [field.key]: v };
-                    explorerAppearance.apply(explorerColors);
-                  }}
-                />
-              </label>
-            {/each}
-
-            <p class="group-label">Theme</p>
-            <p class="note muted">
-              Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
-            </p>
-            <label class="field">
-              <span class="name">Color theme</span>
-              <select
-                class="input"
-                bind:value={workbenchTheme}
-                onchange={() => {
-                  applyWorkbenchTheme(workbenchTheme);
-                  editorColors = editorChrome.syncFromActiveTheme();
-                }}
-              >
-                {#each WORKBENCH_THEME_OPTIONS as opt}
-                  <option value={opt.id}>{opt.label}</option>
-                {/each}
-              </select>
-            </label>
-
-            <p class="group-label">Icons</p>
-            <p class="note muted">
-              File and folder icons in the explorer. Default pack:
-              <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-                {VSCODE_ICONS_ATTRIBUTION.name}
-              </a>
-              ({VSCODE_ICONS_ATTRIBUTION.license}).
-            </p>
-            <label class="field">
-              <span class="name">Icon theme</span>
-              <select
-                class="input"
-                bind:value={iconThemeId}
-                onchange={() => {
-                  iconTheme.setThemeId(iconThemeId);
-                  void iconTheme.reloadManifest();
-                }}
-              >
-                <option value="seti">Seti (Cursor default)</option>
-                <option value="vscode-icons">VS Code Icons (SVG)</option>
-                <option value="codicons">Built-in codicons (simple)</option>
-                <option value="custom">Custom folder…</option>
-              </select>
-            </label>
-            {#if iconThemeId === "custom"}
-              <label class="field">
-                <span class="name">Custom pack folder</span>
-                <div class="icon-pack-path-row">
-                  <input class="input" readonly value={iconPackCustomPath} placeholder="Select folder with manifest.json + icons/" />
-                  {#if isTauriAvailable()}
-                    <button
-                      type="button"
-                      class="btn secondary"
-                      onclick={async () => {
-                        const picked = await pickIconPackFolder();
-                        if (picked) {
-                          iconPackCustomPath = picked;
-                          iconTheme.setCustomPackPath(picked);
-                          await iconTheme.reloadManifest();
-                          iconTheme.bumpRevision();
-                        }
-                      }}
-                    >
-                      Browse…
-                    </button>
-                  {/if}
-                </div>
-              </label>
-            {/if}
-            <div class="icon-pack-actions">
-              <button
-                type="button"
-                class="btn secondary"
-                disabled={iconRefreshing}
-                onclick={async () => {
-                  iconRefreshing = true;
-                  iconRefreshStatus = "";
-                  const result = await iconTheme.refreshBundledPack();
-                  iconRefreshing = false;
-                  iconRefreshStatus = result.ok
-                    ? `Refreshed pack (${result.path})`
-                    : `Refresh failed: ${result.error}`;
-                  void iconTheme.reloadManifest();
-                  iconTheme.bumpRevision();
-                }}
-              >
-                {iconRefreshing ? "Refreshing…" : "Refresh default icon pack"}
-              </button>
-              <button
-                type="button"
-                class="btn ghost"
-                onclick={async () => {
-                  iconTheme.invalidateManifest();
-                  await iconTheme.reloadManifest();
-                  iconTheme.bumpRevision();
-                }}
-              >
-                Reload icons
-              </button>
-            </div>
-            {#if iconRefreshStatus}
-              <p class="note muted">{iconRefreshStatus}</p>
-            {/if}
-            <details class="attribution-details">
-              <summary>Icon pack attribution</summary>
-              <p class="note muted">
-                {VSCODE_ICONS_ATTRIBUTION.copyright}. See
-                <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-                  {VSCODE_ICONS_ATTRIBUTION.repository}
-                </a>.
-              </p>
-            </details>
-          </div>
+          <GeneralSettings
+            bind:chatColors
+            bind:explorerColors
+            bind:editorColors
+            bind:workbenchTheme
+          />
 
         {:else if activeSection === "agent-context" || activeSection === "agent-context-prompts" || activeSection === "agent-context-skills"}
           <AgentContextSection
@@ -1610,250 +1293,13 @@
           </div>
 
         {:else if activeSection === "tools"}
-          <div class="stack">
-            <p class="group-label">Agent limits</p>
-            <p class="note">
-              Optional caps for Plan and Agent modes on a single user message.
-              <strong>0 = unlimited</strong> (default). The agent loop otherwise stops when the
-              model finishes or the <strong>context budget</strong> for the active model is full
-              (see context meter in chat). Compaction options are under
-              <button type="button" class="linkish" onclick={() => (activeSection = "experimental-compaction")}>
-                Experimental → Compaction
-              </button>.
-            </p>
-            <label class="field">
-              <span class="name">Max agent steps</span>
-              <input
-                type="number"
-                class="input"
-                min={AGENT_LIMIT_BOUNDS.maxAgentSteps.min}
-                max={AGENT_LIMIT_BOUNDS.maxAgentSteps.max}
-                bind:value={maxAgentSteps}
-                onchange={persistAgentLimits}
-              />
-              <span class="hint">
-                LLM turns per message (0 = unlimited, max {AGENT_LIMIT_BOUNDS.maxAgentSteps.max}).
-              </span>
-            </label>
-            <label class="field">
-              <span class="name">Max tool calls per run</span>
-              <input
-                type="number"
-                class="input"
-                min={AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.min}
-                max={AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max}
-                bind:value={maxToolCallsPerRun}
-                onchange={persistAgentLimits}
-              />
-              <span class="hint">
-                Total tools executed per message (0 = unlimited, max {AGENT_LIMIT_BOUNDS.maxToolCallsPerRun.max}).
-              </span>
-            </label>
-            <label class="field">
-              <span class="name">Max tools per turn</span>
-              <input
-                type="number"
-                class="input"
-                min={AGENT_LIMIT_BOUNDS.maxToolsPerTurn.min}
-                max={AGENT_LIMIT_BOUNDS.maxToolsPerTurn.max}
-                bind:value={maxToolsPerTurn}
-                onchange={persistAgentLimits}
-              />
-              <span class="hint">
-                Tools from one model response (0 = unlimited, max {AGENT_LIMIT_BOUNDS.maxToolsPerTurn.max}).
-              </span>
-            </label>
-
-            <p class="group-label">Parallel tool execution</p>
-            <p class="note muted">
-              Run independent read-only tools concurrently within a single agent turn.
-              Write tools always execute sequentially to prevent conflicts.
-              Requires the active model to support parallel tool calls (set in provider model settings).
-            </p>
-            <label class="field">
-              <span class="name">Enable parallel execution</span>
-              <input
-                type="checkbox"
-                bind:checked={parallelExecution}
-                onchange={persistAgentLimits}
-              />
-            </label>
-            {#if parallelExecution}
-              <label class="field">
-                <span class="name">Max concurrent tools</span>
-                <input
-                  type="number"
-                  class="input"
-                  min={AGENT_LIMIT_BOUNDS.maxConcurrentTools.min}
-                  max={AGENT_LIMIT_BOUNDS.maxConcurrentTools.max}
-                  bind:value={maxConcurrentTools}
-                  onchange={persistAgentLimits}
-                />
-                <span class="hint">
-                  How many read-only tools run at the same time (default 4, max {AGENT_LIMIT_BOUNDS.maxConcurrentTools.max}).
-                </span>
-              </label>
-            {/if}
-
-            <p class="group-label">read_file cap</p>
-            <p class="note muted">
-              Limits how many lines the agent can read per <code class="inline-code">read_file</code> call
-              unless the model requests a smaller range.
-            </p>
-            <label class="field">
-              <span class="name">Cap mode</span>
-              <select
-                class="input"
-                bind:value={readFileCapMode}
-                onchange={persistReadFileCap}
-              >
-                <option value="lines">Fixed line count</option>
-                <option value="percent">Percent of context window</option>
-              </select>
-            </label>
-            {#if readFileCapMode === "lines"}
-              <label class="field">
-                <span class="name">Max lines</span>
-                <input
-                  type="number"
-                  class="input"
-                  min={READ_FILE_CAP_BOUNDS.maxLines.min}
-                  max={READ_FILE_CAP_BOUNDS.maxLines.max}
-                  bind:value={readFileCapMaxLines}
-                  onchange={persistReadFileCap}
-                />
-              </label>
-            {:else}
-              <label class="field">
-                <span class="name">Max percent of context</span>
-                <input
-                  type="number"
-                  class="input"
-                  min={READ_FILE_CAP_BOUNDS.maxPercent.min}
-                  max={READ_FILE_CAP_BOUNDS.maxPercent.max}
-                  bind:value={readFileCapMaxPercent}
-                  onchange={persistReadFileCap}
-                />
-                <span class="hint">Converted to lines at ~20 tokens/line (min 50 lines).</span>
-              </label>
-            {/if}
-
-            <p class="group-label">Tool policy</p>
-            <p class="note">
-              Per-tool rules: <strong>Allow</strong> runs without prompting,
-              <strong>Ask</strong> shows approval above the composer,
-              <strong>Deny</strong> blocks the tool. Chat mode still hides tools; Plan and Agent
-              use the subsets defined in each mode.
-            </p>
-            <label class="field">
-              <span class="name">Default for new tools</span>
-              <select bind:value={toolPolicyDefaultRule} class="input" onchange={() => toolPolicyStore.setDefaultRule(toolPolicyDefaultRule)}>
-                <option value="ask">Ask</option>
-                <option value="allow">Allow</option>
-                <option value="deny">Deny</option>
-              </select>
-            </label>
-
-            <p class="group-label">Tools</p>
-            <p class="note muted">
-              Tool policies and definitions are stored globally on this machine. Per-project overrides
-              live in <code>.tinyllama/tools.json</code> (tool rules and custom tools). The model sees
-              name, description, and parameters JSON in Agent/Plan modes.
-            </p>
-
-            <label class="field">
-              <span class="name">Web fetch allowed hosts</span>
-              <textarea
-                class="input textarea"
-                rows="4"
-                bind:value={webFetchAllowedHostsText}
-                placeholder="github.com&#10;docs.rs"
-              ></textarea>
-              <span class="hint">One hostname per line. Used by the web_fetch tool only.</span>
-            </label>
-            <div class="tool-policy-table">
-              <div class="tool-policy-row tool-policy-row--head">
-                <span>Tool</span>
-                <span>Policy</span>
-                <span class="tool-policy-actions-head" aria-hidden="true"></span>
-              </div>
-              {#each listManagedTools($toolPolicyStore) as tool (tool.name)}
-                <div class="tool-policy-row">
-                  <div class="tool-policy-name-col">
-                    <span class="tool-policy-name">{tool.name}</span>
-                    {#if tool.builtin}
-                      <span class="tool-policy-badge">built-in</span>
-                    {:else}
-                      <span class="tool-policy-badge custom">custom</span>
-                    {/if}
-                    {#if tool.hasOverride}
-                      <span class="tool-policy-badge edited">edited</span>
-                    {/if}
-                    <p class="tool-policy-desc">{tool.description}</p>
-                  </div>
-                  <div class="tool-rule-toggle" role="group" aria-label="Policy for {tool.name}">
-                    {#each (["allow", "ask", "deny"] as ToolRule[]) as rule}
-                      <button
-                        type="button"
-                        class="tool-rule-btn"
-                        class:active={tool.rule === rule}
-                        onclick={() => toolPolicyStore.setToolRule(tool.name, rule)}
-                      >
-                        {rule}
-                      </button>
-                    {/each}
-                  </div>
-                  <div class="tool-policy-actions">
-                    <button
-                      type="button"
-                      class="tool-policy-icon-btn"
-                      title="Edit tool"
-                      aria-label="Edit {tool.name}"
-                      onclick={() => openToolEditor(tool.name, tool.builtin)}
-                    >
-                      <GearIcon size={14} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      class="tool-policy-remove"
-                      title="Remove tool"
-                      aria-label="Remove {tool.name}"
-                      onclick={() => toolPolicyStore.removeTool(tool.name, tool.builtin)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              {/each}
-            </div>
-
-            {#if $toolPolicyStore.removedBuiltinTools.length > 0}
-              <div class="removed-tools">
-                <span class="name">Removed built-in tools</span>
-                <div class="tags">
-                  {#each $toolPolicyStore.removedBuiltinTools as name}
-                    <button
-                      type="button"
-                      class="tag tag-btn"
-                      onclick={() => toolPolicyStore.restoreBuiltinTool(name)}
-                      title="Restore"
-                    >
-                      + {name}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            <div class="tool-policy-footer">
-              <button type="button" class="btn secondary" onclick={openNewToolEditor}>
-                Create tool
-              </button>
-              <button type="button" class="btn ghost" onclick={resetToolsToDefaults}>
-                Reset to defaults
-              </button>
-            </div>
-          </div>
+          <ToolsSettings
+            bind:webFetchAllowedHostsText
+            onOpenToolEditor={openToolEditor}
+            onOpenNewToolEditor={openNewToolEditor}
+            onResetTools={resetToolsToDefaults}
+            onNavigate={selectSettingsSection}
+          />
 
         {:else if activeSection === "experimental-compaction" || activeSection === "experimental-autocomplete"}
           <ExperimentalSettings section={activeSection} />
@@ -1868,6 +1314,9 @@
             {workbenchTheme}
             onNavigate={selectSettingsSection}
           />
+
+        {:else if activeSection === "lsp"}
+          <LspSettings />
 
         {:else if activeSection === "keybindings"}
           <KeybindingsSettings />
@@ -2021,6 +1470,7 @@
     border-radius: 10px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
     overflow: hidden;
+    isolation: isolate;
   }
 
   .modal-header {
@@ -2075,6 +1525,22 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #333 #1f1f1f;
+  }
+
+  .nav-rail::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .nav-rail::-webkit-scrollbar-track {
+    background: #1f1f1f;
+  }
+
+  .nav-rail::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
   }
 
   .nav-item {
@@ -2139,10 +1605,6 @@
     padding: 1px 5px;
     border-radius: 4px;
     background: rgba(201, 162, 39, 0.12);
-  }
-
-  .tab-width-input {
-    width: 4.5rem;
   }
 
   .nav-active-dot {
@@ -2243,6 +1705,21 @@
     overflow-x: hidden;
     overflow-y: auto;
     padding: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a3a #262626;
+  }
+
+  .modal-body::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .modal-body::-webkit-scrollbar-track {
+    background: #262626;
+  }
+
+  .modal-body::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 3px;
   }
 
   .stack {
@@ -2367,22 +1844,6 @@
 
   .grow {
     flex: 1;
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tag {
-    font-size: 11px;
-    font-family: ui-monospace, monospace;
-    padding: 3px 8px;
-    border-radius: 4px;
-    background: #1c1c1c;
-    color: #86c9b7;
-    border: 1px solid #333;
   }
 
   .note {
@@ -2722,74 +2183,6 @@
     background: #555;
   }
 
-  .tool-policy-table {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .tool-policy-row {
-    display: grid;
-    grid-template-columns: 1fr auto 60px;
-    gap: 10px;
-    align-items: start;
-    padding: 10px 12px;
-    background: #1e1e1e;
-    border: 1px solid #383838;
-    border-radius: 8px;
-  }
-
-  .tool-policy-row--head {
-    background: transparent;
-    border: none;
-    padding: 0 4px 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #666;
-  }
-
-  .tool-policy-actions-head {
-    width: 60px;
-  }
-
-  .tool-policy-actions {
-    display: flex;
-    gap: 4px;
-    justify-content: flex-end;
-  }
-
-  .tool-policy-icon-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .tool-policy-icon-btn:hover {
-    background: #2a2a2a;
-    color: #e0e0e0;
-  }
-
-  .tool-policy-badge.edited {
-    color: #c9a86c;
-  }
-
-  .tool-policy-footer {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
   .tool-editor-backdrop {
     position: fixed;
     inset: 0;
@@ -2846,152 +2239,4 @@
     min-height: 160px;
   }
 
-  .tool-policy-name-col {
-    min-width: 0;
-  }
-
-  .tool-policy-name {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    color: #86c9b7;
-  }
-
-  .tool-policy-badge {
-    margin-left: 6px;
-    font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: #2a2a2a;
-    color: #888;
-    text-transform: uppercase;
-  }
-
-  .tool-policy-badge.custom {
-    color: #a8d4ff;
-  }
-
-  .tool-policy-desc {
-    margin: 4px 0 0;
-    font-size: 11px;
-    line-height: 1.4;
-    color: #737373;
-  }
-
-  .tool-rule-toggle {
-    display: flex;
-    border: 1px solid #404040;
-    border-radius: 6px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-
-  .tool-rule-btn {
-    padding: 4px 8px;
-    font-size: 10px;
-    text-transform: capitalize;
-    border: none;
-    background: #1c1c1c;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .tool-rule-btn + .tool-rule-btn {
-    border-left: 1px solid #404040;
-  }
-
-  .tool-rule-btn:hover {
-    color: #e0e0e0;
-    background: #2a2a2a;
-  }
-
-  .tool-rule-btn.active {
-    background: #1a3a52;
-    color: #e8e8e8;
-  }
-
-  .tool-policy-remove {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: #666;
-    font-size: 18px;
-    cursor: pointer;
-  }
-
-  .tool-policy-remove:hover {
-    background: #3a2020;
-    color: #e57373;
-  }
-
-  .removed-tools {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .tag-btn {
-    cursor: pointer;
-    border: 1px dashed #444;
-  }
-
-  .tag-btn:hover {
-    border-color: #007acc;
-    color: #a8d4ff;
-  }
-
-  .icon-pack-path-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-  }
-
-  .icon-pack-path-row .input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .icon-pack-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .attribution-details {
-    margin: 0;
-    font-size: 12px;
-    color: #9a9a9a;
-  }
-
-  .attribution-details summary {
-    cursor: pointer;
-    color: #c8c8c8;
-  }
-
-  .attribution-details a {
-    color: #6eb6ff;
-  }
-
-  .linkish {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--primary);
-    font: inherit;
-    text-decoration: underline;
-    cursor: pointer;
-  }
-
-  .checkbox-field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-direction: row;
-  }
-
-  .checkbox-field .name {
-    margin: 0;
-  }
 </style>

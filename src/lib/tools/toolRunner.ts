@@ -25,6 +25,52 @@ export interface ToolExecutionContext {
   webFetchAllowedHosts?: string[];
   /** Effective max_lines cap for read_file (from agent settings). */
   readFileMaxLines?: number;
+  /**
+   * Called when `web_fetch` exhausts its automatic retry budget. Intended for
+   * the caller (ChatPane) to surface a toast; toolRunner itself has no Svelte
+   * dependency so it delegates notification.
+   */
+  onNetworkRetryExhausted?: (message: string) => void;
+  /** When true, mutation tools are blocked (workspace opened read-only). */
+  readOnly?: boolean;
+}
+
+/** Tools that write or mutate state — blocked in read-only mode. */
+const WRITE_TOOLS = new Set([
+  "write_file",
+  "create_file",
+  "delete_file",
+  "rename_file",
+  "move_file",
+  "run_shell",
+  "run_script",
+  "run_tests",
+  "git_stage",
+  "git_commit",
+  "git_discard",
+]);
+
+/** True for transient network-layer failures that are worth one automatic retry. */
+export function isRetryableError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return (
+    msg.includes("connection refused") ||
+    msg.includes("econnrefused") ||
+    msg.includes("etimedout") ||
+    msg.includes("timed out") ||
+    msg.includes("network error") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("dns") ||
+    msg.includes("name resolution") ||
+    msg.includes("no such host") ||
+    msg.includes("socket")
+  );
+}
+
+const RETRY_DELAY_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface ToolResult {
@@ -312,12 +358,24 @@ async function runWebFetch(
   if (hosts.length === 0) {
     return fail("No web fetch hosts configured. Add allowed hosts in Settings → Tools.");
   }
-  try {
-    const body = await invokeWebFetch(url, hosts);
-    return ok(body);
-  } catch (e) {
-    return fail((e as Error).message);
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAY_MS);
+    try {
+      const body = await invokeWebFetch(url, hosts);
+      return ok(body);
+    } catch (e) {
+      if (!isRetryableError(e)) {
+        return fail(toolErrorMessage(e));
+      }
+      lastError = e;
+    }
   }
+
+  const msg = `Error: network_error — ${toolErrorMessage(lastError)} (retried once)`;
+  context?.onNetworkRetryExhausted?.("Network error — fetch failed after retry");
+  return fail(msg);
 }
 
 async function runShellCommand(
@@ -407,6 +465,10 @@ export async function executeTool(
 ): Promise<ToolResult> {
   if (!isTauriAvailable()) {
     return fail("Tool execution requires the Tauri desktop environment.");
+  }
+
+  if (context?.readOnly && WRITE_TOOLS.has(name)) {
+    return fail("Error: read_only_mode — This workspace is open read-only in this window.");
   }
 
   const wsCheck = requireWorkspacePath(workspacePath);

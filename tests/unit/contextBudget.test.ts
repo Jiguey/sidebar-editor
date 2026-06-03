@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Message as ProviderMessage } from "../../src/lib/providers/openaiCompat";
 import {
   contextBudgetLimit,
+  contextUsageLevel,
   effectiveReserveTokens,
   estimateProviderMessagesTokens,
   isAgentContextBudgetExceeded,
@@ -60,5 +61,26 @@ describe("contextBudget", () => {
       { role: "user", content: "Hello" },
     ];
     expect(isAgentContextBudgetExceeded(messages, 8192)).toBe(false);
+  });
+
+  describe("contextUsageLevel", () => {
+    it("returns healthy below 70%", () => {
+      expect(contextUsageLevel(6000, 10000)).toBe("healthy");
+      expect(contextUsageLevel(0, 10000)).toBe("healthy");
+    });
+
+    it("returns warning at 70–90%", () => {
+      expect(contextUsageLevel(7000, 10000)).toBe("warning");
+      expect(contextUsageLevel(8999, 10000)).toBe("warning");
+    });
+
+    it("returns critical at 90%+", () => {
+      expect(contextUsageLevel(9000, 10000)).toBe("critical");
+      expect(contextUsageLevel(10000, 10000)).toBe("critical");
+    });
+
+    it("returns healthy when budgetLimit is 0", () => {
+      expect(contextUsageLevel(5000, 0)).toBe("healthy");
+    });
   });
 });

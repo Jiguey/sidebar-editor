@@ -18,7 +18,7 @@ describe("iconTheme storage migration", () => {
   });
 
   it("migrates legacy vscode-icons preference to seti", async () => {
-    store["tinyllama.iconTheme.v1"] = JSON.stringify({
+    store["sidebar.iconTheme.v1"] = JSON.stringify({
       themeId: "vscode-icons",
       customPackPath: null,
       revision: 3,
@@ -26,12 +26,12 @@ describe("iconTheme storage migration", () => {
 
     const { iconTheme } = await import("../../src/lib/stores/iconTheme");
     expect(iconTheme.get().themeId).toBe("seti");
-    expect(store["tinyllama.iconTheme.v2"]).toBeTruthy();
-    expect(store["tinyllama.iconTheme.v1"]).toBeUndefined();
+    expect(store["sidebar.iconTheme.v2"]).toBeTruthy();
+    expect(store["sidebar.iconTheme.v1"]).toBeUndefined();
   });
 
   it("keeps legacy codicons preference", async () => {
-    store["tinyllama.iconTheme.v1"] = JSON.stringify({
+    store["sidebar.iconTheme.v1"] = JSON.stringify({
       themeId: "codicons",
       customPackPath: null,
       revision: 0,

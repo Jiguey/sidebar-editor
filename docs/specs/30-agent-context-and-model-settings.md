@@ -1,6 +1,6 @@
 # Spec 30 — Agent Context & Model Settings
 
-> **Status:** 🔶 Phase 0 implemented — settings v4 migration, Agent Context section (prompts moved from explorer; skills placeholder), per-model + provider defaults, assembly preview modal, `assembleSystemPrompt`, `toolCallFormat` branching, chat workspace toggle. Skills Phase 1+ still pending ([23-skills-system.md](23-skills-system.md)).
+> **Status:** 🔶 Phase 0 + Skills Phase 1 core implemented — settings v4 migration, Agent Context section, per-model + provider defaults, assembly preview, `assembleSystemPrompt`, `toolCallFormat` branching, chat workspace toggle. **Skills now inject into the live system prompt**: `buildActiveSkillBlocks` filters enabled skills by mode; `interpolateSkill` substitutes `{{variables}}` per §10 (unknown tokens left literal, §10.3); loaded on workspace open via `projectState`. Deferred to v0.1.1: auto-detection signals (§5.4), drag-reorder priority, global/bundled scopes (§5.5), `skills-config.json` overrides, `{{file_tree}}`/`{{project_type}}` population.
 > **Version:** 1.0 — May 2026
 > **Area:** Settings · Agent Prompts · Skills · System Prompts · Providers
 > **Phase:** Final — implemented after all other Enhancement Program specs ([17-roadmap.md](17-roadmap.md))

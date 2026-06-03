@@ -1,6 +1,6 @@
 # Spec 38 — Parallel Tool Execution
 
-> **Status:** ❌ Not started
+> **Status:** ✅ Implemented — parallel batch execution with Promise.all chunked by maxConcurrentTools; isReadOnlyTool classification; settings UI.
 > **Area:** Agent Loop · Tool Execution · Settings
 > **Phase:** B — Enhancement
 > **Depends on:** [08-ai-agent.md](08-ai-agent.md) · [09-tool-system.md](09-tool-system.md) · [30-agent-context-and-model-settings.md](30-agent-context-and-model-settings.md)

@@ -1,6 +1,6 @@
 # Tiny Llama — Specifications
 
-> **Last aligned with codebase:** 2026-06-01 — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — no `sidecar/` package, no harness commands; LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
+> **Last aligned with codebase:** 2026-06-03 — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
 
 This directory contains the detailed engineering specifications for Tiny Llama, organized by domain.
 
@@ -17,15 +17,16 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | **Persistence** | ✅ Complete | Per-project state, global settings |
 | **Context UI** | ✅ Complete | Segmented bar, breakdown popover, compaction archive/restore — [39](39-context-ui-enhancements.md) |
 | **Compaction** | ✅ Complete | Manual + auto compaction, archive/restore — [21](21-context-compaction.md) |
-| **Editor UX** | ✅ Complete | Editor wrap, Prettier formatting — [20](20-editor-formatting-and-theming.md) |
-| **Search** | ✅ Core implemented | Workspace text search (ripgrep) — [26](26-search-panel.md) |
-| **Filesystem Watcher** | ✅ Core implemented | Debounced `fs:changed` → tree + git refresh — [24](24-filesystem-watcher.md) |
+| **Editor UX** | ✅ Complete | Line wrap, Prettier format / format-on-save, full syntax + editor chrome in Appearance — [20](20-editor-formatting-and-theming.md) |
+| **Search** | ✅ Complete | Workspace text search (ripgrep) — [26](26-search-panel.md) |
+| **Filesystem Watcher** | ✅ Complete | Debounced `fs:changed` → tree + git refresh — [24](24-filesystem-watcher.md) |
+| **Enhancement Program (32–38)** | ✅ Mostly complete | Error recovery, overflow warnings, workspace lock, onboarding, shortcuts, parallel tools — see table below |
+| **LSP** | 🔶 Partial | Rust transport + TS client; diagnostics + hover — [25](25-lsp-diagnostics.md) |
 | **Stall / Error Detection** | 🔶 Partial | `stallDetection.ts` done, wire-up done — [22](22-llm-file-interaction.md) |
 | **Security Hardening** | 🔶 Partial | TS sandbox; Rust path enforcement pending — [14](14-security.md), [33](33-rust-path-enforcement.md) |
 | **Skills** | 🔶 Placeholder | Slot wired in `assemble.ts`; implementation pending — [30](30-agent-context-and-model-settings.md) |
-| **Enhancement Program (32–38)** | ❌ Not started | Error recovery, path enforcement, overflow warnings, workspace lock, onboarding, shortcuts, parallel tools |
 | **Planning System** | ❌ Not started | `plans/` files, picker UI — [19](19-planning-system.md) |
-| **Advanced Features** | ❌ Not started | LSP [25](25-lsp-diagnostics.md), inline edit [28](28-inline-edit-autocomplete.md) |
+| **Inline edit (Cmd+K)** | ❌ Not started | [28](28-inline-edit-autocomplete.md) |
 
 ---
 
@@ -48,8 +49,8 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | [06-state-management.md](06-state-management.md) | ✅ Complete | Stores, persistence, cross-store coordination |
 | [07-workspace.md](07-workspace.md) | ✅ Complete | Project lifecycle, local files |
 | [26-search-panel.md](26-search-panel.md) | ✅ Core implemented | Workspace text search (ripgrep) panel, grouped results, click-to-open |
-| [35-workspace-lock.md](35-workspace-lock.md) | ❌ Not started | PID-based lock file, conflict dialog, read-only mode |
-| [36-first-run-onboarding.md](36-first-run-onboarding.md) | ❌ Not started | Empty states for no-workspace, no-model, model-unreachable |
+| [35-workspace-lock.md](35-workspace-lock.md) | ✅ Complete | PID-based lock file, conflict dialog, read-only mode |
+| [36-first-run-onboarding.md](36-first-run-onboarding.md) | ✅ Complete | Welcome screen, recent projects, CLI open modes |
 
 ### AI System
 
@@ -66,9 +67,9 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | [29-skills-registry.md](29-skills-registry.md) | ❌ Deferred (P3) | Share/install skills; format-stability obligations now |
 | [30-agent-context-and-model-settings.md](30-agent-context-and-model-settings.md) | 🔶 Phase 0 | Agent Context settings, prompts relocation, per-model settings, assembly preview · skills Phase 1+ pending · Addendum A: skills CRUD |
 | [31-llm-eval-harness.md](31-llm-eval-harness.md) | ✅ Implemented | Long-running Chat/Plan/Agent eval vs Ollama (`tests/llm/`) |
-| [32-agent-error-recovery.md](32-agent-error-recovery.md) | ❌ Not started | Tool error formatting, continue-after-max-steps UX, web_fetch retry, abort cleanup |
-| [34-context-overflow-warnings.md](34-context-overflow-warnings.md) | ❌ Not started | Amber/red context bar states, inline critical warning above composer |
-| [38-parallel-tool-execution.md](38-parallel-tool-execution.md) | ❌ Not started | Concurrent read-only tool execution, max concurrency setting, sequential write tool guarantee |
+| [32-agent-error-recovery.md](32-agent-error-recovery.md) | ✅ Complete | Tool error formatting, continue-after-max-steps UX, web_fetch retry |
+| [34-context-overflow-warnings.md](34-context-overflow-warnings.md) | ✅ Complete | Amber/red context bar states, inline critical warning above composer |
+| [38-parallel-tool-execution.md](38-parallel-tool-execution.md) | ✅ Complete | Concurrent read-only tool execution, max concurrency setting |
 | [39-context-ui-enhancements.md](39-context-ui-enhancements.md) | ✅ Implemented | Segmented context bar, breakdown popover, compaction archive/restore UI |
 
 ### Editor & Git
@@ -76,8 +77,8 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | Document | Status | Description |
 |----------|--------|-------------|
 | [10-editor.md](10-editor.md) | 🔶 Partial | Languages, syntax, diff mode |
-| [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) | ✅ Complete | Editor wrap, Prettier formatting, full syntax/markdown colors |
-| [25-lsp-diagnostics.md](25-lsp-diagnostics.md) | ❌ Spec ready | LSP transport, TS diagnostics/hover, multi-language |
+| [20-editor-formatting-and-theming.md](20-editor-formatting-and-theming.md) | ✅ Complete | Editor wrap, Prettier, syntax + editor chrome in Appearance |
+| [25-lsp-diagnostics.md](25-lsp-diagnostics.md) | 🔶 Partial | LSP transport, diagnostics, hover; Phase 2 features pending |
 | [11-git.md](11-git.md) | ✅ Complete | Git UI, Rust backend, agent tools |
 
 ### Infrastructure
@@ -91,7 +92,7 @@ This directory contains the detailed engineering specifications for Tiny Llama, 
 | [16-build.md](16-build.md) | ✅ Complete | Build commands |
 | [24-filesystem-watcher.md](24-filesystem-watcher.md) | ✅ Core implemented | `watcher.rs` → debounced `fs:changed` → tree + git refresh |
 | [33-rust-path-enforcement.md](33-rust-path-enforcement.md) | ❌ Not started | `canonicalize_workspace_path` in Rust, symlink escape hardening, `workspace_root` param on all filesystem commands |
-| [37-shortcut-rebinding.md](37-shortcut-rebinding.md) | ❌ Not started | Keybindings settings UI, `tinyllama.keybindings.v1` persistence, conflict detection |
+| [37-shortcut-rebinding.md](37-shortcut-rebinding.md) | ✅ Complete | Keybindings settings UI, `tinyllama.keybindings.v1` persistence, conflict detection |
 
 ### Planning
 
@@ -111,20 +112,20 @@ These were the specs added as part of the competitive enhancement program (`exte
 | [22](22-llm-file-interaction.md) | LLM ↔ File Interaction | ✅ Phase 0 complete |
 | [23](23-skills-system.md) | Skills System | ⚠️ Superseded by 30 |
 | [24](24-filesystem-watcher.md) | Filesystem Watcher | ✅ Core implemented |
-| [25](25-lsp-diagnostics.md) | LSP Diagnostics | ❌ Not started |
-| [26](26-search-panel.md) | Search Panel | ✅ Core implemented |
+| [25](25-lsp-diagnostics.md) | LSP Diagnostics | 🔶 Partial (Phase 1) |
+| [26](26-search-panel.md) | Search Panel | ✅ Complete |
 | [27](27-local-model-ux.md) | Local Model UX | 🔶 Partial |
 | [28](28-inline-edit-autocomplete.md) | Inline Edit / Cmd+K | ❌ Not started |
 | [29](29-skills-registry.md) | Skills Registry | ❌ Deferred P3 |
 | [30](30-agent-context-and-model-settings.md) | Agent Context & Model Settings | 🔶 Phase 0 |
 | [31](31-llm-eval-harness.md) | LLM Eval Harness | ✅ Implemented |
-| [32](32-agent-error-recovery.md) | Agent Error Recovery | ❌ Not started |
+| [32](32-agent-error-recovery.md) | Agent Error Recovery | ✅ Complete |
 | [33](33-rust-path-enforcement.md) | Rust Path Enforcement | ❌ Not started |
-| [34](34-context-overflow-warnings.md) | Context Overflow Warnings | ❌ Not started |
-| [35](35-workspace-lock.md) | Workspace Lock | ❌ Not started |
-| [36](36-first-run-onboarding.md) | First-Run / Onboarding | ❌ Not started |
-| [37](37-shortcut-rebinding.md) | Shortcut Rebinding | ❌ Not started |
-| [38](38-parallel-tool-execution.md) | Parallel Tool Execution | ❌ Not started |
+| [34](34-context-overflow-warnings.md) | Context Overflow Warnings | ✅ Complete |
+| [35](35-workspace-lock.md) | Workspace Lock | ✅ Complete |
+| [36](36-first-run-onboarding.md) | First-Run / Onboarding | ✅ Complete |
+| [37](37-shortcut-rebinding.md) | Shortcut Rebinding | ✅ Complete |
+| [38](38-parallel-tool-execution.md) | Parallel Tool Execution | ✅ Complete |
 | [39](39-context-ui-enhancements.md) | Context UI Enhancements | ✅ Implemented |
 
 ---

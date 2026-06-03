@@ -1,11 +1,12 @@
 {
-  "name": "tiny-llama",
+  "name": "sidebar-editor",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.33.4",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/free-dev-port.mjs && vite",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/free-dev-port.mjs && vite",
     "dev:desktop": "node scripts/tauri-dev.mjs dev",
     "build": "pnpm run test && vite build",
     "build:skip-tests": "vite build",

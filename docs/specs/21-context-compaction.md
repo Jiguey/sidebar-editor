@@ -1,6 +1,6 @@
 # Spec 21 — Context Compaction
 
-> **Status:** ❌ Not started  
+> **Status:** ✅ Implemented — compaction loop, manual/auto compact, visual divider, settings UI all shipped.
 > **Area:** Agent Loop · Persistence · Settings  
 > **Phase:** B — Trust and reliability  
 > **Depends on:** [08-ai-agent.md](08-ai-agent.md) (agent loop) · [06-state-management.md](06-state-management.md) (persistence) · [09-tool-system.md](09-tool-system.md) (tools) · [19-planning-system.md](19-planning-system.md) (active plan in summary)
