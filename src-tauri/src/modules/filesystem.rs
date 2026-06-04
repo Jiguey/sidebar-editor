@@ -166,6 +166,16 @@ pub fn read_file_ranged(
 }
 
 pub fn write_file_contents(path: &str, contents: &str) -> Result<(), String> {
+    // `fs::write` does not create intermediate directories, so writing to a
+    // nested path like `glass_rainbow/__init__.py` fails with ENOENT when the
+    // parent folder doesn't exist yet. Create the parent chain first so new
+    // files (editor "New file" and the agent's write_file/create_file tools)
+    // land in fresh subdirectories without a separate mkdir step.
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
     fs::write(path, contents).map_err(|e| e.to_string())
 }
 
@@ -335,4 +345,26 @@ pub fn web_fetch(url: &str, allowed_hosts: &[String], max_bytes: usize) -> Resul
         .collect::<Vec<u8>>();
     let text = String::from_utf8_lossy(&bytes).to_string();
     Ok(text)
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+
+    #[test]
+    fn write_file_contents_creates_missing_parent_dirs() {
+        let base = std::env::temp_dir().join(format!(
+            "tl_write_test_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let nested = base.join("glass_rainbow").join("__init__.py");
+        let nested_str = nested.to_string_lossy().to_string();
+
+        // Parent dirs do not exist yet — this used to fail with ENOENT.
+        write_file_contents(&nested_str, "print(1)").expect("should create parents and write");
+        assert_eq!(fs::read_to_string(&nested).unwrap(), "print(1)");
+
+        let _ = fs::remove_dir_all(&base);
+    }
 }

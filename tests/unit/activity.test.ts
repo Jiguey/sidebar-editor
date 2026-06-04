@@ -17,6 +17,7 @@ describe("activity", () => {
     expect(toolActivityLabel("read_file")).toBe("Read");
     expect(toolActivityLabel("grep")).toBe("Grepped");
     expect(toolActivityLabel("write_file")).toBe("Write");
+    expect(toolActivityLabel("parse_error")).toBe("Parse error");
   });
 
   it("formats activity lines", () => {

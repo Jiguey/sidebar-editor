@@ -225,9 +225,22 @@ import {
 
   function thoughtSectionKey(
     blockId: string,
-    section: "thought" | "plan" | "response" | "tools"
+    section: "thought" | "plan" | "response"
   ) {
     return `${blockId}:${section}`;
+  }
+
+  function toolSectionKey(blockId: string, toolId: string) {
+    return `${blockId}:tool:${toolId}`;
+  }
+
+  function isToolOpen(blockId: string, toolId: string): boolean {
+    return thinkingOpen[toolSectionKey(blockId, toolId)] === true;
+  }
+
+  function toggleTool(blockId: string, toolId: string) {
+    const key = toolSectionKey(blockId, toolId);
+    thinkingOpen = { ...thinkingOpen, [key]: !thinkingOpen[key] };
   }
 
   function toggleThoughtSection(blockId: string, section: "thought" | "plan") {
@@ -243,15 +256,6 @@ import {
   function toggleResponseSection(blockId: string) {
     const key = thoughtSectionKey(blockId, "response");
     thinkingOpen = { ...thinkingOpen, [key]: !isResponseOpen(blockId) };
-  }
-
-  function isToolsOpen(blockId: string): boolean {
-    return thinkingOpen[thoughtSectionKey(blockId, "tools")] === true;
-  }
-
-  function toggleToolsSection(blockId: string) {
-    const key = thoughtSectionKey(blockId, "tools");
-    thinkingOpen = { ...thinkingOpen, [key]: !isToolsOpen(blockId) };
   }
 
   function patchLiveTurn(patch: (turn: AgentTurnBlock) => AgentTurnBlock) {
@@ -1965,11 +1969,11 @@ import {
               thinkingOpen={thinkingOpen[thoughtSectionKey(block.id, "thought")] ?? false}
               planOpen={thinkingOpen[thoughtSectionKey(block.id, "plan")] ?? false}
               responseOpen={isResponseOpen(block.id)}
-              toolsOpen={isToolsOpen(block.id)}
+              isToolOpen={(toolId) => isToolOpen(block.id, toolId)}
               onToggleThinking={() => toggleThoughtSection(block.id, "thought")}
               onTogglePlan={() => toggleThoughtSection(block.id, "plan")}
               onToggleResponse={() => toggleResponseSection(block.id)}
-              onToggleTools={() => toggleToolsSection(block.id)}
+              onToggleTool={(toolId) => toggleTool(block.id, toolId)}
               onOpenFile={(path) => void openToolFile(path)}
             />
           </div>
@@ -1979,19 +1983,20 @@ import {
 
 
     {#if $chat.isStreaming && liveTurn}
+      {@const lt = liveTurn}
       <div class="message assistant agent-turn">
         <AgentActivityFeed
-          turn={liveTurn}
+          turn={lt}
           workspacePath={$files.workspacePath ?? ""}
           streaming={true}
-          thinkingOpen={thinkingOpen[thoughtSectionKey(liveTurn.id, "thought")] ?? false}
-          planOpen={thinkingOpen[thoughtSectionKey(liveTurn.id, "plan")] ?? false}
+          thinkingOpen={thinkingOpen[thoughtSectionKey(lt.id, "thought")] ?? false}
+          planOpen={thinkingOpen[thoughtSectionKey(lt.id, "plan")] ?? false}
           responseOpen={true}
-          toolsOpen={isToolsOpen(liveTurn.id)}
-          onToggleThinking={() => toggleThoughtSection(liveTurn.id, "thought")}
-          onTogglePlan={() => toggleThoughtSection(liveTurn.id, "plan")}
-          onToggleResponse={() => toggleResponseSection(liveTurn.id)}
-          onToggleTools={() => toggleToolsSection(liveTurn.id)}
+          isToolOpen={(toolId) => isToolOpen(lt.id, toolId)}
+          onToggleThinking={() => toggleThoughtSection(lt.id, "thought")}
+          onTogglePlan={() => toggleThoughtSection(lt.id, "plan")}
+          onToggleResponse={() => toggleResponseSection(lt.id)}
+          onToggleTool={(toolId) => toggleTool(lt.id, toolId)}
           onOpenFile={(path) => void openToolFile(path)}
         />
       </div>
@@ -2540,7 +2545,7 @@ import {
     min-width: 0;
     overflow: hidden;
     border-radius: inherit;
-    background: var(--chat-panel-bg, var(--sidebar));
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
   }
 
   .tool-approval-slot {
@@ -2958,6 +2963,7 @@ import {
   }
 
   .message-user-composer.composer-shell--chromed {
+    --composer-chrome-fill: var(--chat-message-box-bg, var(--workbench-control-bg, #2d2d30));
     width: 100%;
     cursor: pointer;
   }
@@ -3148,7 +3154,7 @@ import {
     color: #858585;
     padding: 5px 8px;
     border-bottom: 1px solid #2d2d30;
-    background: #252526;
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
   }
 
   .thinking-live-body {
@@ -3232,13 +3238,13 @@ import {
     gap: 0;
     border-radius: 8px;
     border: 1px solid transparent;
-    background: #2d2d30;
+    background: var(--workbench-control-bg, var(--secondary));
     overflow: visible;
   }
 
   /* Composer chrome: editor fill + 1px border (idle / focused / streaming rainbow). */
   .composer-shell--chromed {
-    --composer-chrome-fill: var(--editor-bg, #1e1e1e);
+    --composer-chrome-fill: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     position: relative;
     background: var(--composer-chrome-fill);
     border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
@@ -3328,7 +3334,7 @@ import {
   }
 
   .composer-toolbar {
-    --composer-tool-cluster-bg: var(--chat-panel-bg, var(--sidebar));
+    --composer-tool-cluster-bg: var(--workbench-control-bg, var(--secondary));
     display: flex;
     align-items: center;
     gap: 6px;
@@ -3447,7 +3453,7 @@ import {
     min-width: 180px;
     max-width: 240px;
     padding: 4px 0;
-    background: #252526;
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     border: 1px solid #3c3c3c;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -3589,7 +3595,7 @@ import {
     overflow-y: auto;
     overflow-x: hidden;
     padding: 4px 0;
-    background: #252526;
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     border: 1px solid #3c3c3c;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -3691,7 +3697,7 @@ import {
     flex-shrink: 0;
     padding: 8px 10px 10px;
     border-top: 1px solid transparent;
-    background: #252526;
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     overflow: visible;
     position: relative;
     z-index: 1;
@@ -4056,7 +4062,7 @@ import {
     max-height: 220px;
     overflow-y: auto;
     padding: 4px 0;
-    background: #252526;
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     border: 1px solid #3c3c3c;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);

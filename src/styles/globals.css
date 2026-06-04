@@ -35,18 +35,21 @@
   --chat-panel-inset-block-top: var(--workbench-panel-gap-top);
   --chat-panel-inset-block-bottom: var(--workbench-panel-gap-bottom);
   --chat-panel-radius: 10px;
-  --chat-panel-bg: var(--sidebar);
+  --chat-panel-bg: var(--workbench-panel-bg, var(--sidebar));
   --chat-panel-border: color-mix(in srgb, var(--border) 45%, transparent);
   /** Explorer / git / prompt pane (right secondary column). */
   --explorer-panel-inset-block-top: var(--workbench-panel-gap-top);
   --explorer-panel-inset-block-bottom: var(--workbench-panel-gap-bottom);
   --explorer-panel-inset-inline: var(--workbench-edge-inset);
   --explorer-panel-radius: var(--chat-panel-radius);
-  --explorer-panel-bg: var(--chat-panel-bg);
+  --explorer-panel-bg: var(--workbench-panel-bg, var(--sidebar));
   --explorer-panel-border: var(--chat-panel-border);
   /** Rounded tab strip (chat + editor tabs) under the title bar. */
   --workbench-tab-strip-radius: 8px;
-  --workbench-tab-strip-bg: var(--sidebar);
+  --workbench-tab-strip-bg: var(--workbench-panel-bg, var(--sidebar));
+  --workbench-shell-bg: var(--workbench-panel-bg, var(--background));
+  --workbench-control-bg: var(--secondary);
+  --workbench-control-active-bg: var(--muted);
   --workbench-tab-strip-inset-x: var(--workbench-edge-inset);
   --workbench-tab-strip-inset-bottom: 0px;
   --workbench-tab-strip-inner-padding-left: 8px;

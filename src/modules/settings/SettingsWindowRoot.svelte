@@ -7,6 +7,7 @@
   import { editorChrome } from "$lib/stores/editorChrome";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
+  import { workbenchChrome } from "$lib/stores/workbenchChrome";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
   import WindowControls from "../workbench/WindowControls.svelte";
   import SettingsPane from "./SettingsPane.svelte";
@@ -15,6 +16,7 @@
   editorChrome.init();
   explorerAppearance.init();
   chatAppearance.init();
+  workbenchChrome.init();
 
   function onClose() {
     void getCurrentWindow().close();

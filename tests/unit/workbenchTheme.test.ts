@@ -14,4 +14,8 @@ describe("normalizeWorkbenchTheme", () => {
   it("accepts rose-pine preset", () => {
     expect(normalizeWorkbenchTheme("rose-pine")).toBe("rose-pine");
   });
+
+  it("accepts dark-bubblegum preset", () => {
+    expect(normalizeWorkbenchTheme("dark-bubblegum")).toBe("dark-bubblegum");
+  });
 });

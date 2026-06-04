@@ -91,13 +91,13 @@
     padding: 0;
     border: none;
     border-radius: 9999px;
-    background: var(--secondary);
+    background: var(--workbench-control-bg, var(--secondary));
     color: var(--muted-foreground);
     cursor: pointer;
   }
 
   .hdr-tab-aux-btn:hover {
-    background: var(--muted);
+    background: var(--workbench-control-active-bg, var(--muted));
     color: var(--foreground);
   }
 

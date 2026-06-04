@@ -11,10 +11,10 @@
     formatToolOutput,
     shouldRenderToolOutputAsMarkdown,
     toolOutputDisplayBody,
-    toolCompactLabel,
     toolFileLine,
     toolResultIsError,
   } from "$lib/agent/toolDisplay";
+  import { formatToolActivityLine } from "$lib/agent/activity";
   import { chatAppearance } from "$lib/stores/chatAppearance";
   import ChatMarkdown from "$lib/components/ChatMarkdown.svelte";
 
@@ -25,11 +25,11 @@
     thinkingOpen = false,
     planOpen = false,
     responseOpen = true,
-    toolsOpen = false,
+    isToolOpen,
     onToggleThinking,
     onTogglePlan,
     onToggleResponse,
-    onToggleTools,
+    onToggleTool,
     onOpenFile,
   }: {
     turn: AgentTurnBlock;
@@ -38,11 +38,12 @@
     thinkingOpen?: boolean;
     planOpen?: boolean;
     responseOpen?: boolean;
-    toolsOpen?: boolean;
+    /** Whether an individual tool's detail panel is expanded. */
+    isToolOpen?: (toolId: string) => boolean;
     onToggleThinking?: () => void;
     onTogglePlan?: () => void;
     onToggleResponse?: () => void;
-    onToggleTools?: () => void;
+    onToggleTool?: (toolId: string) => void;
     onOpenFile?: (path: string) => void;
   } = $props();
 
@@ -58,10 +59,6 @@
   let hasResponse = $derived(Boolean(turn.response.trim()));
   let showResponse = $derived(hasResponse && !isRedundantToolTurnResponse(turn));
   let responseExpanded = $derived(streaming ? true : responseOpen);
-  let toolsExpanded = $derived(toolsOpen);
-  let toolsRunning = $derived(
-    turn.tools.some((t) => (t.status === "running" || t.status === "pending") && !t.content)
-  );
   let showWaiting = $derived(
     streaming && !hasTools && !hasThinking && !hasPlan && !showResponse
   );
@@ -160,82 +157,74 @@
     </div>
   {/if}
 
-  {#if hasTools}
-    <div class="activity-tools-block" class:running={toolsRunning}>
+  {#each turn.tools as tool (tool.id)}
+    {@const state = toolChipState(tool)}
+    {@const open = isToolOpen?.(tool.id) ?? false}
+    {@const toolRunning = state === "running"}
+    {@const fileLine = toolFileLine(tool.name, tool.input, workspacePath)}
+    {@const openPath = toolOpenPath(tool)}
+    {@const hasInput = Object.keys(tool.input).length > 0}
+    <div class="activity-tool" class:running={toolRunning}>
       <button
         type="button"
-        class="activity-tool-line activity-row-toggle"
-        onclick={() => onToggleTools?.()}
-        aria-expanded={toolsExpanded}
+        class="activity-tool-line activity-tool-row activity-row-toggle"
+        class:success={state === "success"}
+        class:failed={state === "failed"}
+        class:stopped={state === "stopped"}
+        onclick={() => onToggleTool?.(tool.id)}
+        aria-expanded={open}
       >
-        {#if toolsRunning}
+        {#if toolRunning}
           <LoaderCircle size={12} strokeWidth={2} class="activity-spinner" aria-hidden="true" />
         {/if}
         <span class="activity-row-label">
-          <span class="activity-tool-chips">
-            {#each turn.tools as tool, i (tool.id)}
-              {#if i > 0}<span class="activity-chip-sep" aria-hidden="true">·</span>{/if}
-              {@const state = toolChipState(tool)}
-              <span
-                class="activity-tool-chip"
-                class:success={state === "success"}
-                class:failed={state === "failed"}
-                class:running={state === "running"}
-                class:stopped={state === "stopped"}
-              >
-                {toolCompactLabel(tool.name)}
-              </span>
-            {/each}
+          <span class="activity-tool-text activity-tool-row-label">
+            {formatToolActivityLine(tool.name, tool.input)}
           </span>
-          <span class="activity-chevron" class:open={toolsExpanded}>
+          <span class="activity-chevron" class:open>
             <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
           </span>
         </span>
       </button>
-
-      {#if toolsExpanded}
-        <div class="activity-tools-detail">
-          {#each turn.tools as tool (tool.id)}
-            {@const fileLine = toolFileLine(tool.name, tool.input, workspacePath)}
-            {@const openPath = toolOpenPath(tool)}
-            {@const hasInput = Object.keys(tool.input).length > 0}
-            <div class="activity-tool-detail">
-              {#if fileLine}
-                <p class="activity-detail-line">
-                  <span class="activity-detail-key">file:</span>
-                  {#if openPath && onOpenFile}
-                    <button
-                      type="button"
-                      class="activity-detail-link"
-                      onclick={() => onOpenFile(openPath)}
-                    >
-                      {fileLine}
-                    </button>
-                  {:else}
-                    <span class="activity-detail-value">{fileLine}</span>
-                  {/if}
-                </p>
-              {/if}
-              {#if hasInput}
-                <p class="activity-detail-key">input:</p>
-                <pre class="activity-detail-block">{formatToolInput(tool.name, tool.input)}</pre>
-              {/if}
-              {#if tool.content}
-                <p class="activity-detail-key">output:</p>
-                {#if shouldRenderToolOutputAsMarkdown(tool.name, tool.content)}
-                  <div class="activity-detail-markdown">
-                    <ChatMarkdown content={toolOutputDisplayBody(tool.name, tool.content)} />
-                  </div>
+      {#if open}
+        <div class="activity-tool-detail-body">
+          <div class="activity-tool-detail">
+            <p class="activity-detail-key activity-detail-name">{tool.name}</p>
+            {#if fileLine}
+              <p class="activity-detail-line">
+                <span class="activity-detail-key">file:</span>
+                {#if openPath && onOpenFile}
+                  <button
+                    type="button"
+                    class="activity-detail-link"
+                    onclick={() => onOpenFile(openPath)}
+                  >
+                    {fileLine}
+                  </button>
                 {:else}
-                  <pre class="activity-detail-block">{formatToolOutput(tool.content)}</pre>
+                  <span class="activity-detail-value">{fileLine}</span>
                 {/if}
+              </p>
+            {/if}
+            {#if hasInput}
+              <p class="activity-detail-key">input:</p>
+              <pre class="activity-detail-block">{formatToolInput(tool.name, tool.input)}</pre>
+            {/if}
+            {#if tool.content}
+              <p class="activity-detail-key">output:</p>
+              {#if shouldRenderToolOutputAsMarkdown(tool.name, tool.content)}
+                <div class="activity-detail-markdown">
+                  <ChatMarkdown content={toolOutputDisplayBody(tool.name, tool.content)} />
+                </div>
+              {:else}
+                <pre class="activity-detail-block">{formatToolOutput(tool.content)}</pre>
               {/if}
-            </div>
-          {/each}
+            {/if}
+          </div>
         </div>
       {/if}
     </div>
-  {/if}
+  {/each}
 
   {#if showResponse}
     <div class="activity-tool activity-response-block">
@@ -354,7 +343,7 @@
 
   .activity-thinking-body,
   .activity-response-body,
-  .activity-tools-detail {
+  .activity-tool-detail-body {
     width: 100%;
     min-width: 0;
     margin-top: 2px;
@@ -362,41 +351,30 @@
     box-sizing: border-box;
   }
 
-  .activity-tool-chips {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px 4px;
-    min-width: 0;
-  }
-
-  .activity-chip-sep {
-    color: var(--muted-foreground);
-    opacity: 0.45;
-    user-select: none;
-  }
-
-  .activity-tool-chip {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 11px;
-    line-height: 1.3;
-    flex-shrink: 0;
-  }
-
-  .activity-tool-chip.success {
+  .activity-tool-row .activity-tool-row-label {
     color: var(--chat-activity-tool-done, #7dd3c0);
   }
 
-  .activity-tool-chip.failed {
+  .activity-tool-row.success .activity-tool-row-label {
+    color: var(--chat-activity-tool-done, #7dd3c0);
+  }
+
+  .activity-tool-row.failed .activity-tool-row-label {
     color: var(--chat-activity-tool-failed, #f08080);
   }
 
-  .activity-tool-chip.running {
+  .activity-tool.running .activity-tool-row-label {
     color: var(--chat-activity-tool-running, #9ec9b8);
   }
 
-  .activity-tool-chip.stopped {
+  .activity-tool-row.stopped .activity-tool-row-label {
     color: #707070;
+  }
+
+  .activity-detail-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: var(--foreground);
+    font-weight: 600;
   }
 
   .activity-tool-text {

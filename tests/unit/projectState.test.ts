@@ -142,4 +142,27 @@ describe("projectState", () => {
     expect(get(chat).sessions[0].title).toBe("Proj B chat");
     expect(get(files).workspacePath).toBe("/proj-b");
   });
+
+  it("clears stale open files/tabs on the first real open (from preview)", async () => {
+    // Simulate the welcome preview leaving a buffer + tab open with no active
+    // workspace tracked yet (activeWorkspace stays null until switch).
+    workbench.openEditorFile({
+      path: "/dev/preview/scratch.ts",
+      name: "scratch.ts",
+      content: "stale",
+      isDirty: false,
+      language: "typescript",
+    });
+    expect(get(files).openFiles).toHaveLength(1);
+    expect(get(workbench).tabs).toHaveLength(1);
+
+    mockReadProjectState.mockResolvedValue(null); // new project, no saved state
+
+    await switchProjectWorkspace("/proj-a");
+
+    expect(get(files).workspacePath).toBe("/proj-a");
+    expect(get(files).openFiles).toHaveLength(0);
+    expect(get(workbench).tabs).toHaveLength(0);
+    expect(get(workbench).activeTabId).toBeNull();
+  });
 });

@@ -136,7 +136,7 @@
     flex-shrink: 0;
     border-radius: 4px;
     border: 1px solid transparent;
-    background: var(--secondary);
+    background: var(--workbench-control-bg, var(--secondary));
     color: var(--muted-foreground);
     box-sizing: border-box;
     overflow: hidden;
@@ -154,13 +154,13 @@
   }
 
   .hdr-tab--active {
-    background: var(--muted);
+    background: var(--workbench-control-active-bg, var(--muted));
     border-color: transparent;
     color: var(--foreground);
   }
 
   .hdr-tab:hover:not(.hdr-tab--active) {
-    background: var(--muted);
+    background: var(--workbench-control-active-bg, var(--muted));
   }
 
   .hdr-tab__main {

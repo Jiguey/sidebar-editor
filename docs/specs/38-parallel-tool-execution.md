@@ -86,7 +86,7 @@ These tools have no side effects — they only read state:
 | `read_file` | Read-only filesystem |
 | `grep` | Read-only search |
 | `get_file_tree` | Read-only |
-| `list_directory` | Read-only |
+| `list_dir` | Read-only |
 | `get_git_log` | Read-only git |
 | `get_git_diff` | Read-only git |
 | `get_git_status` | Read-only git |
@@ -223,13 +223,12 @@ async function executeToolCallsWithApproval(
 ### 6.2 Tool Classification
 
 ```typescript
-const READ_ONLY_TOOLS = new Set([
-  'read_file', 'grep', 'get_file_tree', 'list_directory',
-  'get_git_log', 'get_git_diff', 'get_git_status', 'web_fetch',
-])
+import { READ_ONLY_TOOLS } from './tools/toolDefinitions'
 
-function isReadOnlyTool(toolName: string): boolean {
-  return READ_ONLY_TOOLS.has(toolName)
+export const READ_ONLY_TOOL_NAMES = new Set<string>(READ_ONLY_TOOLS)
+
+export function isReadOnlyTool(toolName: string): boolean {
+  return READ_ONLY_TOOL_NAMES.has(toolName)
 }
 ```
 

@@ -39,6 +39,7 @@
   import { shortcutOverrides } from "../shortcuts/registry";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
+  import { workbenchChrome } from "$lib/stores/workbenchChrome";
   import { toggleMaximizeAppWindow } from "$lib/windowControls";
   import {
     setWorkbenchModalScrollLock,
@@ -239,6 +240,7 @@
     editorChrome.init();
     explorerAppearance.init();
     chatAppearance.init();
+    workbenchChrome.init();
     initProjectStateAutosave();
     const onBeforeUnload = () => {
       void persistCurrentProjectState();
@@ -387,7 +389,7 @@
     <WindowControls />
   </header>
 
-  {#if showTabStrip}
+  {#if $files.workspacePath && showTabStrip}
     <div class="workbench-tab-strip-host">
       <div class="workbench-tab-strip" role="toolbar" aria-label="Chat and editor tabs">
         <div class="workbench-tab-strip__chat flex min-h-0 min-w-0 max-w-[min(28rem,48vw)] shrink overflow-hidden">
@@ -499,6 +501,10 @@
 <WorkspaceLockDialog />
 
 <style>
+  .workbench-root {
+    background: var(--workbench-shell-bg, var(--background));
+  }
+
   .workbench-titlebar {
     display: flex;
     align-items: stretch;
@@ -506,7 +512,7 @@
     height: var(--workbench-titlebar-height);
     min-height: var(--workbench-titlebar-height);
     border-bottom: none;
-    background: var(--background);
+    background: var(--workbench-shell-bg, var(--background));
   }
 
   .workbench-titlebar__drag {
@@ -533,7 +539,7 @@
     box-sizing: border-box;
     padding: 0 var(--workbench-edge-inset) var(--workbench-tab-strip-inset-bottom)
       var(--workbench-edge-inset);
-    background: var(--background);
+    background: var(--workbench-shell-bg, var(--background));
   }
 
   .workbench-tab-strip {
@@ -566,7 +572,7 @@
   }
 
   .workbench-body {
-    background: var(--background);
+    background: var(--workbench-shell-bg, var(--background));
   }
 
   .chat-column,
@@ -574,7 +580,7 @@
     box-sizing: border-box;
     padding: var(--chat-panel-inset-block-top) var(--workbench-edge-inset)
       var(--chat-panel-inset-block-bottom) var(--workbench-edge-inset);
-    background: var(--background);
+    background: var(--workbench-shell-bg, var(--background));
   }
 
   .center-column {
@@ -596,7 +602,7 @@
   }
 
   .explorer-column {
-    background: var(--background);
+    background: var(--workbench-shell-bg, var(--background));
   }
 
   .workbench-tab-row-track {

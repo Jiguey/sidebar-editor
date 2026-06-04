@@ -339,7 +339,7 @@
     font-size: 10px;
     line-height: 1.25;
     color: var(--muted-foreground);
-    background: color-mix(in srgb, var(--surface, var(--card)) 88%, var(--background) 12%);
+    background: var(--workbench-panel-bg, var(--chat-panel-bg, var(--sidebar)));
     border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     flex-shrink: 0;
     min-width: 0;

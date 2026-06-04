@@ -11,8 +11,12 @@ Sidebar Editor has **three independent color systems**:
 | System | Scope | Customizable | Status |
 |--------|-------|--------------|--------|
 | Workbench theme | Global UI chrome | Yes (presets) | ✅ |
-| File icons | Explorer icons | Yes (theme packs) | ✅ |
-| Syntax colors | Editor tokens | Yes (Settings → Appearance → Syntax) | ✅ |
+| Workbench chrome overrides | Sidebar, tabs, status bar, terminal | Yes (Settings → Appearance → Theme) | ✅ |
+| Editor chrome | Editor pane (bg, gutter, selection, cursor) | Yes (Settings → Appearance → Theme → Editor) | ✅ |
+| File icons | Explorer icons | Yes (Settings → Appearance → Icons) | ✅ |
+| Syntax colors | Editor tokens | Yes (Settings → Appearance → Theme → Syntax) | ✅ |
+
+The Appearance → Theme page renders an **interactive mini-workbench preview** (`ThemeMiniWorkbench.svelte`, regions in `themePreviewRegions.ts`): click a region (workbench chrome / editor / syntax) to focus its color pickers, with live updates. **Sync from theme** repopulates pickers from the active preset; **Reset to defaults** clears overrides (`themeColorReset.ts`).
 
 ---
 
@@ -146,9 +150,13 @@ User picks folder via Tauri dialog. Expects `manifest.json` or `icons.json` + `i
 | `--syntax-emphasis` / `--syntax-strong` | Markdown emphasis |
 | `--syntax-tag` / `--syntax-regexp` | Tags, regex |
 
+## Workbench Chrome Overrides
+
+Separate from the workbench preset — **Settings → Appearance → Theme**. The `workbenchChrome` store (`src/lib/stores/workbenchChrome.ts`, helpers in `src/lib/workbench/workbenchChrome.ts`) applies per-key CSS-var overrides for sidebar, tab bar, status bar, and terminal colors on top of the active theme, persisted in `localStorage`. Overrides are applied as inline styles on `<html>` and can be reset to the active theme's values.
+
 ## Editor Chrome
 
-Separate from syntax tokens — **Settings → Appearance → Editor**:
+Separate from syntax tokens — **Settings → Appearance → Theme → Editor**:
 
 | Variable | Purpose |
 |----------|---------|

@@ -1,24 +1,49 @@
 <script lang="ts">
-  /** One labelled color row: name left, swatch + hex value right, all on one line. */
+  /** One labelled color row: name left, swatch + hex + optional reset on the right. */
   interface Props {
     label: string;
     hint: string;
     value: string;
     onChange: (value: string) => void;
+    onReset?: () => void;
   }
 
-  let { label, hint, value, onChange }: Props = $props();
+  let { label, hint, value, onChange, onReset }: Props = $props();
 
   const emit = (e: Event) => onChange((e.currentTarget as HTMLInputElement).value);
+
+  function handleReset(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    onReset?.();
+  }
 </script>
 
-<label class="color-row" title={hint}>
+<div class="color-row" title={hint}>
   <span class="color-name">{label}</span>
   <div class="color-controls">
-    <input type="color" class="color-swatch" {value} oninput={emit} />
-    <input type="text" class="color-hex" {value} spellcheck={false} oninput={emit} />
+    <input type="color" class="color-swatch" {value} oninput={emit} aria-label="{label} color" />
+    <input
+      type="text"
+      class="color-hex"
+      {value}
+      spellcheck={false}
+      oninput={emit}
+      aria-label="{label} hex"
+    />
+    {#if onReset}
+      <button
+        type="button"
+        class="color-reset"
+        title="Reset to theme default"
+        aria-label="Reset {label}"
+        onclick={handleReset}
+      >
+        ↺
+      </button>
+    {/if}
   </div>
-</label>
+</div>
 
 <style>
   .color-row {
@@ -27,7 +52,6 @@
     justify-content: space-between;
     gap: 8px;
     padding: 3px 0;
-    cursor: pointer;
   }
 
   .color-name {
@@ -72,5 +96,33 @@
   .color-hex:focus {
     outline: none;
     border-color: #525252;
+  }
+
+  .color-reset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid #404040;
+    border-radius: 5px;
+    background: #1c1c1c;
+    color: #888;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .color-reset:hover {
+    color: #d4d4d4;
+    border-color: #525252;
+    background: #262626;
+  }
+
+  .color-reset:focus-visible {
+    outline: 1px solid #6ca6e8;
+    outline-offset: 1px;
   }
 </style>

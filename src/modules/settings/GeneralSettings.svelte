@@ -1,54 +1,27 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { settings } from "$lib/stores/settings";
-  import { iconTheme } from "$lib/stores/iconTheme";
-  import { chatAppearance } from "$lib/stores/chatAppearance";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
-  import { editorChrome } from "$lib/stores/editorChrome";
-  import { syntaxTheme } from "$lib/stores/syntaxTheme";
-  import {
-    WORKBENCH_THEME_OPTIONS,
-    applyWorkbenchTheme,
-    type WorkbenchThemeId,
-  } from "$lib/workbench-theme";
-  import {
-    CHAT_WAITING_STYLE_OPTIONS,
-    type ChatWaitingStyle,
-    type ChatAppearanceMap,
-  } from "$lib/chat/chatAppearance";
   import {
     EXPLORER_SIZE_FIELDS,
     type ExplorerAppearanceMap,
   } from "$lib/explorer/explorerAppearance";
-  import { type EditorChromeMap } from "$lib/editor/editorChrome";
   import {
     DEFAULT_TAB_UNIFORM_WIDTH_PX,
     TAB_UNIFORM_WIDTH_MAX,
     TAB_UNIFORM_WIDTH_MIN,
     normalizeUniformTabWidthPx,
   } from "$lib/editor/tabWidth";
-  import { VSCODE_ICONS_ATTRIBUTION } from "$lib/icon-packs/types";
-  import { pickIconPackFolder, isTauriAvailable } from "$lib/ipc";
 
   /**
-   * General settings. Editor toggles + icon options persist immediately (owned here);
-   * the live-preview appearance drafts (`chatColors`, `explorerColors`, `editorColors`,
-   * `workbenchTheme`) are shared with AppearanceSettings, so they stay bound to the
-   * parent, which commits them on Save.
+   * General settings. Editor toggles persist immediately; explorer size drafts
+   * are shared with AppearanceSettings and commit on Save from SettingsPane.
    */
   interface Props {
-    chatColors: ChatAppearanceMap;
     explorerColors: ExplorerAppearanceMap;
-    editorColors: EditorChromeMap;
-    workbenchTheme: WorkbenchThemeId;
   }
 
-  let {
-    chatColors = $bindable(),
-    explorerColors = $bindable(),
-    editorColors = $bindable(),
-    workbenchTheme = $bindable(),
-  }: Props = $props();
+  let { explorerColors = $bindable() }: Props = $props();
 
   const initial = get(settings);
   let editorWordWrap = $state(initial.editor.wordWrap);
@@ -56,12 +29,6 @@
   let editorUniformTabWidth = $state(initial.editor.uniformTabWidth);
   let editorUniformTabWidthPx = $state(initial.editor.uniformTabWidthPx);
   let includeWorkspaceInChat = $state(initial.includeWorkspaceInChat);
-
-  const initialIcons = get(iconTheme);
-  let iconThemeId = $state<"seti" | "vscode-icons" | "codicons" | "custom">(initialIcons.themeId);
-  let iconPackCustomPath = $state(initialIcons.customPackPath ?? "");
-  let iconRefreshing = $state(false);
-  let iconRefreshStatus = $state("");
 
   function persistHeaderTabWidthPx() {
     const px = normalizeUniformTabWidthPx(editorUniformTabWidthPx);
@@ -73,7 +40,7 @@
 <div class="stack">
   <h3 class="provider-page-title">General</h3>
   <p class="note">
-    Editor, chat, explorer, theme, and icon options. Changes preview live where noted.
+    Editor, chat, and explorer options. Theme and icon colors → Appearance.
   </p>
 
   <p class="group-label">Editor</p>
@@ -144,26 +111,6 @@
     Plan and Agent modes always include workspace context. Chat mode omits it unless this
     is enabled.
   </p>
-  <p class="group-label">Chat appearance</p>
-  <label class="field">
-    <span class="name">While waiting for the model</span>
-    <span class="syntax-color-hint">Before tools or reasoning appear</span>
-    <select
-      class="input"
-      value={chatColors.waitingStyle}
-      onchange={(e) => {
-        chatColors = {
-          ...chatColors,
-          waitingStyle: (e.currentTarget as HTMLSelectElement).value as ChatWaitingStyle,
-        };
-        chatAppearance.apply(chatColors);
-      }}
-    >
-      {#each CHAT_WAITING_STYLE_OPTIONS as opt}
-        <option value={opt.id}>{opt.label}</option>
-      {/each}
-    </select>
-  </label>
 
   <p class="group-label">Explorer</p>
   {#each EXPLORER_SIZE_FIELDS as field}
@@ -184,120 +131,6 @@
       />
     </label>
   {/each}
-
-  <p class="group-label">Theme</p>
-  <p class="note muted">
-    Workbench colors — editor background, sidebar, tabs, status bar, and terminal.
-  </p>
-  <label class="field">
-    <span class="name">Color theme</span>
-    <select
-      class="input"
-      bind:value={workbenchTheme}
-      onchange={() => {
-        applyWorkbenchTheme(workbenchTheme);
-        editorColors = editorChrome.syncFromActiveTheme();
-        syntaxTheme.syncFromActiveTheme();
-      }}
-    >
-      {#each WORKBENCH_THEME_OPTIONS as opt}
-        <option value={opt.id}>{opt.label}</option>
-      {/each}
-    </select>
-  </label>
-
-  <p class="group-label">Icons</p>
-  <p class="note muted">
-    File and folder icons in the explorer. Default pack:
-    <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-      {VSCODE_ICONS_ATTRIBUTION.name}
-    </a>
-    ({VSCODE_ICONS_ATTRIBUTION.license}).
-  </p>
-  <label class="field">
-    <span class="name">Icon theme</span>
-    <select
-      class="input"
-      bind:value={iconThemeId}
-      onchange={() => {
-        iconTheme.setThemeId(iconThemeId);
-        void iconTheme.reloadManifest();
-      }}
-    >
-      <option value="seti">Seti (Cursor default)</option>
-      <option value="vscode-icons">VS Code Icons (SVG)</option>
-      <option value="codicons">Built-in codicons (simple)</option>
-      <option value="custom">Custom folder…</option>
-    </select>
-  </label>
-  {#if iconThemeId === "custom"}
-    <label class="field">
-      <span class="name">Custom pack folder</span>
-      <div class="icon-pack-path-row">
-        <input class="input" readonly value={iconPackCustomPath} placeholder="Select folder with manifest.json + icons/" />
-        {#if isTauriAvailable()}
-          <button
-            type="button"
-            class="btn secondary"
-            onclick={async () => {
-              const picked = await pickIconPackFolder();
-              if (picked) {
-                iconPackCustomPath = picked;
-                iconTheme.setCustomPackPath(picked);
-                await iconTheme.reloadManifest();
-                iconTheme.bumpRevision();
-              }
-            }}
-          >
-            Browse…
-          </button>
-        {/if}
-      </div>
-    </label>
-  {/if}
-  <div class="icon-pack-actions">
-    <button
-      type="button"
-      class="btn secondary"
-      disabled={iconRefreshing}
-      onclick={async () => {
-        iconRefreshing = true;
-        iconRefreshStatus = "";
-        const result = await iconTheme.refreshBundledPack();
-        iconRefreshing = false;
-        iconRefreshStatus = result.ok
-          ? `Refreshed pack (${result.path})`
-          : `Refresh failed: ${result.error}`;
-        void iconTheme.reloadManifest();
-        iconTheme.bumpRevision();
-      }}
-    >
-      {iconRefreshing ? "Refreshing…" : "Refresh default icon pack"}
-    </button>
-    <button
-      type="button"
-      class="btn ghost"
-      onclick={async () => {
-        iconTheme.invalidateManifest();
-        await iconTheme.reloadManifest();
-        iconTheme.bumpRevision();
-      }}
-    >
-      Reload icons
-    </button>
-  </div>
-  {#if iconRefreshStatus}
-    <p class="note muted">{iconRefreshStatus}</p>
-  {/if}
-  <details class="attribution-details">
-    <summary>Icon pack attribution</summary>
-    <p class="note muted">
-      {VSCODE_ICONS_ATTRIBUTION.copyright}. See
-      <a href={VSCODE_ICONS_ATTRIBUTION.repository} target="_blank" rel="noopener noreferrer">
-        {VSCODE_ICONS_ATTRIBUTION.repository}
-      </a>.
-    </p>
-  </details>
 </div>
 
 <style>
@@ -390,67 +223,5 @@
     border-radius: 4px;
     background: #1c1c1c;
     color: #c5c5c5;
-  }
-
-  .btn {
-    padding: 7px 14px;
-    font-size: 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    border: 1px solid transparent;
-  }
-
-  .btn.ghost {
-    background: transparent;
-    color: #a3a3a3;
-    border-color: #404040;
-  }
-
-  .btn.ghost:hover {
-    background: #333;
-    color: #e5e5e5;
-  }
-
-  .btn.secondary {
-    background: #333;
-    color: #e5e5e5;
-    border-color: #404040;
-    white-space: nowrap;
-  }
-
-  .btn.secondary:hover:not(:disabled) {
-    background: #404040;
-  }
-
-  .icon-pack-path-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-  }
-
-  .icon-pack-path-row .input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .icon-pack-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .attribution-details {
-    margin: 0;
-    font-size: 12px;
-    color: #9a9a9a;
-  }
-
-  .attribution-details summary {
-    cursor: pointer;
-    color: #c8c8c8;
-  }
-
-  .attribution-details a {
-    color: #6eb6ff;
   }
 </style>

@@ -1,6 +1,6 @@
 # Spec 26 — Search Panel
 
-> **Status:** ✅ Implemented — case/regex/whole-word toggles, file glob, debounced search, collapsible groups, truncation note at 500, `Cmd+Shift+F` shortcut (fires when editor is not focused, no conflict), `tinyllama:focus-search` event. In-file replace deferred to v1.0.
+> **Status:** ✅ Implemented — case/regex/whole-word toggles, file glob, debounced search, collapsible groups, truncation note at 500, `Cmd+Shift+F` shortcut (fires when editor is not focused, no conflict), `sidebar:focus-search` event. In-file replace deferred to v1.0.
 > **Area:** Explorer UI · Editor · IPC · Shortcuts
 > **Phase:** 0 — Polish & trust (Phase B in [17-roadmap.md](17-roadmap.md))
 > **Depends on:** [05-workbench.md](05-workbench.md) (explorer tabs) · [12-ipc.md](12-ipc.md) (`grep_workspace`) · [10-editor.md](10-editor.md) (open + scroll-to-line)

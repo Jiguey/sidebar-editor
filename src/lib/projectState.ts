@@ -239,8 +239,12 @@ export async function switchProjectWorkspace(path: string): Promise<void> {
 
   if (activeWorkspace) {
     await persistCurrentProjectState(activeWorkspace);
-    await teardownWorkspaceUi();
   }
+  // Always clear the previous UI (tabs + open buffers) before loading the new
+  // project — including the first real open coming from the welcome preview,
+  // where `activeWorkspace` is still null. Otherwise stale editor buffers leak
+  // across projects and stay visible with no matching tab to close.
+  await teardownWorkspaceUi();
 
   files.setWorkspacePath(normalized);
   await loadWorkspaceTree(normalized);

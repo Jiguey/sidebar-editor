@@ -25,13 +25,13 @@
 | Tools (16) | ✅ Complete | Filesystem, git, grep, shell, web fetch |
 | Git UI | ✅ Complete | Staged/changes, diff view, discard |
 | Editor | ✅ Complete | CodeMirror 6, 15 grammars, wrap, Prettier, diff mode — [20](specs/20-editor-formatting-and-theming.md) |
-| Theming | ✅ Complete | 9 workbench presets + editor/syntax appearance — [13](specs/13-theming.md) |
+| Theming | ✅ Complete | 9 workbench presets + interactive theme preview + chrome/editor/syntax appearance — [13](specs/13-theming.md) |
 | Workspace lock | ✅ Complete | Multi-window safety — [35](specs/35-workspace-lock.md) |
 | Shortcut rebinding | ✅ Complete | Settings → Keybindings — [37](specs/37-shortcut-rebinding.md) |
 | LSP | 🔶 Partial | Diagnostics + hover; user-installed servers — [25](specs/25-lsp-diagnostics.md) |
 | Persistence | ✅ Complete | Per-project `.sidebar/state.json` |
 | Planning (`plans/`) | ❌ Not started | Plan mode is read-only + chat-only — [19](specs/19-planning-system.md) |
-| Skills | 🔶 Placeholder | Assembly slot wired — [30](specs/30-agent-context-and-model-settings.md) |
+| Skills | ✅ Complete (per-project) | CRUD UI + variable interpolation; Settings → Agent Context → Skills — [30](specs/30-agent-context-and-model-settings.md). Bundled pack/registry still planned. |
 | Security | 🔶 Partial | TS path sandbox; API keys in localStorage |
 | Agent runtime | ✅ Complete | Webview agent loop + Rust IPC — **no Node sidecar** |
 
@@ -68,10 +68,19 @@ Multi-turn tool chain in `ChatPane.svelte`:
 
 | Category | Tools |
 |----------|-------|
-| Files | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_directory`, `find_file`, `get_file_tree` |
+| Files | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_dir`, `find_file`, `get_file_tree`, `grep` |
 | Git | `get_git_status`, `get_git_log`, `get_git_diff` |
 | Shell | `run_shell`, `run_tests`, `run_script` |
 | Network | `web_fetch` (hostname allowlist) |
+
+`write_file` / `create_file` create missing parent directories automatically.
+
+### Agent Context & Skills
+
+Settings → **Agent Context** controls what the model receives:
+- **Skills** — per-project markdown context fragments (`.sidebar/skills/`), full CRUD, scoped per mode, with `{{variable}}` interpolation (workspace name, git branch, active file, open files, …)
+- **System prompts** — per-mode / shared prompt files (`.sidebar/prompts/`)
+- **Assembly preview** — shows the exact assembled system prompt (base + workspace + prompts + skills + tool instructions) with token counts
 
 ### Git Change Review
 
@@ -97,6 +106,7 @@ Opening a folder loads:
 |------|---------|
 | `.sidebar/prompts.json` + `prompts/*.md` | System prompt manifest and files |
 | `.sidebar/tools.json` | Tool rules + custom tool schemas |
+| `.sidebar/skills/<id>/` | Project skills (`skill.json` + `skill.md`) |
 | `.sidebar/state.json` | Chat sessions, history, editor tabs (autosaved) |
 | `.sidebar/.lock` | Workspace lock when another window owns the folder |
 
@@ -120,7 +130,8 @@ There is **no Node sidecar**. The agent loop runs in the webview; OS integration
 | Persistent plans (`plans/`) | ❌ Not started |
 | Cmd+K inline edit | ❌ Not started |
 | LSP go-to-def / rename (Phase 2) | ❌ Not started |
-| Skills bundled pack + UI | ❌ Not started |
+| Skills bundled starter pack | ❌ Not started (per-project skills shipped) |
+| Skills registry (global / share / install) | ❌ Not started |
 | Multi-root workspaces | ❌ Not planned |
 | Cloud sync | ❌ Not planned |
 | OS keychain for secrets | ❌ Not started |
@@ -164,4 +175,4 @@ Dev server default port: **14200**. No Node sidecar build step.
 
 ---
 
-*Last updated: 2026-06-03*
+*Last updated: 2026-06-04*

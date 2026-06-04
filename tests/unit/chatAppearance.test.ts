@@ -13,8 +13,10 @@ describe("chatAppearance", () => {
     const a = normalizeChatAppearance({
       waitingStyle: "dots",
       toolDoneColor: "#abc",
+      messageBoxBg: "#123456",
     });
     expect(a.waitingStyle).toBe("dots");
     expect(a.toolDoneColor).toBe("#aabbcc");
+    expect(a.messageBoxBg).toBe("#123456");
   });
 });

@@ -81,6 +81,20 @@
     }
   }
 
+  /** Destroy the live view so no buffer lingers when nothing is open (e.g. all
+   *  tabs closed, or switching to a project with no files). The per-path state
+   *  is saved first so reopening the file restores its cursor/scroll. */
+  function teardownView() {
+    if (!editorView) return;
+    const tagged = (editorView as unknown as { __tinyPath?: string }).__tinyPath;
+    if (tagged && props.editorPaths.includes(tagged)) {
+      states.set(tagged, editorView.state);
+    }
+    editorView.destroy();
+    editorView = null;
+    activeLspUri = null;
+  }
+
   function wrapExtension(enabled: boolean) {
     return wrapCompartment.of(enabled ? EditorView.lineWrapping : []);
   }
@@ -211,7 +225,16 @@
     if (!kit || !editorContainer) return;
     const activeTab = props.editorTab;
     const activeFile = props.editorFile;
-    if (activeTab?.kind !== "editor" || !activeFile) return;
+
+    // No file to show. If the surface is visible (no tab, or an editor tab
+    // without a buffer), tear the view down so stale content can't linger.
+    // When a terminal/preview tab is active the surface is hidden, so keep the
+    // view alive to preserve state when the user returns to an editor tab.
+    if (!activeFile) {
+      if (activeTab == null || activeTab.kind === "editor") teardownView();
+      return;
+    }
+    if (activeTab?.kind !== "editor") return;
 
     const path = activeFile.path;
     const wordWrap = $settings.editor.wordWrap;
@@ -420,7 +443,7 @@
   data-testid="editor-surface"
 >
   <div class="editor-surface__cm" bind:this={editorContainer} data-testid="editor-cm-host"></div>
-  {#if props.editorTab?.kind === "editor" && !props.editorFile}
+  {#if (props.editorTab == null || props.editorTab.kind === "editor") && !props.editorFile}
     <div class="editor-surface__empty pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-muted-foreground">
       <p class="text-sm">No file open</p>
       <p class="text-xs">Select a file from the explorer</p>

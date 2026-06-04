@@ -2,6 +2,7 @@
 export const WORKBENCH_THEME_OPTIONS = [
   { id: "vscode-dark", label: "VS Code Dark (default)" },
   { id: "cursor-dark", label: "Cursor Dark" },
+  { id: "dark-bubblegum", label: "Dark Bubblegum" },
   { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
   { id: "tokyo-night", label: "Tokyo Night" },
   { id: "one-dark-pro", label: "One Dark Pro" },

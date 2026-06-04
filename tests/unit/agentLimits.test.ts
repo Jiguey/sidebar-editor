@@ -3,12 +3,15 @@ import {
   clampAgentLimits,
   DEFAULT_AGENT_LIMITS,
   AGENT_LIMIT_BOUNDS,
+  isReadOnlyTool,
+  READ_ONLY_TOOL_NAMES,
   isToolRunCapReached,
   isUnlimitedCap,
   normalizeAgentLimits,
   perTurnToolCap,
   shouldContinueAgentStep,
 } from "../../src/lib/agentLimits";
+import { READ_ONLY_TOOLS } from "../../src/lib/tools/toolDefinitions";
 
 describe("clampAgentLimits", () => {
   it("returns unlimited defaults for empty input", () => {
@@ -47,6 +50,25 @@ describe("normalizeAgentLimits", () => {
     expect(result.maxAgentSteps).toBe(5);
     expect(result.maxToolCallsPerRun).toBe(10);
     expect(result.maxToolsPerTurn).toBe(2);
+  });
+});
+
+describe("isReadOnlyTool", () => {
+  it("matches READ_ONLY_TOOLS from toolDefinitions", () => {
+    expect([...READ_ONLY_TOOL_NAMES].sort()).toEqual([...READ_ONLY_TOOLS].sort());
+  });
+
+  it("classifies read-only tools for parallel execution", () => {
+    for (const name of READ_ONLY_TOOLS) {
+      expect(isReadOnlyTool(name)).toBe(true);
+    }
+  });
+
+  it("does not treat write tools as read-only", () => {
+    expect(isReadOnlyTool("write_file")).toBe(false);
+    expect(isReadOnlyTool("run_shell")).toBe(false);
+    expect(isReadOnlyTool("list_directory")).toBe(false);
+    expect(isReadOnlyTool("git_status")).toBe(false);
   });
 });
 

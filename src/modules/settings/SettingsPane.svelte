@@ -45,6 +45,7 @@
   import ModelListWithSettings from "./ModelListWithSettings.svelte";
   import ProviderModelDefaultsPanel from "./ProviderModelDefaultsPanel.svelte";
   import AppearanceSettings from "./AppearanceSettings.svelte";
+  import IconsSettings from "./IconsSettings.svelte";
   import ExperimentalSettings from "./ExperimentalSettings.svelte";
   import KeybindingsSettings from "./KeybindingsSettings.svelte";
   import LspSettings from "./LspSettings.svelte";
@@ -59,6 +60,8 @@
     stopLlamacppServerCommand,
     type ProviderHealth,
   } from "$lib/providerHealth";
+  import { workbenchChrome } from "$lib/stores/workbenchChrome";
+  import { type WorkbenchChromeMap } from "$lib/workbench/workbenchChrome";
   import { applyWorkbenchTheme, type WorkbenchThemeId } from "$lib/workbench-theme";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { editorChrome } from "$lib/stores/editorChrome";
@@ -96,10 +99,8 @@
     | "tools"
     | "experimental-compaction"
     | "experimental-autocomplete"
-    | "appearance-editor"
-    | "appearance-syntax"
-    | "appearance-explorer"
-    | "appearance-chat"
+    | "appearance-theme"
+    | "appearance-icons"
     | "lsp"
     | "keybindings";
 
@@ -110,7 +111,7 @@
     deepseek: "providers-deepseek",
   };
 
-  let activeSection = $state<Section>("providers-ollama");
+  let activeSection = $state<Section>("general");
   let agentContextSubview = $state<AgentContextSubview>("overview");
 
   type ProviderSubview = "ollama-server" | "llamacpp-server";
@@ -198,6 +199,7 @@
   let editorColors = $state<EditorChromeMap>(editorChrome.get());
   let explorerColors = $state<ExplorerAppearanceMap>(explorerAppearance.get());
   let chatColors = $state<ChatAppearanceMap>(chatAppearance.get());
+  let workbenchChromeColors = $state<WorkbenchChromeMap>(workbenchChrome.get());
 
   let modelSearchQuery = $state("");
   let modelSearchResults = $state<OllamaLibraryModel[]>([]);
@@ -242,10 +244,8 @@
     { id: "tools", label: "Tools" },
     { id: "experimental-compaction", label: "Compaction", group: "Experimental", experimental: true },
     { id: "experimental-autocomplete", label: "Autocomplete", group: "Experimental", experimental: true },
-    { id: "appearance-editor", label: "Editor", group: "Appearance" },
-    { id: "appearance-syntax", label: "Syntax", group: "Appearance" },
-    { id: "appearance-explorer", label: "Explorer", group: "Appearance" },
-    { id: "appearance-chat", label: "Chat activity", group: "Appearance" },
+    { id: "appearance-theme", label: "Theme", group: "Appearance" },
+    { id: "appearance-icons", label: "Icons", group: "Appearance" },
     { id: "lsp", label: "LSP" },
     { id: "keybindings", label: "Keybindings" },
   ];
@@ -284,10 +284,11 @@
     editorColors = { ...editorChrome.get() };
     explorerColors = { ...explorerAppearance.get() };
     chatColors = { ...chatAppearance.get() };
+    workbenchChromeColors = { ...workbenchChrome.get() };
     llamacppModels = $settings.llamacppModels;
     ollamaServerTemplate = structuredClone($settings.ollamaServerTemplate);
     llamacppServerTemplate = structuredClone($settings.llamacppServerTemplate);
-    activeSection = backendToSection[$settings.chatBackend] ?? "providers-ollama";
+    activeSection = "general";
     void connectOllama();
     void connectLlamacpp();
   });
@@ -636,6 +637,7 @@
       applyWorkbenchTheme(workbenchTheme);
       editorColors = editorChrome.syncFromActiveTheme();
       syntaxColors = { ...syntaxTheme.syncFromActiveTheme() };
+      workbenchChromeColors = { ...workbenchChrome.syncFromActiveTheme() };
     }
     settings.setWorkbenchTheme(workbenchTheme);
     settings.setWebFetchAllowedHosts(
@@ -648,6 +650,7 @@
     editorChrome.persist(editorColors);
     explorerAppearance.persist(explorerColors);
     chatAppearance.persist(chatColors);
+    workbenchChrome.persist(workbenchChromeColors);
 
     if (chatBackend === "ollama") {
       const sid = selectedModel;
@@ -725,12 +728,7 @@
 
         <div class="modal-body">
         {#if activeSection === "general"}
-          <GeneralSettings
-            bind:chatColors
-            bind:explorerColors
-            bind:editorColors
-            bind:workbenchTheme
-          />
+          <GeneralSettings bind:explorerColors />
 
         {:else if activeSection === "agent-context" || activeSection === "agent-context-prompts" || activeSection === "agent-context-skills"}
           <AgentContextSection
@@ -1304,16 +1302,20 @@
         {:else if activeSection === "experimental-compaction" || activeSection === "experimental-autocomplete"}
           <ExperimentalSettings section={activeSection} />
 
-        {:else if activeSection === "appearance-editor" || activeSection === "appearance-explorer" || activeSection === "appearance-chat" || activeSection === "appearance-syntax"}
+        {:else if activeSection === "appearance-theme"}
           <AppearanceSettings
-            section={activeSection}
+            section="appearance-theme"
             bind:syntaxColors
             bind:editorColors
             bind:explorerColors
             bind:chatColors
-            {workbenchTheme}
+            bind:workbenchChromeColors
+            bind:workbenchTheme
             onNavigate={selectSettingsSection}
           />
+
+        {:else if activeSection === "appearance-icons"}
+          <IconsSettings />
 
         {:else if activeSection === "lsp"}
           <LspSettings />
@@ -1563,7 +1565,6 @@
   .nav-item.active {
     color: #fafafa;
     background: #3a3a3a;
-    box-shadow: inset 3px 0 0 #6b6b6b;
   }
 
   .nav-item.active:hover {

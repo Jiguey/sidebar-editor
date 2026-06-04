@@ -143,7 +143,7 @@ export function saveSyntaxColors(colors: SyntaxColorMap): void {
   }
 }
 
-const CSS_VAR_BY_KEY: Record<SyntaxColorKey, string> = {
+export const CSS_VAR_BY_KEY: Record<SyntaxColorKey, string> = {
   keyword: "--syntax-keyword",
   function: "--syntax-function",
   variable: "--syntax-variable",

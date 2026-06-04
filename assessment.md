@@ -1,8 +1,8 @@
-# Tiny Llama — Application Assessment
+# Sidebar Editor — Application Assessment
 
-> **Purpose:** A detailed technical assessment of the Tiny Llama codebase — what it is, how it is structured, and how every major subsystem fits together.  
+> **Purpose:** A detailed technical assessment of the Sidebar Editor codebase — what it is, how it is structured, and how every major subsystem fits together.  
 > **Audience:** Developers onboarding to the project, reviewers, or anyone evaluating the architecture.  
-> **Last updated:** May 2026 (reflects current implementation on `main`).
+> **Last updated:** 2026-06-04 (reflects current implementation on `main`).
 
 ---
 
@@ -36,7 +36,7 @@
 
 ## 1. Executive summary
 
-**Tiny Llama** is a local-first desktop IDE with an integrated AI coding agent. It targets developers who want a hackable, Cursor-like workbench without mandatory cloud lock-in: bring your own model (Ollama, llama.cpp, Anthropic, or DeepSeek) and keep code on disk under normal git workflows.
+**Sidebar Editor** is a local-first desktop IDE with an integrated AI coding agent. It targets developers who want a hackable, Cursor-like workbench without mandatory cloud lock-in: bring your own model (Ollama, llama.cpp, Anthropic, or DeepSeek) and keep code on disk under normal git workflows.
 
 ### Core design principles
 
@@ -46,7 +46,7 @@
 | **No Node sidecar at runtime** | Agent loop and LLM HTTP calls run in the webview; only Rust handles OS integration |
 | **Bring your own model (BYOM)** | Four backends, user-supplied API keys or local endpoints |
 | **Trust through git** | Staged/unstaged diffs, discard, checkpoints for chat rewind |
-| **Policy-gated tools** | Each tool can be allow / ask / deny; project overrides in `.tinyllama/tools.json` |
+| **Policy-gated tools** | Each tool can be allow / ask / deny; project overrides in `.sidebar/tools.json` |
 
 ### What works today
 
@@ -54,9 +54,13 @@
 - Three chat modes: **Chat** (no tools), **Plan** (read-only tools), **Agent** (all tools)
 - 16 built-in agent tools (read, write, grep, git, shell, web fetch, etc.)
 - Four LLM backends with streaming, native tool calls, and text-tool fallback
-- Experimental context compaction (manual + auto before agent turns)
-- Multi-file system prompts (`.tinyllama/prompts/`)
-- Per-project autosaved state (chat sessions + editor tabs)
+- Parallel read-only tool execution (opt-in) and policy-gated writes
+- Experimental context compaction (manual + auto) with archive/restore
+- Multi-file system prompts (`.sidebar/prompts/`) and per-project **skills** (`.sidebar/skills/`) with variable interpolation
+- Workspace text search (ripgrep), filesystem watcher → live explorer/git refresh
+- LSP diagnostics + hover for user-installed language servers
+- Shortcut rebinding, interactive theme preview + workbench-chrome customization
+- Per-project autosaved state (chat sessions + editor tabs), workspace lock for multi-window safety
 - Frameless Tauri window with custom titlebar controls
 
 ### What requires the desktop app
@@ -107,7 +111,7 @@ Opening `http://localhost:14200` in a browser (`pnpm dev`) loads the UI for fron
 ## 3. Repository layout
 
 ```
-tiny-llama/
+sidebar-editor/
 ├── index.html              # Main workbench entry
 ├── settings.html           # Settings popout window entry
 ├── src/
@@ -151,11 +155,14 @@ tiny-llama/
 | Directory | Responsibility |
 |-----------|----------------|
 | `stores/` | Svelte writable/derived stores (chat, files, settings, …) |
-| `agent/` | Stream turn, conversation shaping, compaction, synthesis, rewind |
+| `agent/` | Stream turn, conversation shaping, system-prompt assembly, compaction, synthesis, rewind |
+| `skills/` | Active-skill selection (`activeSkills.ts`) + variable interpolation (`skillVariables.ts`) |
 | `providers/` | Anthropic, DeepSeek, OpenAI-compat (Ollama, llama.cpp) |
 | `tools/` | Tool definitions, runner, path utils, git formatting |
+| `lsp/` | LSP client (JSON-RPC over Tauri events), diagnostics, hover |
 | `editor/` | CodeMirror loader, syntax colors, diff decorations, format |
 | `systemPrompts/` | Multi-file prompt types, config, workspace I/O |
+| `workbench/` | Workbench-chrome appearance overrides |
 | `icon-packs/` | Seti / VS Code icon resolution |
 | `components/` | Reusable UI (FileIcon, ToolCallCard, SystemPromptsManager, …) |
 | `components/ui/` | shadcn-style primitives (button, dialog, tabs, …) |
@@ -169,13 +176,14 @@ tiny-llama/
 | `git` | `git.rs` | Full git2 integration + checkpoint/restore |
 | `pty` | `pty.rs` | Create/write/resize/close PTY; emit `pty:data` / `pty:exit` |
 | `icon_pack` | `icon_pack.rs` | Bundled and custom icon pack directories |
-| `watcher` | `watcher.rs` | Filesystem watching infrastructure (**not wired to UI**) |
+| `watcher` | `watcher.rs` | Filesystem watching → debounced `fs:changed` events (drives explorer + git refresh) |
+| `lsp` | `lsp.rs` | Spawn language servers; JSON-RPC over stdio bridged to `lsp:*` events |
 
 ---
 
 ## 4. Runtime architecture
 
-Tiny Llama is a **two-layer** application: a Svelte webview and a Rust native host connected by Tauri IPC.
+Sidebar Editor is a **two-layer** application: a Svelte webview and a Rust native host connected by Tauri IPC.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -208,7 +216,7 @@ Tiny Llama is a **two-layer** application: a Svelte webview and a Rust native ho
 | Git operations | Rust | git2 crate, checkpoint refs for rewind |
 | Terminal | Rust PTY + webview xterm | Bytes flow via Tauri events |
 | Settings / theme | Webview localStorage | Global prefs never touch disk via Rust |
-| Project state | Rust (or memory fallback) | `.tinyllama/state.json` on workspace open |
+| Project state | Rust (or memory fallback) | `.sidebar/state.json` on workspace open |
 
 ### Agent turn data flow
 
@@ -258,7 +266,7 @@ index.html
 1. `applyWorkbenchTheme($settings.workbenchTheme)` — sets `data-workbench-theme` on `<html>`
 2. `iconTheme.init()` — loads Seti/VS Code/codicons manifest
 3. `syntaxTheme.init()`, `editorChrome.init()`, `explorerAppearance.init()`, `chatAppearance.init()`
-4. `initProjectStateAutosave()` — debounced writes to `.tinyllama/state.json`
+4. `initProjectStateAutosave()` — debounced writes to `.sidebar/state.json`
 5. Global `keydown` → `dispatchWorkbenchShortcut()`
 6. `beforeunload` → `persistCurrentProjectState()`
 
@@ -292,7 +300,7 @@ Tauri command `open_settings_window` creates or focuses a secondary webview labe
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ Titlebar: "Tiny Llama" (drag region)              [─ □ ✕] WindowControls │
+│ Titlebar: "Sidebar Editor" (drag region)              [─ □ ✕] WindowControls │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Tab strip:  [Chat tabs …]  |  [Editor / Terminal / Preview tabs …]       │
 ├────────────────┬─────────────────────────────────────┬───────────────────┤
@@ -330,7 +338,7 @@ Tauri command `open_settings_window` creates or focuses a secondary webview labe
 
 ### Resizable panes
 
-Pane widths persist in **localStorage** key `tinyllama.paneWidths.v1`:
+Pane widths persist in **localStorage** key `sidebar.paneWidths.v1`:
 
 | Edge | Min | Max | Default |
 |------|-----|-----|---------|
@@ -350,11 +358,10 @@ Defined in `src/lib/stores/workbench.ts`:
 
 ### Explorer sidebar tabs
 
-`src/lib/explorerPanel.ts` defines: `files`, `git`, `prompt`. The status bar activity icons toggle which panel is visible in the right sidebar.
+`src/lib/explorerPanel.ts` defines: `files`, `search`, `git`. The status bar activity icons toggle which panel is visible in the right sidebar. (System prompts and skills moved to Settings → Agent Context.)
 
 ### Unwired UI
 
-- **`SearchPanel.svelte`** exists but is not imported anywhere (search is a TODO).
 - **Bottom dock Debug/Serial tabs** are placeholders.
 
 ---
@@ -377,7 +384,7 @@ The largest store. Manages:
 - **Compaction metadata** — `compactedAt`, `compactionCount` per session
 - **Message types** — user, assistant, tool, system, agent-turn groupings
 
-Persisted in `.tinyllama/state.json` via `projectState.ts`.
+Persisted in `.sidebar/state.json` via `projectState.ts`.
 
 #### `files` (`files.ts`)
 
@@ -398,7 +405,7 @@ Editor tab list persisted in project state; terminal/preview tabs are session-on
 
 #### `settings` (`settings.ts`)
 
-Global preferences in localStorage key `tinyllama.settings.v3`:
+Global preferences in localStorage key `sidebar.settings.v4` (migrates from v1–v3):
 
 | Category | Fields (representative) |
 |----------|-------------------------|
@@ -418,9 +425,9 @@ Env var merge: `envApiKeys.ts` + Vite `define` injects `__TINYLLAMA_ENV_*_API_KE
 
 - Global tool rules: `allow` | `ask` | `deny` per built-in tool
 - Custom tool definitions (name, description, JSON schema)
-- **`effectiveToolPolicy`** (derived) — merges global policy with `.tinyllama/tools.json` project layer via `projectTools.ts`
+- **`effectiveToolPolicy`** (derived) — merges global policy with `.sidebar/tools.json` project layer via `projectTools.ts`
 
-Persisted: `tinyllama.toolPolicy.v2`.
+Persisted: `sidebar.toolPolicy.v2`.
 
 #### `currentMode` (`mode.ts`)
 
@@ -432,6 +439,10 @@ Multi-file prompt manifest + cached file contents. See [§16](#16-system-prompts
 
 Derived: **`activeSystemPromptText`** — enabled prompts matching current mode, concatenated.
 
+#### `skills` (`skills.ts`)
+
+Per-project skills loaded from `.sidebar/skills/<id>/` (each = `skill.json` manifest + `skill.md` body). Store API: `load`, `create`, `delete`, `saveContent`, `setEnabled`, `setModes`. Enabled skills are interpolated by `lib/skills/activeSkills.ts` (`buildActiveSkillBlocks`) and injected into the system prompt by `assemble.ts`. Variable interpolation in `skillVariables.ts` (`{{workspace_name}}`, `{{git_branch}}`, `{{active_file}}`, …).
+
 ### Appearance stores
 
 | Store | File | Persists | Controls |
@@ -441,6 +452,7 @@ Derived: **`activeSystemPromptText`** — enabled prompts matching current mode,
 | `editorChrome` | `editorChrome.ts` | localStorage | Editor bg, gutter, cursor, selection |
 | `explorerAppearance` | `explorerAppearance.ts` | localStorage | Panel colors, font size, git decoration colors |
 | `chatAppearance` | `chatAppearance.ts` | localStorage | Chat colors, waiting animation style |
+| `workbenchChrome` | `workbenchChrome.ts` | localStorage v1 | Sidebar, tabs, status bar, terminal color overrides |
 
 ### Auxiliary stores
 
@@ -455,7 +467,7 @@ Derived: **`activeSystemPromptText`** — enabled prompts matching current mode,
 
 | Module | Coordinates |
 |--------|-------------|
-| `projectState.ts` | Snapshots `chat` + `workbench` editor tabs → `.tinyllama/state.json` |
+| `projectState.ts` | Snapshots `chat` + `workbench` editor tabs → `.sidebar/state.json` |
 | `filesystemSync.ts` | After agent mutations, refreshes `files` tree and open editor buffers |
 | `workspace.ts` | `applyWorkspaceFolder()` — sets workspace, loads tree, project state, prompts, tools |
 
@@ -485,13 +497,15 @@ If the intersection is empty in plan/agent mode, the UI warns and may block send
 
 ### System prompt assembly
 
-`ChatPane.buildSystemPrompt()` concatenates:
+`assembleSystemPrompt()` (`src/lib/agent/systemPrompt/assemble.ts`), called from `ChatPane`, composes:
 
 1. **`MODE_CONFIG[mode].basePrompt`** — mode-specific instructions
 2. **`buildWorkspaceContextBlock()`** — workspace path, optional tree snippet (`workspaceContext.ts`)
-3. **`TOOL_USE_INSTRUCTION`** — when tools are enabled (format, parallel calls, path rules)
-4. **`TOOL_SUMMARY_INSTRUCTION`** — asks model to summarize after tool rounds
-5. **`activeSystemPromptText`** — combined `.tinyllama/prompts/*.md` for current mode
+3. **User system prompts** — combined `.sidebar/prompts/*.md` for the current mode (`activeSystemPromptText`)
+4. **Skill blocks** — enabled skills for the mode, interpolated by `buildActiveSkillBlocks` (`lib/skills/activeSkills.ts`)
+5. **Tool-use instructions** (`systemPrompt/toolInstructions.ts`) — when tools are enabled (format, parallel calls, path rules)
+
+`assemble.ts` also returns a per-section token breakdown that powers the **assembly preview** (Settings → Agent Context) and the context bar; native tool-call schemas are counted separately.
 
 ### Single turn streaming — `streamTurn.ts`
 
@@ -665,7 +679,7 @@ Default **ask** (requires user approval) for destructive or risky tools:
 
 - `move_file`, `delete_file`, `run_shell`, `run_tests`, `run_script`, `web_fetch`
 
-User can override globally in Settings → Tools, or per-project in **`.tinyllama/tools.json`**.
+User can override globally in Settings → Tools, or per-project in **`.sidebar/tools.json`**.
 
 ### Custom tools
 
@@ -700,7 +714,11 @@ Registered in **`src-tauri/src/main.rs`**:
 | **Git** | `git_current_branch`, `git_status`, `git_diff`, `git_stage`, `git_unstage`, `git_commit`, `git_log`, `git_file_at_head`, `git_discard`, `git_create_checkpoint`, `git_restore_checkpoint`, `git_is_repo` | git |
 | **Terminal** | `pty_create`, `pty_write`, `pty_resize`, `pty_close` | pty |
 | **Project** | `read_project_state`, `write_project_state`, `read_system_prompt`, `write_system_prompt`, `ensure_system_prompts_layout` | commands / filesystem |
-| **Workspace** | `get_workspace_path`, `pick_workspace_folder` | commands |
+| **Skills** | `ensure_skill_dir` (CRUD otherwise via `list_dir`/`read_file`/`write_file`/`delete_entry`) | commands |
+| **Watcher** | `watch_workspace` (emits `fs:changed`) | watcher |
+| **LSP** | `spawn_lsp`, `lsp_send`, `lsp_stop` | lsp |
+| **Workspace** | `get_workspace_path`, `pick_workspace_folder`, `acquire_workspace_lock`, `read_workspace_lock`, `release_workspace_lock` | commands |
+| **Recent / launch** | `get_recent_projects`, `add_recent_project`, `get_launch_args` | commands |
 | **Window** | `open_settings_window` | commands |
 | **Icons** | `icon_pack_get_dir`, `icon_pack_refresh_bundled`, `pick_icon_pack_folder` | icon_pack |
 
@@ -710,6 +728,8 @@ Registered in **`src-tauri/src/main.rs`**:
 |-------|-----------|---------|
 | `pty:data` | Rust → webview | Terminal output bytes |
 | `pty:exit` | Rust → webview | PTY session ended |
+| `fs:changed` | Rust → webview | Debounced workspace change → explorer + git refresh |
+| `lsp:*` | Rust → webview | Language-server notifications (diagnostics, responses) |
 
 ### Web-only behavior (`pnpm dev`)
 
@@ -725,7 +745,7 @@ Registered in **`src-tauri/src/main.rs`**:
 
 ### Dev workspace override
 
-Rust reads optional **`~/.config/tiny-llama/workspace_root.txt`** to pin a workspace path for development/testing without using the folder picker every launch.
+Rust reads optional **`<config-local-dir>/sidebar/workspace_root.txt`** (via `dirs::config_local_dir()`) to pin a workspace path for development/testing without using the folder picker every launch.
 
 ---
 
@@ -735,26 +755,31 @@ Rust reads optional **`~/.config/tiny-llama/workspace_root.txt`** to pin a works
 
 | Key | Content |
 |-----|---------|
-| `tinyllama.settings.v3` | All settings (providers, themes, limits, compaction, …) |
-| `tinyllama.toolPolicy.v2` | Global tool allow/ask/deny + custom tools |
-| `tinyllama.iconTheme.v2` | Icon theme id + custom pack path |
-| `tinyllama.paneWidths.v1` | Left/right/bottom pane dimensions |
-| Syntax/editor/explorer/chat appearance keys | Per-store localStorage in respective modules |
-| `tinyllama.providerUsage.v1` | Anthropic token usage totals |
+| `sidebar.settings.v4` | All settings (providers, themes, limits, compaction, …) — migrates v1–v3 |
+| `sidebar.toolPolicy.v2` | Global tool allow/ask/deny + custom tools |
+| `sidebar.iconTheme.v2` | Icon theme id + custom pack path |
+| `sidebar.keybindings.v1` | Shortcut overrides |
+| `sidebar.lsp.v1` | LSP server commands per language |
+| `sidebar.paneWidths.v1` | Left/right/bottom pane dimensions |
+| Syntax/editor/explorer/chat/workbench-chrome appearance keys | Per-store localStorage in respective modules |
+| `sidebar.providerUsage.v1` | Anthropic token usage totals |
 
 API keys are stored in localStorage (not OS keychain) with optional env override at build/dev time.
 
-### Per-project (`.tinyllama/` directory)
+### Per-project (`.sidebar/` directory)
 
 Created when user initializes project features or on first agent use:
 
 | Path | Purpose |
 |------|---------|
-| `.tinyllama/state.json` | Chat sessions, history, open editor tabs (version 1) |
-| `.tinyllama/prompts.json` | System prompt manifest (entries, enabled flags, modes) |
-| `.tinyllama/prompts/*.md` | Individual prompt files (chat, plan, agent, custom) |
-| `.tinyllama/tools.json` | Project tool policy overrides + custom tool schemas |
-| `.tinyllama/prompt.md` | **Legacy** single prompt file (still read by Rust; migrated to `prompts/agent.md`) |
+| `.sidebar/state.json` | Chat sessions, history, open editor tabs (version 1) |
+| `.sidebar/prompts.json` | System prompt manifest (entries, enabled flags, modes) |
+| `.sidebar/prompts/*.md` | Individual prompt files (chat, plan, agent, custom) |
+| `.sidebar/tools.json` | Project tool policy overrides + custom tool schemas |
+| `.sidebar/skills/<id>/` | Project skills — `skill.json` manifest + `skill.md` body |
+| `.sidebar/state.json` | Chat sessions, history, editor tabs (autosaved) |
+| `.sidebar/.lock` | Workspace lock (PID) when another window owns the folder |
+| `.sidebar/prompt.md` | **Legacy** single prompt file (still read by Rust; migrated to `prompts/agent.md`) |
 
 ### Project state lifecycle
 
@@ -852,7 +877,7 @@ Preview tabs are created from workbench actions (e.g. default `http://127.0.0.1:
 
 ## 15. Theming & appearance
 
-Tiny Llama has **three independent color systems** plus component-specific overrides.
+Sidebar Editor has a **workbench theme** plus three appearance-override layers (workbench chrome, editor chrome, syntax). The Appearance → Theme page renders an **interactive mini-workbench preview** (`ThemeMiniWorkbench.svelte`, regions in `themePreviewRegions.ts`): click a region to focus its color pickers with live updates. **Sync from theme** repopulates pickers from the active preset; **Reset to defaults** clears overrides (`themeColorReset.ts`).
 
 ### 1. Workbench theme
 
@@ -862,7 +887,7 @@ Tiny Llama has **three independent color systems** plus component-specific overr
 | `src/styles/workbench-themes.css` | Alternate presets via `[data-workbench-theme="…"]` |
 | `src/lib/workbench-theme.ts` | Preset registry + `applyWorkbenchTheme()` |
 
-**Presets:** vscode-dark (default), cursor-dark, catppuccin-mocha, tokyo-night, one-dark-pro, tiny-llama, dracula, github-dark
+**Presets (9):** vscode-dark (default), cursor-dark, catppuccin-mocha, tokyo-night, one-dark-pro, sidebar-editor, dracula, github-dark, rose-pine
 
 Applied by setting `data-workbench-theme` on `<html>` from settings.
 
@@ -880,9 +905,10 @@ Settings → Appearance → Syntax.
 
 | Store | Settings section | Controls |
 |-------|------------------|----------|
-| `editorChrome` | Appearance → Editor | Editor bg, fg, gutter, line highlight, selection, cursor |
-| `explorerAppearance` | Appearance → Explorer | Panel bg, selection, git decoration colors, font/icon sizes |
-| `chatAppearance` | Appearance → Chat | Thought labels, activity colors, waiting animation style |
+| `workbenchChrome` | Appearance → Theme | Sidebar, tabs, status bar, terminal color overrides (`lib/workbench/workbenchChrome.ts`) |
+| `editorChrome` | Appearance → Theme → Editor | Editor bg, fg, gutter, line highlight, selection, cursor |
+| `explorerAppearance` | Appearance → Theme | Panel bg, selection, git decoration colors, font/icon sizes |
+| `chatAppearance` | Appearance → Theme | Thought labels, activity colors, waiting animation style |
 
 These inject CSS custom properties at runtime on `<html>` or scoped containers.
 
@@ -905,12 +931,12 @@ These inject CSS custom properties at runtime on `<html>` or scoped containers.
 
 ## 16. System prompts
 
-Multi-file, mode-scoped prompts replace the legacy single `.tinyllama/prompt.md` file.
+Multi-file, mode-scoped prompts replace the legacy single `.sidebar/prompt.md` file.
 
 ### On-disk layout
 
 ```
-.tinyllama/
+.sidebar/
   prompts.json              # manifest: entries[], enabled, modes[], title, filename
   prompts/
     chat.md                 # default Chat mode prompt
@@ -944,7 +970,7 @@ Each entry has **`modes: ChatMode[]`**. Empty array = applies to all modes. Only
 ### Rust support
 
 - **`ensure_system_prompts_layout`** — creates directory structure (used when initializing)
-- Legacy **`read_system_prompt` / `write_system_prompt`** still target `.tinyllama/prompt.md`
+- Legacy **`read_system_prompt` / `write_system_prompt`** still target `.sidebar/prompt.md`
 
 ---
 
@@ -959,21 +985,21 @@ Each entry has **`modes: ChatMode[]`**. Empty array = applies to all modes. Only
 
 | Section ID | Label | Contents |
 |------------|-------|----------|
-| `general` | General | Editor prefs, workbench theme, icon theme, chat backend, system prompts |
+| `general` | General | Editor prefs, workbench theme, chat backend |
+| `agent-context` | Agent Context | System prompts, **skills** (CRUD), per-model + provider defaults, assembly preview |
 | `providers-ollama` | Ollama | Endpoint, API key, model grid, context, server guide |
 | `providers-llamacpp` | llama.cpp | Endpoint, models, server template, launch commands |
 | `providers-anthropic` | Anthropic | API key, model catalog, extended thinking, context cap |
 | `providers-deepseek` | DeepSeek | API key, model catalog |
-| `tools` | Tools | Agent limits, per-tool policy, web fetch allowlist, custom tools |
+| `tools` | Tools | Agent limits, per-tool policy, parallel execution, web fetch allowlist, custom tools |
+| `lsp` | LSP | Per-language server command/args, enable toggles |
 | `experimental-compaction` | Compaction | Enable, auto-compact, threshold %, keep recent N, model override |
 | `experimental-autocomplete` | Autocomplete | Placeholder settings (feature not implemented) |
-| `appearance-editor` | Editor | Editor chrome color pickers |
-| `appearance-syntax` | Syntax | Token color overrides |
-| `appearance-explorer` | Explorer | Panel + git decoration colors |
-| `appearance-chat` | Chat activity | Chat colors, waiting animation |
-| `keybindings` | Keybindings | Displays shortcut defaults (read-only reference) |
+| `appearance-theme` | Theme | Interactive preview; workbench chrome, editor chrome, syntax pickers |
+| `appearance-icons` | Icons | Icon theme + custom pack path |
+| `keybindings` | Keybindings | Shortcut rebinding UI (`sidebar.keybindings.v1`, conflict detection) |
 
-Embedded components: **`SystemPromptsManager`**, **`ProviderServerGuide.svelte`**, **`OllamaOverridePanel.svelte`**.
+Embedded components: **`SystemPromptsManager`**, **`SkillsManager`** (agentContext/), **`ThemeMiniWorkbench`**, **`ProviderServerGuide.svelte`**, **`OllamaOverridePanel.svelte`**.
 
 ---
 
@@ -995,7 +1021,7 @@ Embedded components: **`SystemPromptsManager`**, **`ProviderServerGuide.svelte`*
 - New preview tab
 - Close all workbench tabs/windows
 
-Settings → Keybindings shows the list for user reference (rebinding UI not yet implemented).
+Settings → Keybindings provides a **rebinding UI** (capture new bindings, including chords, with conflict detection); overrides persist in `sidebar.keybindings.v1` and merge over `SHORTCUT_DEFAULTS`.
 
 ---
 
@@ -1005,12 +1031,14 @@ Settings → Keybindings shows the list for user reference (rebinding UI not yet
 
 | Script | Command | Use |
 |--------|---------|-----|
-| `pnpm dev` | `free-dev-port.mjs && vite` | Web-only UI dev |
-| `pnpm tauri dev` | Tauri + beforeDevCommand (`pnpm dev`) | Full desktop app |
-| `pnpm build` | `vitest run && vite build` | Production build (tests gate) |
+| `pnpm dev` | `node scripts/dev.mjs` | Vite dev server **+** Tauri desktop window (default) |
+| `pnpm dev:desktop` | `node scripts/tauri-dev.mjs dev` | Desktop app only (Tauri starts Vite) |
+| `pnpm dev:web` | `free-dev-port.mjs && vite` | Frontend only in the browser (no tools/git/PTY) |
+| `pnpm build` | `pnpm run test && vite build` | Production build (tests gate) |
 | `pnpm build:skip-tests` | `vite build` | Fast production build |
 | `pnpm preview` | `vite preview` | Serve `dist/` locally |
 | `pnpm test` | `vitest run` | Unit tests |
+| `pnpm eval` | `tsx tests/llm/harness.ts` | LLM eval harness (Chat/Plan/Agent vs Ollama) |
 
 ### Vite configuration (`vite.config.ts`)
 
@@ -1067,7 +1095,10 @@ tests/
   unit/                    # ~50 Vitest files, 285+ tests
   integration/
     ollama.test.ts         # RUN_OLLAMA_TESTS=1
+    ollamaToolCalling.test.ts
+    llamacpp.test.ts       # RUN_LLAMACPP_TESTS=1
     deepseek.test.ts       # RUN_DEEPSEEK_TESTS=1 + API key
+  llm/                     # Long-running Chat/Plan/Agent eval harness vs Ollama (`pnpm eval`)
   README.md
 ```
 
@@ -1089,7 +1120,7 @@ tests/
 
 ### What is not tested
 
-- **Rust backend** — no `#[cfg(test)]` integration; validated manually via Tauri
+- **Rust backend** — limited `#[cfg(test)]` coverage (e.g. workspace-lock and filesystem write tests); most modules validated manually via Tauri
 - **E2E browser** — no Playwright/Cypress suite
 - **PTY terminal** — manual only
 
@@ -1097,7 +1128,7 @@ tests/
 
 ## 21. Security model
 
-Tiny Llama is a **developer tool**, not a multi-tenant sandbox. Security assumptions:
+Sidebar Editor is a **developer tool**, not a multi-tenant sandbox. Security assumptions:
 
 | Surface | Mitigation |
 |---------|------------|
@@ -1106,7 +1137,7 @@ Tiny Llama is a **developer tool**, not a multi-tenant sandbox. Security assumpt
 | **web_fetch** | Hostname allowlist from settings; enforced in Rust `web_fetch` |
 | **API keys** | localStorage + optional env; not in OS keychain |
 | **Preview iframe** | localhost/127.0.0.1 only |
-| **LLM data** | Sent directly from webview to provider; no Tiny Llama cloud |
+| **LLM data** | Sent directly from webview to provider; no Sidebar Editor cloud |
 
 Users are expected to review agent changes via Git before committing.
 
@@ -1116,24 +1147,24 @@ Users are expected to review agent changes via Git before committing.
 
 | Feature | Status |
 |---------|--------|
-| **Search panel** | `SearchPanel.svelte` exists, not wired to sidebar |
 | **Bottom dock Debug/Serial** | Placeholder tabs only |
-| **Autocomplete** | Settings UI only; no inference hook |
-| **LSP / diagnostics** | `editorErrorCountsByRel` stub; no language server |
+| **Autocomplete** | Settings UI only (`autocompleteSettings.ts`); no inference hook |
+| **LSP / diagnostics** | 🔶 Partial — diagnostics + hover for user-installed servers; go-to-def / rename (Phase 2) not started |
 | **Cmd+K inline edit** | Not started |
 | **File-backed plans** (`plans/` directory) | Not started |
-| **FS watcher → UI refresh** | `watcher.rs` exists, not connected |
-| **OS keychain for API keys** | Not implemented |
+| **Skills: bundled pack + global/registry** | Not started (per-project skills shipped) |
+| **OS keychain for API keys** | Not implemented (localStorage + optional env) |
 | **LLM calls in Rust** | Not started (all HTTP in webview) |
-| **Shortcut rebinding** | Display-only in settings |
-| **Compaction UI divider** | Session compaction works; no visual “compacted above” marker in transcript |
+| **Rust path canonicalization** | Not started (TS sandbox enforces today) |
 | **Web-only workspace** | UI renders but cannot open folders or run tools |
+
+Resolved since earlier revisions: workspace text search (ripgrep panel), filesystem watcher → UI refresh, shortcut rebinding UI, context compaction archive/restore divider, parallel read-only tool execution, and per-project skills are all implemented.
 
 ---
 
 ## 23. Extension points
 
-Developers extending Tiny Llama will most often touch:
+Developers extending Sidebar Editor will most often touch:
 
 | Goal | Where to start |
 |------|----------------|
@@ -1142,8 +1173,9 @@ Developers extending Tiny Llama will most often touch:
 | Change agent behavior | `mode.ts` base prompts, `ChatPane.svelte` loop, `agentLimits.ts` |
 | New workbench panel | Module under `src/modules/`, wire into `WorkbenchShell.svelte` |
 | New settings section | Section type + nav entry in `SettingsPane.svelte` |
+| Author a skill | Settings → Agent Context → Skills (writes `.sidebar/skills/<id>/`); variables in `skillVariables.ts` |
 | New workbench theme | Entry in `workbench-theme.ts` + CSS block in `workbench-themes.css` |
-| Project-level config | `.tinyllama/*.json` pattern + loader in `lib/` |
+| Project-level config | `.sidebar/*.json` pattern + loader in `lib/` |
 
 ### Design constraints to respect
 

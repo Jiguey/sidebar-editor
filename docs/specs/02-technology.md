@@ -25,7 +25,7 @@ There is **no** `sidecar/` directory, **no** harness IPC, and **no** `@mariozech
 | Styling | **Tailwind CSS 4**, CSS variables (`globals.css`, `workbench-themes.css`, `editor-syntax.css`) | ✅ |
 | Editor | **CodeMirror 6** + language packs (see [10-editor.md](10-editor.md)) | ✅ |
 | Terminal | **xterm.js**, `@xterm/addon-fit` | ✅ |
-| Rust | serde, **git2**, portable-pty, **notify** (watcher module present, not wired to UI), rfd, walkdir, **reqwest** (`web_fetch`) | ✅ |
+| Rust | serde, **git2**, portable-pty, **notify** (watcher → debounced `fs:changed` → explorer/git refresh), rfd, walkdir, **reqwest** (`web_fetch`) | ✅ |
 | AI | **Direct HTTP/SSE** from webview: `anthropic.ts`, `openaiCompat.ts` via `streamTurn.ts` | ✅ |
 | Token estimate | `gpt-tokenizer` (cl100k) for context meter pre-send | ✅ |
 | Tests | **Vitest** (`tests/unit/`), optional Ollama integration | ✅ |

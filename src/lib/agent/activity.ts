@@ -48,6 +48,7 @@ const TOOL_LABELS: Record<string, string> = {
   run_script: "Script",
   run_tests: "Tests",
   web_fetch: "Fetched",
+  parse_error: "Parse error",
 };
 
 export function toolActivityLabel(toolName: string): string {

@@ -13,6 +13,7 @@ export const CHAT_APPEARANCE_DEFAULTS = {
   toolBadgeDoneColor: "#4ec9b0",
   toolBadgeErrorColor: "#f14c4c",
   fileLinkColor: "#4ec9b0",
+  messageBoxBg: "#2d2d30",
 } as const;
 
 export type ChatAppearanceKey = keyof typeof CHAT_APPEARANCE_DEFAULTS;
@@ -28,12 +29,29 @@ export type ChatAppearanceMap = {
   toolBadgeDoneColor: string;
   toolBadgeErrorColor: string;
   fileLinkColor: string;
+  messageBoxBg: string;
 };
 
 export const CHAT_WAITING_STYLE_OPTIONS: { id: ChatWaitingStyle; label: string }[] = [
   { id: "spinner-row", label: "Purple row + spinner (default)" },
   { id: "dots", label: "Whimsical word + animated dots" },
 ];
+
+export const CHAT_APPEARANCE_CSS_VARS: Record<
+  Exclude<ChatAppearanceKey, "waitingStyle">,
+  string
+> = {
+  thoughtLabelColor: "--chat-thought-label",
+  thoughtLabelActiveColor: "--chat-thought-label-active",
+  planLabelColor: "--chat-plan-label",
+  toolRunningColor: "--chat-activity-tool-running",
+  toolDoneColor: "--chat-activity-tool-done",
+  toolFailedColor: "--chat-activity-tool-failed",
+  toolBadgeDoneColor: "--chat-activity-badge-done",
+  toolBadgeErrorColor: "--chat-activity-badge-error",
+  fileLinkColor: "--chat-activity-file-link",
+  messageBoxBg: "--chat-message-box-bg",
+};
 
 export const CHAT_APPEARANCE_COLOR_FIELDS: {
   key: Exclude<ChatAppearanceKey, "waitingStyle">;
@@ -53,6 +71,7 @@ export const CHAT_APPEARANCE_COLOR_FIELDS: {
   { key: "toolBadgeDoneColor", label: "Badge: done", hint: "“done” tag on tools" },
   { key: "toolBadgeErrorColor", label: "Badge: failed", hint: "“failed” tag on tools" },
   { key: "fileLinkColor", label: "File chips", hint: "Paths opened from tool rows" },
+  { key: "messageBoxBg", label: "Message boxes", hint: "User message bubbles in the chat thread" },
 ];
 
 const STORAGE_KEY = "sidebar.chatAppearance.v1";
@@ -124,4 +143,5 @@ export function applyChatAppearanceToDocument(appearance: ChatAppearanceMap): vo
   root.style.setProperty("--chat-activity-badge-done", appearance.toolBadgeDoneColor);
   root.style.setProperty("--chat-activity-badge-error", appearance.toolBadgeErrorColor);
   root.style.setProperty("--chat-activity-file-link", appearance.fileLinkColor);
+  root.style.setProperty("--chat-message-box-bg", appearance.messageBoxBg);
 }

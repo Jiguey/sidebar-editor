@@ -1,6 +1,6 @@
 # Sidebar Editor — Specifications
 
-> **Last aligned with codebase:** 2026-06-03 — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
+> **Last aligned with codebase:** 2026-06-04 — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
 
 This directory contains the detailed engineering specifications for Sidebar Editor, organized by domain.
 
@@ -24,7 +24,7 @@ This directory contains the detailed engineering specifications for Sidebar Edit
 | **LSP** | 🔶 Partial | Rust transport + TS client; diagnostics + hover — [25](25-lsp-diagnostics.md) |
 | **Stall / Error Detection** | 🔶 Partial | `stallDetection.ts` done, wire-up done — [22](22-llm-file-interaction.md) |
 | **Security Hardening** | 🔶 Partial | TS sandbox; Rust path enforcement pending — [14](14-security.md), [33](33-rust-path-enforcement.md) |
-| **Skills** | 🔶 Placeholder | Slot wired in `assemble.ts`; implementation pending — [30](30-agent-context-and-model-settings.md) |
+| **Skills** | ✅ Complete (per-project) | CRUD UI + injection + variable interpolation; bundled pack/registry pending — [30](30-agent-context-and-model-settings.md) |
 | **Planning System** | ❌ Not started | `plans/` files, picker UI — [19](19-planning-system.md) |
 | **Inline edit (Cmd+K)** | ❌ Not started | [28](28-inline-edit-autocomplete.md) |
 
@@ -65,7 +65,7 @@ This directory contains the detailed engineering specifications for Sidebar Edit
 | [27-local-model-ux.md](27-local-model-ux.md) | 🔶 Partial | Ollama pull UI current; §2–3 folded into [30](30-agent-context-and-model-settings.md) |
 | [28-inline-edit-autocomplete.md](28-inline-edit-autocomplete.md) | ❌ Spec ready | Cmd+K inline edit + ghost-text autocomplete |
 | [29-skills-registry.md](29-skills-registry.md) | ❌ Deferred (P3) | Share/install skills; format-stability obligations now |
-| [30-agent-context-and-model-settings.md](30-agent-context-and-model-settings.md) | 🔶 Phase 0 | Agent Context settings, prompts relocation, per-model settings, assembly preview · skills Phase 1+ pending · Addendum A: skills CRUD |
+| [30-agent-context-and-model-settings.md](30-agent-context-and-model-settings.md) | ✅ Core complete | Agent Context settings, prompts relocation, per-model settings, assembly preview, **per-project skills CRUD + interpolation** · bundled pack/registry pending |
 | [31-llm-eval-harness.md](31-llm-eval-harness.md) | ✅ Implemented | Long-running Chat/Plan/Agent eval vs Ollama (`tests/llm/`) |
 | [32-agent-error-recovery.md](32-agent-error-recovery.md) | ✅ Complete | Tool error formatting, continue-after-max-steps UX, web_fetch retry |
 | [34-context-overflow-warnings.md](34-context-overflow-warnings.md) | ✅ Complete | Amber/red context bar states, inline critical warning above composer |
@@ -117,7 +117,7 @@ These were the specs added as part of the competitive enhancement program (`exte
 | [27](27-local-model-ux.md) | Local Model UX | 🔶 Partial |
 | [28](28-inline-edit-autocomplete.md) | Inline Edit / Cmd+K | ❌ Not started |
 | [29](29-skills-registry.md) | Skills Registry | ❌ Deferred P3 |
-| [30](30-agent-context-and-model-settings.md) | Agent Context & Model Settings | 🔶 Phase 0 |
+| [30](30-agent-context-and-model-settings.md) | Agent Context & Model Settings | ✅ Core complete (skills CRUD) |
 | [31](31-llm-eval-harness.md) | LLM Eval Harness | ✅ Implemented |
 | [32](32-agent-error-recovery.md) | Agent Error Recovery | ✅ Complete |
 | [33](33-rust-path-enforcement.md) | Rust Path Enforcement | ❌ Not started |
@@ -158,4 +158,4 @@ When changing behavior, update in order:
 
 **Enhancement program:** the competitive plan in `extension.md` is specced across [22](22-llm-file-interaction.md)–[39](39-context-ui-enhancements.md) and sequenced (Phase 0–3) in the [Enhancement Program](17-roadmap.md#enhancement-program-from-extensionmd) section of the roadmap.
 
-**Skills:** Spec [30](30-agent-context-and-model-settings.md) is the authority (supersedes [23](23-skills-system.md)). `src/lib/skills/` is empty; the assembly slot is wired. Skills Phase 1+ is the next major implementation block.
+**Skills:** Spec [30](30-agent-context-and-model-settings.md) is the authority (supersedes [23](23-skills-system.md)). **Per-project skills are implemented** — `src/lib/skills/` (`activeSkills.ts`, `skillVariables.ts`), the `skills` store, and the Skills manager (Settings → Agent Context → Skills) provide CRUD, per-mode scoping, and `{{variable}}` interpolation; `assemble.ts` injects enabled skills. Remaining work: a bundled starter pack and a global/shared registry ([29](29-skills-registry.md)).

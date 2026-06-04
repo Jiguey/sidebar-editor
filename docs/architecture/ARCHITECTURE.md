@@ -41,17 +41,19 @@ This document describes how **Sidebar Editor** works end-to-end: UI layout, stat
 │                                                                           │
 │  Stores: chat, files, workbench, settings, toolPolicy, mode, iconTheme   │
 │                                                                           │
-│  lib/agent/     conversation.ts, streamTurn.ts                           │
-│  lib/providers/ openaiCompat.ts, anthropic.ts  ──► fetch() to LLM APIs    │
+│  lib/agent/     conversation.ts, streamTurn.ts, systemPrompt/assemble.ts │
+│  lib/skills/    activeSkills.ts, skillVariables.ts                        │
+│  lib/providers/ openaiCompat.ts, anthropic.ts, deepseek.ts ──► fetch()    │
 │  lib/tools/     toolDefinitions.ts, toolRunner.ts ──► ipc.ts             │
+│  lib/lsp/       LSP client (JSON-RPC over Tauri events)                  │
 └───────────────────────────────┬──────────────────────────────────────────┘
-                                │ Tauri invoke + events (pty:data, pty:exit)
+                                │ Tauri invoke + events (pty:*, fs:changed, lsp:*)
 ┌───────────────────────────────▼──────────────────────────────────────────┐
 │                    Rust Backend (src-tauri/src/)                          │
 │  filesystem.rs   read/write/list/grep/find/tree/web_fetch                │
 │  git.rs          status, diff, stage, commit, log, discard, checkpoints  │
 │  pty.rs          create/write/resize/close + event emit                  │
-│  commands.rs     Tauri command handlers + settings window                │
+│  commands.rs     Tauri command handlers, shell, skills, prompts, locks   │
 │  icon_pack.rs    bundled icon pack paths                                 │
 │  watcher.rs      file system watching → debounced `fs:changed` events      │
 │  lsp.rs          language server spawn + JSON-RPC stdio bridge             │
@@ -163,6 +165,10 @@ Sidebar Editor uses **Svelte writable/derived stores** (not a global Redux-like 
 | `currentMode` | `src/lib/stores/mode.ts` | Runtime only |
 | `iconTheme` | `src/lib/stores/iconTheme.ts` | `localStorage` (v2) |
 | `providerUsage` | `src/lib/stores/providerUsage.ts` | `localStorage` (v1) |
+| `skills` | `src/lib/stores/skills.ts` | `.sidebar/skills/` (per workspace) |
+| `systemPrompts` | `src/lib/stores/systemPrompts.ts` | `.sidebar/prompts/` (per workspace) |
+| `workbenchChrome` | `src/lib/stores/workbenchChrome.ts` | `localStorage` |
+| `editorChrome`, `syntaxTheme`, `chatAppearance`, `explorerAppearance` | `src/lib/stores/*` | `localStorage` |
 
 ### Settings Store (`sidebar.settings.v4`)
 
@@ -204,18 +210,24 @@ Final tool list = **mode tools ∩ effective policy** (denied/removed tools excl
 
 ### System Prompt Assembly
 
-Built in `ChatPane.svelte` → `buildSystemPrompt()`:
+Assembled by `src/lib/agent/systemPrompt/assemble.ts` (`assembleSystemPrompt`), called from `ChatPane.svelte`:
 
 1. **Mode base prompt** (`MODE_CONFIG[mode].basePrompt`)
 2. **Workspace context** (`src/lib/agent/workspaceContext.ts`)
-3. **Custom instructions** from `.sidebar/prompt.md`
+3. **User system prompts** — per-mode / shared files from `.sidebar/prompts/` (manifest in `prompts.json`)
+4. **Skill blocks** — enabled skills for the active mode, interpolated by `buildActiveSkillBlocks` (`src/lib/skills/activeSkills.ts`)
+5. **Tool-use instructions** (`systemPrompt/toolInstructions.ts`) when tools are enabled
+
+`assemble.ts` returns both the final prompt string and a per-section token breakdown, which powers the **assembly preview** and the context bar. Native tool-call schemas are counted separately.
 
 ### Providers
 
 | Backend | File | Protocol |
 |---------|------|----------|
-| Ollama, llama.cpp | `src/lib/providers/openaiCompat.ts` | `POST /v1/chat/completions` SSE |
+| Ollama, llama.cpp, DeepSeek | `src/lib/providers/openaiCompat.ts` (DeepSeek catalog in `deepseek.ts`) | OpenAI-compatible `POST /v1/chat/completions` SSE |
 | Anthropic | `src/lib/providers/anthropic.ts` | Anthropic Messages API SSE |
+
+Provider dispatch and per-turn streaming go through `src/lib/agent/streamTurn.ts`.
 
 ### Chat Footer (provider-specific)
 
@@ -312,6 +324,8 @@ Paths resolved via `src/lib/tools/pathUtils.ts`:
 - Absolute paths outside workspace rejected
 - `/file.txt` treated as workspace-relative
 
+Writes (`write_file`, `create_file`) create missing parent directories in the Rust backend (`write_file_contents`), so nested paths succeed without a separate mkdir step.
+
 ---
 
 ## 8. Rust Backend
@@ -327,9 +341,10 @@ Entry: `src-tauri/src/main.rs`
 | `filesystem.rs` | list/read/write/delete/rename, find files, directory tree, web fetch |
 | `git.rs` | git2-based status, diff, stage, unstage, commit, log, branch, discard, checkpoints |
 | `pty.rs` | portable-pty sessions; emits `pty:data` and `pty:exit` events |
-| `commands.rs` | Tauri command wrappers, grep (spawns `rg`), shell execution |
+| `commands.rs` | Tauri command wrappers, grep (spawns `rg`), shell, skills/prompt scaffolding, workspace lock, recent projects |
 | `icon_pack.rs` | Resolve bundled/custom icon pack directories |
-| `watcher.rs` | File system watching (infrastructure only) |
+| `watcher.rs` | File system watching → debounced `fs:changed` events (drives explorer + git refresh) |
+| `lsp.rs` | Spawn language servers; JSON-RPC over stdio bridged to `lsp:*` Tauri events |
 
 ### IPC Commands
 
@@ -339,9 +354,14 @@ Entry: `src-tauri/src/main.rs`
 | Discovery | `find_files`, `list_dir_tree`, `grep_workspace` |
 | Shell | `run_shell` |
 | Network | `web_fetch` |
-| Git | `git_status`, `git_diff`, `git_stage`, `git_unstage`, `git_commit`, `git_log`, `git_branch`, `git_discard`, `git_file_at_head`, `git_create_checkpoint`, `git_restore_checkpoint` |
+| Git | `git_status`, `git_diff`, `git_stage`, `git_unstage`, `git_commit`, `git_log`, `git_current_branch`, `git_is_repo`, `git_discard`, `git_file_at_head`, `git_create_checkpoint`, `git_restore_checkpoint` |
 | Terminal | `pty_create`, `pty_write`, `pty_resize`, `pty_close` |
-| Project | `read_system_prompt`, `write_system_prompt`, `read_project_state`, `write_project_state` |
+| Project | `read_system_prompt`, `write_system_prompt`, `ensure_system_prompts_layout`, `read_project_state`, `write_project_state` |
+| Skills | `ensure_skill_dir` (+ `list_dir`/`read_file`/`write_file`/`delete_entry` for CRUD) |
+| Watcher | `watch_workspace` (emits `fs:changed`) |
+| LSP | `spawn_lsp`, `lsp_send`, `lsp_stop` |
+| Workspace lock | `acquire_workspace_lock`, `read_workspace_lock`, `release_workspace_lock` |
+| Recent / launch | `get_recent_projects`, `add_recent_project`, `get_launch_args`, `get_workspace_path` |
 | Window | `pick_workspace_folder`, `pick_icon_pack_folder`, `open_settings_window` |
 | Icons | `icon_pack_get_dir`, `icon_pack_refresh_bundled` |
 
@@ -351,7 +371,7 @@ Entry: `src-tauri/src/main.rs`
 
 > **Status:** ✅ Complete
 
-Three independent color systems:
+Four customizable color layers (workbench theme + three appearance overrides):
 
 ### Workbench Theme (global UI)
 
@@ -359,6 +379,13 @@ Three independent color systems:
 - Applied via `data-workbench-theme` attribute on `<html>`
 - Presets: `vscode-dark` (default), `cursor-dark`, `catppuccin-mocha`, `tokyo-night`, `one-dark-pro`, `sidebar-editor`, `dracula`, `github-dark`, `rose-pine`
 - Default `--editor-bg` matches `--background` (`#1e1e1e`); changing preset syncs editor + syntax colors from theme CSS
+
+### Appearance overrides (Settings → Appearance → Theme)
+
+- **Workbench chrome** (`workbenchChrome` store + `lib/workbench/workbenchChrome.ts`): sidebar, tabs, status bar, terminal colors applied as inline CSS-var overrides
+- **Editor chrome** (`editorChrome`) and **Syntax tokens** (`syntaxTheme`)
+- **Interactive mini-workbench preview** (`ThemeMiniWorkbench.svelte` + `themePreviewRegions.ts`): click a region to focus its pickers; live updates
+- **Sync from theme** repopulates pickers from the active preset; **Reset to defaults** clears overrides (`themeColorReset.ts`)
 
 ### Key CSS Variables
 
@@ -471,15 +498,20 @@ sidebar-editor/
 │   │   ├── explorer/        File tree, search, git panels
 │   │   ├── editor/          EditorSurface (CodeMirror)
 │   │   ├── terminal/        TerminalPane (xterm)
-│   │   ├── settings/        SettingsPane
+│   │   ├── settings/        SettingsPane, agentContext/ (SkillsManager), appearance
+│   │   ├── workspace/       WelcomeScreen, workspace lock dialog
 │   │   └── shortcuts/       Keyboard dispatcher
 │   ├── lib/
-│   │   ├── agent/           conversation, streamTurn, workspaceContext
-│   │   ├── providers/       openaiCompat, anthropic
+│   │   ├── agent/           conversation, streamTurn, systemPrompt/assemble, workspaceContext
+│   │   ├── skills/          activeSkills, skillVariables
+│   │   ├── systemPrompts/   prompt manifest config + workspace context
+│   │   ├── providers/       openaiCompat, anthropic, deepseek
 │   │   ├── tools/           toolDefinitions, toolRunner, pathUtils
-│   │   ├── stores/          chat, files, workbench, settings, toolPolicy, mode, iconTheme
+│   │   ├── lsp/             LSP client (JSON-RPC over Tauri events)
+│   │   ├── stores/          chat, files, workbench, settings, toolPolicy, mode, iconTheme, skills, appearance
 │   │   ├── icon-packs/      Seti/VSCode icon resolution
 │   │   ├── editor/          loadCodeMirror, syntaxTheme, diffDecorations
+│   │   ├── workbench/       workbenchChrome (appearance overrides)
 │   │   └── components/      FileIcon, ui primitives
 │   └── styles/
 │       ├── globals.css
@@ -487,10 +519,11 @@ sidebar-editor/
 ├── static/icon-packs/       Bundled Seti + vscode-icons assets
 ├── src-tauri/src/
 │   ├── main.rs
-│   └── modules/             filesystem, git, pty, commands, icon_pack, watcher
-└── tests/unit/              Vitest unit tests
+│   └── modules/             filesystem, git, pty, commands, icon_pack, watcher, lsp
+├── tests/unit/              Vitest unit tests
+└── tests/llm/               LLM eval harness (Chat/Plan/Agent vs Ollama)
 ```
 
 ---
 
-*Last updated: 2026-05-29. For implementation status, see [Specifications](../specs/README.md).*
+*Last updated: 2026-06-04. For implementation status, see [Specifications](../specs/README.md).*

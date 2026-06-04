@@ -30,13 +30,15 @@ The privacy moat is real: run Ollama or llama.cpp locally and the only traffic l
 | Editor line wrap + Prettier format / format-on-save | Shipped |
 | Workbench themes (9 presets incl. Rosé Pine) | Shipped |
 | Editor + syntax colors (Appearance settings) | Shipped |
+| Interactive theme preview + workbench-chrome customization | Shipped |
 | Theme → editor/syntax sync on theme change | Shipped |
 | Shortcut rebinding UI | Shipped |
 | Agent error recovery (retries, continue after step limit) | Shipped |
 | Workspace lock (multi-window safety) | Shipped |
 | LSP (diagnostics, hover; user-installed servers) | Partial |
 | System prompts manager (`.sidebar/prompts/`) | Shipped |
-| Skills system | Placeholder wired; implementation pending |
+| Per-project skills (CRUD UI + variable interpolation) | Shipped |
+| Bundled skill starter pack + global/shared skills registry | Planned |
 | Rust path sandbox (defense in depth) | Planned — TS layer enforces today |
 | Cmd+K inline edit | Planned |
 | OS keychain for API keys | Planned |
@@ -92,14 +94,14 @@ All providers stream tokens into the chat pane in real time. Local providers (Ol
 
 | Category | Tools |
 |----------|-------|
-| **Files** | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_directory`, `find_file`, `get_file_tree` |
+| **Files** | `read_file`, `write_file`, `create_file`, `delete_file`, `move_file`, `list_dir`, `find_file`, `get_file_tree`, `grep` |
 | **Git** | `get_git_status`, `get_git_log`, `get_git_diff` |
 | **Shell** | `run_shell`, `run_tests`, `run_script` |
 | **Network** | `web_fetch` (hostname allowlist enforced) |
 
-All tools run inside the opened workspace. Paths are sandboxed by `pathUtils.ts` — `..` traversal and paths outside the project root are rejected before reaching Rust.
+All tools run inside the opened workspace. Paths are sandboxed by `pathUtils.ts` — `..` traversal and paths outside the project root are rejected before reaching Rust. `write_file` and `create_file` create missing parent directories automatically, so an agent can write `pkg/sub/file.py` in one step.
 
-Read-only tools (`read_file`, `list_directory`, `find_file`, `get_file_tree`, git reads, etc.) can run in parallel when **Settings → Tools → Parallel execution** is enabled.
+Read-only tools (`read_file`, `list_dir`, `find_file`, `get_file_tree`, `grep`, git reads) can run in parallel when **Settings → Tools → Parallel execution** is enabled.
 
 ### Tool policy
 
@@ -160,13 +162,14 @@ Three independent color systems:
 | System | Where to configure |
 |--------|-------------------|
 | **Workbench theme** | Settings → General → Color theme (UI chrome, terminal ANSI, default editor/syntax tokens) |
-| **Editor chrome** | Settings → Appearance → Editor (background, gutter, selection, cursor) |
-| **Syntax tokens** | Settings → Appearance → Syntax |
-| **File icons** | Settings → General → Icon theme (Seti, VS Code Icons, Codicons, custom pack) |
+| **Workbench chrome** | Settings → Appearance → Theme (sidebar, tabs, status bar, terminal colors) |
+| **Editor chrome** | Settings → Appearance → Theme → Editor (background, gutter, selection, cursor) |
+| **Syntax tokens** | Settings → Appearance → Theme → Syntax |
+| **File icons** | Settings → Appearance → Icons (Seti, VS Code Icons, Codicons, custom pack) |
 
 **Presets:** VS Code Dark (default), Cursor Dark, Catppuccin Mocha, Tokyo Night, One Dark Pro, Sidebar, Dracula, GitHub Dark, **Rosé Pine** (VS Code Dark workbench + Rosé Pine editor/syntax).
 
-Changing the workbench theme updates the editor surface and syntax colors automatically (clears stale inline overrides). Use **Sync from theme** under Appearance → Editor to refresh the settings pickers.
+The Appearance → Theme page has an **interactive mini-workbench preview**: click a region (workbench chrome, editor, or syntax) to jump to its color pickers and see edits live. Changing the workbench theme updates the editor surface and syntax colors automatically (clears stale inline overrides). **Sync from theme** repopulates the pickers from the active preset, and **Reset to defaults** clears your overrides.
 
 Default editor background matches the welcome screen (`--background`, `#1e1e1e`). See [docs/specs/13-theming.md](docs/specs/13-theming.md).
 
@@ -174,17 +177,21 @@ Default editor background matches the welcome screen (`--background`, `#1e1e1e`)
 
 ## Skills
 
-Skills are context fragments — small markdown documents injected into the system prompt when certain workspace conditions are met. A React skill activates when `react` is in `package.json`; a Rust skill activates when `Cargo.toml` is present.
+Skills are reusable context fragments — markdown documents injected into the system prompt for the modes you choose. Each skill is a directory under `.sidebar/skills/<id>/` holding a `skill.json` manifest (id, title, description, enabled, modes, version) and a `skill.md` body.
 
-**Current state:** the `assemble.ts` slot for skills is wired. `src/lib/skills/` is empty — the bundled skill pack and the skills UI are not yet implemented. The design is in [Spec 30](docs/specs/30-agent-context-and-model-settings.md).
+**Current state (shipped):**
+- **Skills manager** in Settings → Agent Context → Skills: create, edit, delete, enable/disable, and scope each skill to Chat / Plan / Agent.
+- Enabled skills are interpolated and injected by `assemble.ts` (`buildActiveSkillBlocks`) for the active mode.
+- **Variable interpolation** (`skillVariables.ts`): `{{workspace_name}}`, `{{git_branch}}`, `{{active_file}}`, `{{active_file_contents}}`, `{{open_files}}`, `{{today}}`, and more.
+- Skills live in `.sidebar/skills/` so they can be committed and shared with the repo.
+- The **assembly preview** (Settings → Agent Context) shows exactly what the model receives, including active skill blocks.
 
 **Planned:**
-- Skills panel in Settings → Agent Context → Skills
-- Auto-activation signals (file presence, package.json deps, config files)
 - Bundled starter pack (Node/TS, React, Svelte, Rust, Python, Docker, Git Conventions)
-- Per-project skills committed with the repo (`.sidebar/skills/`)
-- Global skills (`~/.sidebar/skills/`)
-- Variable interpolation: `{{workspace_name}}`, `{{git_branch}}`, `{{active_file}}`, etc.
+- Auto-activation signals (file presence, `package.json` deps, config files)
+- Global skills (`~/.sidebar/skills/`) and a share/install registry — see [Spec 29](docs/specs/29-skills-registry.md)
+
+Design: [Spec 30](docs/specs/30-agent-context-and-model-settings.md).
 
 ---
 
@@ -229,8 +236,7 @@ Optional environment variable fallbacks: see `.env.example`.
 | `.sidebar/prompts/*.md` | Per-mode or shared system prompt files |
 | `.sidebar/prompts.json` | Prompt manifest — enable/disable and mode scope |
 | `.sidebar/tools.json` | Tool policy overrides and custom tool schemas |
-| `.sidebar/skills/` | Project-scoped skill directories (planned) |
-| `.sidebar/skills-config.json` | Per-workspace skill activation overrides (planned) |
+| `.sidebar/skills/<id>/` | Project-scoped skills (`skill.json` manifest + `skill.md` body) |
 | `.sidebar/prompt.md` | Legacy single prompt — auto-migrated to `prompts/agent.md` |
 
 Secrets stay in local settings or environment variables — not committed to the repo. See [Security spec](docs/specs/14-security.md).
@@ -326,7 +332,7 @@ What is not built yet, in rough priority order:
 
 | Area | Status | Spec |
 |------|--------|------|
-| Skills system (bundled pack + UI) | Planned | [30](docs/specs/30-agent-context-and-model-settings.md) |
+| Skills: bundled starter pack + global/shared registry | Planned (per-project skills shipped) | [29](docs/specs/29-skills-registry.md) · [30](docs/specs/30-agent-context-and-model-settings.md) |
 | Rust path enforcement (symlink escape hardening) | Planned | [33](docs/specs/33-rust-path-enforcement.md) |
 | File-backed planning system (`plans/`) | Planned | [19](docs/specs/19-planning-system.md) |
 | Inline edit / Cmd+K | Planned | [28](docs/specs/28-inline-edit-autocomplete.md) |

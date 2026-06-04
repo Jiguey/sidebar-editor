@@ -1,30 +1,47 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { syntaxTheme } from "$lib/stores/syntaxTheme";
   import { editorChrome } from "$lib/stores/editorChrome";
   import { explorerAppearance } from "$lib/stores/explorerAppearance";
   import { chatAppearance } from "$lib/stores/chatAppearance";
-  import { SYNTAX_COLOR_FIELDS, type SyntaxColorMap } from "$lib/editor/syntaxColors";
-  import { EDITOR_CHROME_FIELDS, type EditorChromeMap } from "$lib/editor/editorChrome";
+  import { workbenchChrome } from "$lib/stores/workbenchChrome";
+  import { SYNTAX_COLOR_FIELDS, CSS_VAR_BY_KEY, defaultSyntaxColors, type SyntaxColorMap } from "$lib/editor/syntaxColors";
+  import { EDITOR_CHROME_FIELDS, EDITOR_CHROME_DEFAULTS, type EditorChromeMap } from "$lib/editor/editorChrome";
   import {
     EXPLORER_COLOR_FIELDS,
+    EXPLORER_COLOR_CSS_VARS,
+    EXPLORER_APPEARANCE_DEFAULTS,
     type ExplorerAppearanceMap,
   } from "$lib/explorer/explorerAppearance";
   import {
     CHAT_APPEARANCE_COLOR_FIELDS,
+    CHAT_APPEARANCE_CSS_VARS,
+    CHAT_APPEARANCE_DEFAULTS,
+    CHAT_WAITING_STYLE_OPTIONS,
     type ChatAppearanceMap,
+    type ChatWaitingStyle,
   } from "$lib/chat/chatAppearance";
-  import { applyWorkbenchTheme, type WorkbenchThemeId } from "$lib/workbench-theme";
-  import SettingsColorField from "./SettingsColorField.svelte";
+  import {
+    WORKBENCH_CHROME_FIELDS,
+    WORKBENCH_CHROME_DEFAULTS,
+    WORKBENCH_CHROME_THEME_SOURCES,
+    type WorkbenchChromeMap,
+  } from "$lib/workbench/workbenchChrome";
+  import { readThemeCssVar } from "$lib/themeColorReset";
+  import {
+    WORKBENCH_THEME_OPTIONS,
+    applyWorkbenchTheme,
+    type WorkbenchThemeId,
+  } from "$lib/workbench-theme";
 
-  /**
-   * The four appearance subsections. Color maps are bound back to SettingsPane,
-   * which owns the draft state and commits it on Save; `*.apply()` only previews live.
-   */
-  export type AppearanceSection =
-    | "appearance-editor"
-    | "appearance-explorer"
-    | "appearance-chat"
-    | "appearance-syntax";
+  import SettingsColorField from "./SettingsColorField.svelte";
+  import ThemeMiniWorkbench from "./ThemeMiniWorkbench.svelte";
+  import {
+    THEME_REGION_LABELS,
+    type ThemePreviewRegion,
+  } from "./themePreviewRegions";
+
+  export type AppearanceSection = "appearance-theme";
 
   interface Props {
     section: AppearanceSection;
@@ -32,8 +49,9 @@
     editorColors: EditorChromeMap;
     explorerColors: ExplorerAppearanceMap;
     chatColors: ChatAppearanceMap;
+    workbenchChromeColors: WorkbenchChromeMap;
     workbenchTheme: WorkbenchThemeId;
-    onNavigate: (section: "general" | "appearance-syntax") => void;
+    onNavigate: (section: "general") => void;
   }
 
   let {
@@ -42,9 +60,40 @@
     editorColors = $bindable(),
     explorerColors = $bindable(),
     chatColors = $bindable(),
-    workbenchTheme,
+    workbenchChromeColors = $bindable(),
+    workbenchTheme = $bindable(),
     onNavigate,
   }: Props = $props();
+
+  let selectedRegion = $state<ThemePreviewRegion>("workbench-chrome");
+
+  async function selectThemeRegion(region: ThemePreviewRegion) {
+    selectedRegion = region;
+    await tick();
+    document
+      .getElementById(`theme-region-${region}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function resetRegionColors(region: ThemePreviewRegion) {
+    switch (region) {
+      case "workbench-chrome":
+        workbenchChromeColors = workbenchChrome.resetToDefaults();
+        break;
+      case "editor":
+        editorColors = editorChrome.resetToDefaults();
+        break;
+      case "syntax":
+        syntaxColors = syntaxTheme.resetToDefaults();
+        break;
+      case "explorer":
+        explorerColors = explorerAppearance.resetToDefaults();
+        break;
+      case "chat":
+        chatColors = chatAppearance.resetToDefaults();
+        break;
+    }
+  }
 
   function setEditorColor(key: keyof EditorChromeMap, value: string) {
     editorColors = { ...editorColors, [key]: value };
@@ -65,148 +114,376 @@
     syntaxColors = { ...syntaxColors, [key]: value };
     syntaxTheme.apply(syntaxColors);
   }
+
+  function setWorkbenchChromeColor(key: keyof WorkbenchChromeMap, value: string) {
+    workbenchChromeColors = { ...workbenchChromeColors, [key]: value };
+    workbenchChrome.apply(workbenchChromeColors);
+  }
+
+  function resetWorkbenchChromeColor(key: keyof WorkbenchChromeMap) {
+    const source = WORKBENCH_CHROME_THEME_SOURCES[key];
+    if (typeof document !== "undefined") {
+      for (const cssVar of source.clearVars) {
+        document.documentElement.style.removeProperty(cssVar);
+      }
+    }
+    const themeValue = readThemeCssVar(source.themeVar, WORKBENCH_CHROME_DEFAULTS[key]);
+    setWorkbenchChromeColor(key, themeValue);
+  }
+
+  function resetEditorColor(key: keyof EditorChromeMap) {
+    const field = EDITOR_CHROME_FIELDS.find((f) => f.key === key)!;
+    const themeValue = readThemeCssVar(field.cssVar, EDITOR_CHROME_DEFAULTS[key]);
+    setEditorColor(key, themeValue);
+  }
+
+  function resetSyntaxColor(key: keyof SyntaxColorMap) {
+    const cssVar = CSS_VAR_BY_KEY[key];
+    const themeValue = readThemeCssVar(cssVar, defaultSyntaxColors()[key]);
+    setSyntaxColor(key, themeValue);
+  }
+
+  function resetExplorerColor(key: keyof ExplorerAppearanceMap) {
+    const cssVar = EXPLORER_COLOR_CSS_VARS[key];
+    if (!cssVar) return;
+    const themeValue = readThemeCssVar(
+      cssVar,
+      EXPLORER_APPEARANCE_DEFAULTS[key] as string
+    );
+    setExplorerColor(key, themeValue);
+  }
+
+  function resetChatColor(key: keyof ChatAppearanceMap) {
+    if (key === "waitingStyle") return;
+    const cssVar = CHAT_APPEARANCE_CSS_VARS[key];
+    const themeValue = readThemeCssVar(cssVar, CHAT_APPEARANCE_DEFAULTS[key]);
+    setChatColor(key, themeValue);
+  }
 </script>
 
-{#if section === "appearance-editor"}
+{#if section === "appearance-theme"}
   <div class="stack">
     <div class="section-header">
-      <h3 class="provider-page-title">Editor</h3>
+      <h3 class="provider-page-title">Theme</h3>
       <div class="header-actions">
         <button
           type="button"
           class="btn ghost small"
-          onclick={() => { applyWorkbenchTheme(workbenchTheme); editorColors = editorChrome.syncFromActiveTheme(); }}
-        >Sync from theme</button>
-        <button
-          type="button"
-          class="btn ghost small"
-          onclick={() => { editorColors = editorChrome.resetToDefaults(); }}
-        >Reset to default</button>
+          onclick={() => {
+            applyWorkbenchTheme(workbenchTheme);
+            editorColors = editorChrome.syncFromActiveTheme();
+            syntaxColors = { ...syntaxTheme.syncFromActiveTheme() };
+            workbenchChromeColors = { ...workbenchChrome.syncFromActiveTheme() };
+          }}
+        >Sync editor from theme</button>
       </div>
     </div>
     <p class="note">
-      Syntax tokens →
-      <button type="button" class="linkish" onclick={() => onNavigate("appearance-syntax")}>Syntax</button>.
-      Theme, wrap, tab width →
+      Click a region in the preview to jump to its colors. Workbench preset, editor, syntax, explorer, and chat.
+      Label and icon sizes →
       <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
     </p>
-    {#each EDITOR_CHROME_FIELDS as field}
-      <SettingsColorField
-        label={field.label}
-        hint={field.hint}
-        value={editorColors[field.key]}
-        onChange={(v) => setEditorColor(field.key, v)}
-      />
-    {/each}
-    <div
-      class="editor-chrome-preview"
-      style={`background:${editorColors.bg};color:${editorColors.fg};`}
-      aria-hidden="true"
-    >
-      <span style={`color:${editorColors.gutterFg}`}>1</span>
-      <span> function hello() {'{'}</span>
-      <span
-        class="editor-chrome-preview__selection"
-        style={`background:${editorColors.selection}`}
+
+    <p class="group-label">Workbench</p>
+    <label class="field">
+      <span class="name">Color theme</span>
+      <span class="field-hint">Sidebar, tabs, status bar, and terminal</span>
+      <select
+        class="input"
+        bind:value={workbenchTheme}
+        onchange={() => {
+          applyWorkbenchTheme(workbenchTheme);
+          editorColors = editorChrome.syncFromActiveTheme();
+          syntaxColors = { ...syntaxTheme.syncFromActiveTheme() };
+          workbenchChromeColors = { ...workbenchChrome.syncFromActiveTheme() };
+        }}
       >
-        return "world";
-      </span>
-      <span> {'}'}</span>
-    </div>
-  </div>
-{:else if section === "appearance-explorer"}
-  <div class="stack">
-    <div class="section-header">
-      <h3 class="provider-page-title">Explorer</h3>
-      <div class="header-actions">
-        <button
-          type="button"
-          class="btn ghost small"
-          onclick={() => { explorerColors = explorerAppearance.resetToDefaults(); }}
-        >Reset to default</button>
+        {#each WORKBENCH_THEME_OPTIONS as opt}
+          <option value={opt.id}>{opt.label}</option>
+        {/each}
+      </select>
+    </label>
+
+    <div class="theme-preview-shell">
+      <p class="group-label theme-preview-shell__label">Application preview</p>
+      <ThemeMiniWorkbench
+        selected={selectedRegion}
+        onSelect={selectThemeRegion}
+        {workbenchChromeColors}
+        {editorColors}
+        {syntaxColors}
+        {explorerColors}
+        {chatColors}
+      />
+      <div class="region-editor">
+        <div class="region-editor__head">
+          <h4 class="region-editor__title">{THEME_REGION_LABELS[selectedRegion]}</h4>
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => resetRegionColors(selectedRegion)}
+          >Reset {THEME_REGION_LABELS[selectedRegion].toLowerCase()}</button>
+        </div>
+        {#if selectedRegion === "workbench-chrome"}
+          {#each WORKBENCH_CHROME_FIELDS as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={workbenchChromeColors[field.key]}
+              onChange={(v) => setWorkbenchChromeColor(field.key, v)}
+              onReset={() => resetWorkbenchChromeColor(field.key)}
+            />
+          {/each}
+        {:else if selectedRegion === "editor"}
+          {#each EDITOR_CHROME_FIELDS as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={editorColors[field.key]}
+              onChange={(v) => setEditorColor(field.key, v)}
+              onReset={() => resetEditorColor(field.key)}
+            />
+          {/each}
+        {:else if selectedRegion === "syntax"}
+          <p class="token-group-label">Code tokens</p>
+          {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group !== "markdown") as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={syntaxColors[field.key]}
+              onChange={(v) => setSyntaxColor(field.key, v)}
+              onReset={() => resetSyntaxColor(field.key)}
+            />
+          {/each}
+          <p class="token-group-label">Markdown tokens</p>
+          {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group === "markdown") as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={syntaxColors[field.key]}
+              onChange={(v) => setSyntaxColor(field.key, v)}
+              onReset={() => resetSyntaxColor(field.key)}
+            />
+          {/each}
+        {:else if selectedRegion === "explorer"}
+          {#each EXPLORER_COLOR_FIELDS as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={explorerColors[field.key] as string}
+              onChange={(v) => setExplorerColor(field.key, v)}
+              onReset={() => resetExplorerColor(field.key)}
+            />
+          {/each}
+        {:else if selectedRegion === "chat"}
+          <label class="field">
+            <span class="name">While waiting for the model</span>
+            <span class="field-hint">Before tools or reasoning appear</span>
+            <select
+              class="input"
+              value={chatColors.waitingStyle}
+              onchange={(e) => {
+                chatColors = {
+                  ...chatColors,
+                  waitingStyle: (e.currentTarget as HTMLSelectElement).value as ChatWaitingStyle,
+                };
+                chatAppearance.apply(chatColors);
+              }}
+            >
+              {#each CHAT_WAITING_STYLE_OPTIONS as opt}
+                <option value={opt.id}>{opt.label}</option>
+              {/each}
+            </select>
+          </label>
+          {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
+            <SettingsColorField
+              label={field.label}
+              hint={field.hint}
+              value={chatColors[field.key]}
+              onChange={(v) => setChatColor(field.key, v)}
+              onReset={() => resetChatColor(field.key)}
+            />
+          {/each}
+        {/if}
       </div>
     </div>
-    <p class="note">
-      File tree selection and git status colors. Label and icon sizes →
-      <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
-    </p>
-    {#each EXPLORER_COLOR_FIELDS as field}
-      <SettingsColorField
-        label={field.label}
-        hint={field.hint}
-        value={explorerColors[field.key] as string}
-        onChange={(v) => setExplorerColor(field.key, v)}
-      />
-    {/each}
-  </div>
-{:else if section === "appearance-chat"}
-  <div class="stack">
-    <div class="section-header">
-      <h3 class="provider-page-title">Chat activity</h3>
-      <div class="header-actions">
-        <button
-          type="button"
-          class="btn ghost small"
-          onclick={() => { chatColors = chatAppearance.resetToDefaults(); }}
-        >Reset to default</button>
+
+    <div class="theme-section" id="theme-region-workbench-chrome">
+      <div class="theme-section__head">
+        <h4 class="settings-subheading">Workbench chrome</h4>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => { workbenchChromeColors = workbenchChrome.resetToDefaults(); }}
+          >Reset</button>
+        </div>
       </div>
+      {#each WORKBENCH_CHROME_FIELDS as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={workbenchChromeColors[field.key]}
+          onChange={(v) => setWorkbenchChromeColor(field.key, v)}
+          onReset={() => resetWorkbenchChromeColor(field.key)}
+        />
+      {/each}
     </div>
-    <p class="note">
-      Agent feed colors for thoughts, tools, and badges. Waiting indicator →
-      <button type="button" class="linkish" onclick={() => onNavigate("general")}>General</button>.
-    </p>
-    {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
-      <SettingsColorField
-        label={field.label}
-        hint={field.hint}
-        value={chatColors[field.key]}
-        onChange={(v) => setChatColor(field.key, v)}
-      />
-    {/each}
-  </div>
-{:else if section === "appearance-syntax"}
-  <div class="stack">
-    <div class="section-header">
-      <h3 class="provider-page-title">Syntax highlighting</h3>
-      <div class="header-actions">
-        <button
-          type="button"
-          class="btn ghost small"
-          onclick={() => { syntaxColors = syntaxTheme.resetToDefaults(); }}
-        >Reset to default</button>
+
+    <div class="theme-section" id="theme-region-editor">
+      <div class="theme-section__head">
+        <h4 class="settings-subheading">Editor</h4>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => { editorColors = editorChrome.resetToDefaults(); }}
+          >Reset</button>
+        </div>
       </div>
+      {#each EDITOR_CHROME_FIELDS as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={editorColors[field.key]}
+          onChange={(v) => setEditorColor(field.key, v)}
+          onReset={() => resetEditorColor(field.key)}
+        />
+      {/each}
     </div>
-    <div class="syntax-preview" aria-hidden="true">
-      <p class="syntax-preview-label">TypeScript</p>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// comment</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">count</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">42</span><span style="color: {syntaxColors.punctuation}">;</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">MyClass</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
-      <span class="syntax-preview-line">  <span style="color: {syntaxColors.function}">render</span><span style="color: {syntaxColors.punctuation}">()</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span> <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.string}">"hello"</span><span style="color: {syntaxColors.punctuation}">;</span> <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
-      <p class="syntax-preview-label">Markdown</p>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700"># Title</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.link}">[link](https://example.com)</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.emphasis}">*emphasis*</span> <span style="color: {syntaxColors.strong}; font-weight:700">**strong**</span></span>
-      <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```ts</span></span>
+
+    <div class="theme-section" id="theme-region-syntax">
+      <div class="theme-section__head">
+        <h4 class="settings-subheading">Syntax</h4>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => { syntaxColors = syntaxTheme.resetToDefaults(); }}
+          >Reset</button>
+        </div>
+      </div>
+      <div
+        class="theme-preview theme-preview--syntax"
+        style={`background:${editorColors.bg};color:${editorColors.fg};`}
+        aria-label="Syntax theme preview"
+      >
+        <span class="theme-preview__label">Preview</span>
+        <p class="syntax-preview-label">TypeScript</p>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.comment}">// Workspace API client</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">import</span> <span style="color: {syntaxColors.keyword}">type</span> {'{'} <span style="color: {syntaxColors.type}">User</span> {'}'} <span style="color: {syntaxColors.keyword}">from</span> <span style="color: {syntaxColors.string}">'./types'</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">import</span> {'{'} <span style="color: {syntaxColors.function}">fetchData</span><span style="color: {syntaxColors.punctuation}">,</span> <span style="color: {syntaxColors.variable}">MAX_RETRIES</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.number}">3</span> {'}'} <span style="color: {syntaxColors.keyword}">from</span> <span style="color: {syntaxColors.string}">'@/lib/api'</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">interface</span> <span style="color: {syntaxColors.type}">Config</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
+        <span class="syntax-preview-line">  <span style="color: {syntaxColors.property}">timeout</span><span style="color: {syntaxColors.punctuation}">:</span> <span style="color: {syntaxColors.number}">3000</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">export</span> <span style="color: {syntaxColors.keyword}">class</span> <span style="color: {syntaxColors.type}">ApiClient</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
+        <span class="syntax-preview-line">  <span style="color: {syntaxColors.keyword}">private</span> <span style="color: {syntaxColors.property}">baseUrl</span><span style="color: {syntaxColors.punctuation}">:</span> <span style="color: {syntaxColors.type}">string</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line">  <span style="color: {syntaxColors.keyword}">async</span> <span style="color: {syntaxColors.function}">getUser</span><span style="color: {syntaxColors.punctuation}">(</span><span style="color: {syntaxColors.property}">id</span><span style="color: {syntaxColors.punctuation}">:</span> <span style="color: {syntaxColors.type}">number</span><span style="color: {syntaxColors.punctuation}">):</span> <span style="color: {syntaxColors.type}">Promise</span><span style="color: {syntaxColors.punctuation}">&lt;</span><span style="color: {syntaxColors.type}">User</span><span style="color: {syntaxColors.punctuation}">&gt;</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
+        <span class="syntax-preview-line">    <span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">url</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.string}">{"`${this.baseUrl}/users/${id}`"}</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line">    <span style="color: {syntaxColors.keyword}">if</span> <span style="color: {syntaxColors.punctuation}">(</span><span style="color: {syntaxColors.operator}">!</span><span style="color: {syntaxColors.variable}">url</span><span style="color: {syntaxColors.punctuation}">.</span><span style="color: {syntaxColors.function}">match</span><span style="color: {syntaxColors.punctuation}">(</span><span style="color: {syntaxColors.regexp}">/^https?:\/\//</span><span style="color: {syntaxColors.punctuation}">))</span> <span style="color: {syntaxColors.punctuation}">{`{`}</span></span>
+        <span class="syntax-preview-line">      <span style="color: {syntaxColors.keyword}">throw</span> <span style="color: {syntaxColors.keyword}">new</span> <span style="color: {syntaxColors.type}">Error</span><span style="color: {syntaxColors.punctuation}">(</span><span style="color: {syntaxColors.string}">'invalid url'</span><span style="color: {syntaxColors.punctuation}">);</span></span>
+        <span class="syntax-preview-line">    <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+        <span class="syntax-preview-line">    <span style="color: {syntaxColors.keyword}">return</span> <span style="color: {syntaxColors.function}">fetchData</span><span style="color: {syntaxColors.punctuation}">&lt;</span><span style="color: {syntaxColors.type}">User</span><span style="color: {syntaxColors.punctuation}">&gt;(</span><span style="color: {syntaxColors.variable}">url</span><span style="color: {syntaxColors.punctuation}">);</span></span>
+        <span class="syntax-preview-line">  <span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.punctuation}">{`}`}</span></span>
+      </div>
+      <p class="token-group-label">Code tokens</p>
+      {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group !== "markdown") as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={syntaxColors[field.key]}
+          onChange={(v) => setSyntaxColor(field.key, v)}
+          onReset={() => resetSyntaxColor(field.key)}
+        />
+      {/each}
+      <div
+        class="theme-preview theme-preview--syntax theme-preview--markdown"
+        style={`background:${editorColors.bg};color:${editorColors.fg};`}
+        aria-label="Markdown syntax preview"
+      >
+        <p class="syntax-preview-label">Markdown example</p>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700"># Project readme</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.heading}; font-weight:700">## Getting started</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.default}">Install dependencies, then read </span><span style="color: {syntaxColors.link}">[the docs](https://example.com)</span><span style="color: {syntaxColors.default}"> for </span><span style="color: {syntaxColors.emphasis}">*setup*</span><span style="color: {syntaxColors.default}"> and </span><span style="color: {syntaxColors.strong}; font-weight:700">**configuration**</span><span style="color: {syntaxColors.default}"> notes.</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```ts</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.keyword}">const</span> <span style="color: {syntaxColors.variable}">ready</span> <span style="color: {syntaxColors.operator}">=</span> <span style="color: {syntaxColors.keyword}">true</span><span style="color: {syntaxColors.punctuation}">;</span></span>
+        <span class="syntax-preview-line"><span style="color: {syntaxColors.meta}">```</span></span>
+      </div>
+      <p class="token-group-label">Markdown tokens</p>
+      {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group === "markdown") as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={syntaxColors[field.key]}
+          onChange={(v) => setSyntaxColor(field.key, v)}
+          onReset={() => resetSyntaxColor(field.key)}
+        />
+      {/each}
     </div>
-    <h4 class="settings-subheading">Code tokens</h4>
-    {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group !== "markdown") as field}
-      <SettingsColorField
-        label={field.label}
-        hint={field.hint}
-        value={syntaxColors[field.key]}
-        onChange={(v) => setSyntaxColor(field.key, v)}
-      />
-    {/each}
-    <h4 class="settings-subheading">Markdown tokens</h4>
-    {#each SYNTAX_COLOR_FIELDS.filter((f) => f.group === "markdown") as field}
-      <SettingsColorField
-        label={field.label}
-        hint={field.hint}
-        value={syntaxColors[field.key]}
-        onChange={(v) => setSyntaxColor(field.key, v)}
-      />
-    {/each}
+
+    <div class="theme-section" id="theme-region-explorer">
+      <div class="theme-section__head">
+        <h4 class="settings-subheading">Explorer</h4>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => { explorerColors = explorerAppearance.resetToDefaults(); }}
+          >Reset</button>
+        </div>
+      </div>
+      {#each EXPLORER_COLOR_FIELDS as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={explorerColors[field.key] as string}
+          onChange={(v) => setExplorerColor(field.key, v)}
+          onReset={() => resetExplorerColor(field.key)}
+        />
+      {/each}
+    </div>
+
+    <div class="theme-section" id="theme-region-chat">
+      <div class="theme-section__head">
+        <h4 class="settings-subheading">Chat activity</h4>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick={() => { chatColors = chatAppearance.resetToDefaults(); }}
+          >Reset</button>
+        </div>
+      </div>
+      <label class="field">
+        <span class="name">While waiting for the model</span>
+        <span class="field-hint">Before tools or reasoning appear</span>
+        <select
+          class="input"
+          value={chatColors.waitingStyle}
+          onchange={(e) => {
+            chatColors = {
+              ...chatColors,
+              waitingStyle: (e.currentTarget as HTMLSelectElement).value as ChatWaitingStyle,
+            };
+            chatAppearance.apply(chatColors);
+          }}
+        >
+          {#each CHAT_WAITING_STYLE_OPTIONS as opt}
+            <option value={opt.id}>{opt.label}</option>
+          {/each}
+        </select>
+      </label>
+      {#each CHAT_APPEARANCE_COLOR_FIELDS as field}
+        <SettingsColorField
+          label={field.label}
+          hint={field.hint}
+          value={chatColors[field.key]}
+          onChange={(v) => setChatColor(field.key, v)}
+          onReset={() => resetChatColor(field.key)}
+        />
+      {/each}
+    </div>
   </div>
 {/if}
 
@@ -225,6 +502,59 @@
     margin-bottom: 2px;
   }
 
+  .theme-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #333;
+    scroll-margin-top: 8px;
+  }
+
+  .theme-preview-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 0 4px;
+    border-bottom: 1px solid #333;
+  }
+
+  .theme-preview-shell__label {
+    margin: 0;
+  }
+
+  .region-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #383838;
+    background: #1a1a1a;
+  }
+
+  .region-editor__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .region-editor__title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #d4d4d4;
+  }
+
+  .theme-section__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
   .header-actions {
     display: flex;
     align-items: center;
@@ -239,6 +569,46 @@
     color: #e8e8e8;
   }
 
+  .group-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #737373;
+    margin: 4px 0 -4px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .name {
+    font-size: 12px;
+    color: #a3a3a3;
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: #666;
+  }
+
+  .input {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #e5e5e5;
+    background: #1c1c1c;
+    border: 1px solid #404040;
+    border-radius: 6px;
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: #525252;
+  }
+
   .note {
     font-size: 11px;
     line-height: 1.4;
@@ -247,8 +617,15 @@
   }
 
   .settings-subheading {
-    margin: 10px 0 4px;
-    font-size: 11px;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #d4d4d4;
+  }
+
+  .token-group-label {
+    margin: 6px 0 2px;
+    font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -284,16 +661,31 @@
     color: #d4d4d4;
   }
 
-  .syntax-preview {
+  .theme-preview {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 12px;
-    border-radius: 6px;
-    background: var(--editor-bg, #1a1b26);
-    font-family: var(--font-mono, ui-monospace, monospace);
+    padding: 22px 12px 12px;
+    border-radius: 8px;
+    border: 1px solid #383838;
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .theme-preview__label {
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #737373;
+  }
+
+  .theme-preview--syntax {
+    font-family: var(--font-mono, ui-monospace, monospace);
   }
 
   .syntax-preview-line {
@@ -307,25 +699,18 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--muted-foreground);
+    color: color-mix(in srgb, currentColor 45%, transparent);
   }
 
-  .syntax-preview-label:first-child {
+  .syntax-preview-label:first-of-type {
     margin-top: 0;
   }
 
-  .editor-chrome-preview {
-    margin-top: 8px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  .theme-preview--markdown {
+    margin-top: 4px;
   }
 
-  .editor-chrome-preview__selection {
-    padding: 0 2px;
-    border-radius: 2px;
+  .theme-preview--markdown .syntax-preview-label {
+    margin-top: 0;
   }
 </style>

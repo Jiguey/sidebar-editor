@@ -62,6 +62,16 @@ function clampPx(n: number, min: number, max: number, fallback: number): number 
   return Math.round(Math.min(max, Math.max(min, n)));
 }
 
+export const EXPLORER_COLOR_CSS_VARS: Partial<Record<ExplorerAppearanceKey, string>> = {
+  selectionBg: "--explorer-selection-bg",
+  fileModifiedColor: "--explorer-file-modified",
+  fileUntrackedColor: "--explorer-file-untracked",
+  folderOpenFileColor: "--explorer-folder-open",
+  folderUntrackedColor: "--explorer-folder-untracked",
+  folderModifiedColor: "--explorer-folder-modified",
+  folderErrorColor: "--explorer-folder-error",
+};
+
 export function defaultExplorerAppearance(): ExplorerAppearanceMap {
   return { ...EXPLORER_APPEARANCE_DEFAULTS };
 }

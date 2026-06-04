@@ -1,5 +1,7 @@
 /** Configurable caps for the agent loop (one user message → multi-step tool chain). */
 
+import { READ_ONLY_TOOLS } from "./tools/toolDefinitions";
+
 export type AgentLimits = {
   /** LLM ↔ tool round trips per user message. 0 = unlimited. */
   maxAgentSteps: number;
@@ -31,17 +33,9 @@ export const AGENT_LIMIT_BOUNDS = {
 /**
  * Tools safe to run concurrently — they read but never write workspace state.
  * Write tools always run sequentially to prevent race conditions.
+ * Kept in sync with `READ_ONLY_TOOLS` in `toolDefinitions.ts`.
  */
-export const READ_ONLY_TOOL_NAMES = new Set([
-  "read_file",
-  "grep",
-  "get_file_tree",
-  "list_directory",
-  "git_log",
-  "git_diff",
-  "git_status",
-  "web_fetch",
-]);
+export const READ_ONLY_TOOL_NAMES = new Set<string>(READ_ONLY_TOOLS);
 
 export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOL_NAMES.has(name);
