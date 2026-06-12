@@ -13,7 +13,21 @@ pnpm dev:desktop      # Tauri desktop only (starts Vite via beforeDevCommand)
 pnpm dev:web          # Vite only — browser UI, no Rust IPC
 pnpm tauri build      # Release bundle
 pnpm test             # Run unit tests
+pnpm release 0.1.5    # Bump version, commit, tag, push (after other commits)
 ```
+
+### Release
+
+After feature and docs commits are on a **clean** working tree:
+
+```bash
+pnpm release 0.1.5
+pnpm release 0.1.5 -m "v0.1.5 — short release notes for the tag"
+pnpm release 0.1.5 --dry-run    # preview only
+pnpm release 0.1.5 --no-push    # local commit + tag only
+```
+
+Updates `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`, then creates `chore: bump version to X.Y.Z`, an annotated `vX.Y.Z` tag, and pushes both to `origin`. Pushing the tag triggers `.github/workflows/release.yml`.
 
 ---
 

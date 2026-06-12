@@ -19,6 +19,7 @@
     "test:llamacpp": "RUN_LLAMACPP_TESTS=1 vitest run tests/integration/llamacpp.test.ts",
     "test:deepseek": "RUN_DEEPSEEK_TESTS=1 vitest run tests/integration/deepseek.test.ts",
     "test:coverage": "vitest run --coverage",
+    "release": "node scripts/release.mjs",
     "sync-icons": "node scripts/sync-vscode-icons.mjs",
     "eval": "tsx tests/llm/harness.ts",
     "eval:report": "tsx tests/llm/scripts/open-latest-report.ts",
