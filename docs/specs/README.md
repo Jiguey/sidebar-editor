@@ -1,6 +1,6 @@
 # Spacebar Editor — Specifications
 
-> **Last aligned with codebase:** 2026-06-10 (spec audit) — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
+> **Last aligned with codebase:** 2026-06-10 · **v0.1.4** — Tauri 2, **two-tier runtime** (Svelte agent + Rust IPC). **No Node sidecar** — LLM HTTP via webview `fetch`. See [03-architecture.md](03-architecture.md#agent-runtime-model-current).
 
 This directory contains the detailed engineering specifications for Spacebar Editor, organized by domain.
 

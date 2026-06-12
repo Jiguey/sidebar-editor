@@ -355,8 +355,8 @@ What is not built yet, in rough priority order:
 
 | Area | Status | Spec |
 |------|--------|------|
-| MLX provider (Apple Silicon `mlx_lm.server`) | Planned — v0.1.3 | [42](docs/specs/42-mlx-provider.md) |
-| Agent activity step grouping | Planned — v0.1.3 | [40](docs/specs/40-product-hardening-and-agent-ux.md) §5 |
+| MLX provider (Apple Silicon `mlx_lm.server`) | Planned — v0.1.5 | [42](docs/specs/42-mlx-provider.md) |
+| Agent activity step grouping | Planned — v0.1.5 | [40](docs/specs/40-product-hardening-and-agent-ux.md) §5 |
 | Skills: bundled starter pack + global/shared registry | Planned (per-project skills shipped) | [29](docs/specs/29-skills-registry.md) · [30](docs/specs/30-agent-context-and-model-settings.md) |
 | File-backed planning system (`plans/`) | Planned | [19](docs/specs/19-planning-system.md) |
 | Inline edit / Cmd+K | Planned | [28](docs/specs/28-inline-edit-autocomplete.md) |

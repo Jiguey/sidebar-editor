@@ -129,8 +129,8 @@ There is **no Node sidecar**. The agent loop runs in the webview; OS integration
 
 | Feature | Status |
 |---------|--------|
-| MLX provider (Apple Silicon) | ❌ Planned — v0.1.3 |
-| Agent activity step grouping | ❌ Planned — v0.1.3 |
+| MLX provider (Apple Silicon) | ❌ Planned — v0.1.5 |
+| Agent activity step grouping | ❌ Planned — v0.1.5 |
 | Persistent plans (`plans/`) | ❌ Not started |
 | Cmd+K inline edit | ❌ Not started |
 | LSP go-to-def / rename (Phase 2) | ❌ Not started |
@@ -178,4 +178,4 @@ Dev server default port: **14200**. No Node sidecar build step.
 
 ---
 
-*Last updated: 2026-06-10 · v0.1.3*
+*Last updated: 2026-06-10 · v0.1.4*

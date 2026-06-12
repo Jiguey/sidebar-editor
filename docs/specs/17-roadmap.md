@@ -9,7 +9,9 @@
 | Version | Target | Status | Scope |
 |---------|--------|--------|-------|
 | **v0.1.2** | Public beta | ✅ **Shipped** (2026-06-05) | Keychain, Rust path enforcement, CSP, agent turn undo |
-| **v0.1.3** | Post-beta | ❌ Planned | MLX provider, agent activity step grouping |
+| **v0.1.3** | Post-beta | ✅ **Shipped** (2026-06-09) | Browser tab, element inspector, drag-drop chips, compaction defaults |
+| **v0.1.4** | Patch | ✅ **Shipped** (2026-06-10) | Native OS drop, chip icons, click-to-open, spec audit |
+| **v0.1.5** | Next | ❌ Planned | MLX provider, agent activity step grouping |
 
 ---
 
@@ -164,6 +166,7 @@
 
 | Date | Item |
 |------|------|
+| 2026-06-10 | **v0.1.4** — attachment chip polish (native drop, icons, click-to-open), spec audit |
 | 2026-06-10 | **Attachment chip polish** — native Tauri drag-drop, type icons, click-to-open (editor/explorer/OS), element source grep — [43](43-v-next-release-fixes.md) §3 |
 | 2026-06-10 | **Editor actions + browser tab** — `···` menu, preview nav, element inspector — [44](44-editor-actions-browser-tab.md) |
 | 2026-06-10 | **v-next release fixes** — model selector, compaction defaults, settings polish — [43](43-v-next-release-fixes.md) |
