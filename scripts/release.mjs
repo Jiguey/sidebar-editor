@@ -75,7 +75,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Usage: pnpm release <version> [options]
 
-Bump package.json, tauri.conf.json, and Cargo.toml, then commit, tag, and push.
+Bump package.json, tauri.conf.json, Cargo.toml (+ Cargo.lock), then commit, tag, and push.
 
 Arguments:
   version           Semver (e.g. 0.1.5 or v0.1.5)
@@ -160,6 +160,7 @@ function main() {
       const newLine = after.match(/version[^\n]*/i)?.[0];
       console.log(`  ${oldLine} → ${newLine}`);
     }
+    console.log("Would sync src-tauri/Cargo.lock");
     console.log(`Would commit: chore: bump version to ${version}`);
     console.log(`Would tag:    ${tag}`);
     console.log(`  ${tagMessage}`);
@@ -169,7 +170,13 @@ function main() {
 
   applyChanges(changes);
 
-  runChecked("git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml", { inherit: true });
+  // Sync Cargo.lock with the bumped Cargo.toml, or CI's `cargo check --locked` fails.
+  runChecked("cargo update --workspace --offline", { cwd: resolve(ROOT, "src-tauri"), inherit: true });
+
+  runChecked(
+    "git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
+    { inherit: true }
+  );
   runChecked(`git commit -m "chore: bump version to ${version}"`, { inherit: true });
   runChecked(`git tag -a ${tag} -m ${JSON.stringify(tagMessage)}`, { inherit: true });
 
